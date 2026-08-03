@@ -27,7 +27,6 @@ func _ready() -> void:
 
 	_build_unit_panel()
 	_build_team_panel()
-	_build_start_button()
 	_build_winner_label()
 
 	# Sensible defaults so a click places a unit immediately.
@@ -55,6 +54,12 @@ func _build_team_panel() -> void:
 	_add_toggle_button(panel, "Blue Team", group, true, func(): team_selected.emit(Team.Type.BLUE))
 	_add_toggle_button(panel, "Red Team", group, false, func(): team_selected.emit(Team.Type.RED))
 
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 12)
+	panel.add_child(spacer)
+
+	_build_start_button(panel)
+
 
 func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_pressed: bool, on_pressed: Callable) -> void:
 	var button := Button.new()
@@ -67,14 +72,16 @@ func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_p
 	parent.add_child(button)
 
 
-func _build_start_button() -> void:
+## Placed inside the team panel (as its own VBoxContainer flow) rather than
+## anchored independently -- anchoring a Control via position/size before it
+## is inside the tree resolves against a zero-size parent rect in Godot 4.7,
+## which left this button laid out with an empty/degenerate rect.
+func _build_start_button(parent: Control) -> void:
 	_start_button = Button.new()
 	_start_button.text = "Start Battle"
-	_start_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_start_button.position = Vector2(-75, -60)
-	_start_button.size = Vector2(150, 44)
+	_start_button.custom_minimum_size = Vector2(140, 40)
 	_start_button.pressed.connect(_on_start_pressed)
-	add_child(_start_button)
+	parent.add_child(_start_button)
 
 
 func _build_winner_label() -> void:
