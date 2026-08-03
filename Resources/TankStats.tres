@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+unit_name = "Tank"
+max_health = 250.0
+damage = 8.0
+attack_range = 1.75
+attack_interval = 1.2
+move_speed = 2.0
+mesh_shape = "Box"
+mesh_size = Vector3(1.6, 1.6, 1.6)

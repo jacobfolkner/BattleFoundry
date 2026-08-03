@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+unit_name = "Fighter"
+max_health = 120.0
+damage = 18.0
+attack_range = 1.5
+attack_interval = 0.6
+move_speed = 4.5
+mesh_shape = "Capsule"
+mesh_size = Vector3(0.5, 1.6, 0.5)
