@@ -7,7 +7,7 @@ The first playable prototype is a simplified recreation of the Warcraft III
 custom map **Blood Tournament**: place units for two teams, press Start
 Battle, and watch them fight automatically until one side wins.
 
-## Status: Sprint 3 — Unit Collision and Battlefield Formation
+## Status: Sprint 4 — Grounded Units
 
 - Two teams (Blue / Red)
 - Three unit archetypes: Tank, Fighter, Archer
@@ -15,6 +15,8 @@ Battle, and watch them fight automatically until one side wins.
 - Fully automatic combat (nearest-enemy targeting, move-into-range, attack)
 - Units have physical presence: they can no longer overlap, push against
   each other, and naturally form battle lines instead of stacking
+- Units are hard-constrained to the ground plane: dense spawning or
+  collision resolution can no longer launch or vertically stack them
 - Health bars above every unit, live-updated as damage is taken
 - Win detection when one team is eliminated, with a visible winner banner
 
@@ -124,6 +126,21 @@ Why this is the scalable choice, not just the convenient one:
   state (with `velocity = Vector3.ZERO` outside of BATTLE), so it also
   passively separates units placed too close together during the
   placement phase, for free.
+
+**Grounding fix (Sprint 4):** `MOTION_MODE_FLOATING` resolves overlap
+along whichever axis has the least penetration, and for units spawned
+at or very near the same point that axis is ambiguous — their capsules
+are coincident vertically too, so the physics server would occasionally
+push one straight up instead of sideways, with nothing to bring it back
+down (no gravity) and nothing stopping a second unit sliding underneath
+it at true ground level. `Unit._physics_process()` now ends with
+`global_position.y = 0.0` immediately after `move_and_slide()`, every
+frame, for every unit — a hard invariant rather than a plausibility. It
+doesn't touch horizontal resolution at all, so battle lines and tank
+blocking are unaffected. The tradeoff: this assumes the game has no
+vertical gameplay (jumping, ramps, flight); if one is ever added, this
+line is exactly what would need to become conditional or be replaced by
+per-body axis locking.
 
 ## Next Recommended Milestone
 

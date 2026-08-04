@@ -101,6 +101,19 @@ func _physics_process(delta: float) -> void:
 	# placed too close together) rather than only reacting while moving.
 	move_and_slide()
 
+	# move_and_slide() (MOTION_MODE_FLOATING) resolves penetration along
+	# whichever axis has the least overlap. Units spawned at or very near
+	# the same point have no well-defined *horizontal* separating axis --
+	# their capsules are coincident along the vertical axis too -- so the
+	# physics server can occasionally choose to push one straight up
+	# instead of sideways. Nothing here simulates height or gravity, so
+	# any such drift is permanent unless corrected: this line is the fix,
+	# re-asserting the ground-plane invariant every frame regardless of
+	# what direction collision resolution picked. It also forecloses
+	# vertical stacking, since two units can never end up on different Y
+	# layers long enough to stop colliding horizontally.
+	global_position.y = 0.0
+
 
 func _update_target() -> void:
 	var target_is_valid := target_enemy != null and is_instance_valid(target_enemy) and target_enemy.current_health > 0.0
