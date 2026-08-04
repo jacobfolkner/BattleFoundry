@@ -84,16 +84,23 @@ func _build_start_button(parent: Control) -> void:
 	parent.add_child(_start_button)
 
 
+## Uses a CenterContainer (rather than manual anchors/position/size on the
+## label itself) so the banner is centered by layout, not by pixel math --
+## the same category of bug that previously made the Start Battle button
+## invisible: setting position/size on a Control before it's in the tree
+## resolves against a zero-size parent rect in Godot 4.7.
 func _build_winner_label() -> void:
+	var center := CenterContainer.new()
+	add_child(center)
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
 	_winner_label = Label.new()
 	_winner_label.visible = false
-	_winner_label.set_anchors_preset(Control.PRESET_CENTER)
-	_winner_label.position = Vector2(-200, -40)
-	_winner_label.size = Vector2(400, 80)
 	_winner_label.add_theme_font_size_override("font_size", 48)
 	_winner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_winner_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	add_child(_winner_label)
+	center.add_child(_winner_label)
 
 
 func _on_start_pressed() -> void:

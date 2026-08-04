@@ -18,6 +18,7 @@ var current_health: float
 var target_enemy: Unit = null
 
 var _attack_cooldown: float = 0.0
+var _health_bar: HealthBar
 
 @onready var _mesh_instance: MeshInstance3D = $MeshInstance3D
 
@@ -57,6 +58,14 @@ func _build_appearance() -> void:
 	# Half the mesh height keeps the unit resting on the ground instead of
 	# being centered through the floor.
 	_mesh_instance.position.y = stats.mesh_size.y * 0.5
+
+	_build_health_bar()
+
+
+func _build_health_bar() -> void:
+	_health_bar = HealthBar.new()
+	_health_bar.position.y = stats.mesh_size.y + 0.35
+	add_child(_health_bar)
 
 
 func _process(delta: float) -> void:
@@ -100,6 +109,7 @@ func _attack(delta: float) -> void:
 
 func take_damage(amount: float) -> void:
 	current_health -= amount
+	_health_bar.set_fraction(current_health / stats.max_health)
 	if current_health <= 0.0:
 		die()
 
