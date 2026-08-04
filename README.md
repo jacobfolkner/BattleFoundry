@@ -7,12 +7,14 @@ The first playable prototype is a simplified recreation of the Warcraft III
 custom map **Blood Tournament**: place units for two teams, press Start
 Battle, and watch them fight automatically until one side wins.
 
-## Status: Sprint 2 — Battle Readability
+## Status: Sprint 3 — Unit Collision and Battlefield Formation
 
 - Two teams (Blue / Red)
 - Three unit archetypes: Tank, Fighter, Archer
 - Click-to-place unit placement phase
 - Fully automatic combat (nearest-enemy targeting, move-into-range, attack)
+- Units have physical presence: they can no longer overlap, push against
+  each other, and naturally form battle lines instead of stacking
 - Health bars above every unit, live-updated as damage is taken
 - Win detection when one team is eliminated, with a visible winner banner
 
@@ -56,6 +58,9 @@ UI/         HUD scene/script
 - **Unit** (`Scripts/Unit.gd`) owns per-unit state and combat behavior.
   It builds its own primitive mesh from `UnitStats` at spawn time and is
   colored by team, so archetypes are told apart by shape/size, not color.
+  It's a `CharacterBody3D`, so it also builds a `CapsuleShape3D` sized by
+  `UnitStats.collision_radius` and moves via `move_and_slide()` — see
+  "Collision approach" below.
 - **HealthBar** (`Scripts/HealthBar.gd`) is a standalone display
   component: two billboarded primitive quads (background + fill), driven
   entirely by `set_fraction()`. It knows nothing about combat or
@@ -75,14 +80,59 @@ UI/         HUD scene/script
   for why manual `position`/`size` on a not-yet-parented Control is a
   trap in Godot 4.7 (it resolves against a zero-size parent rect).
 
-Movement is a direct straight-line walk toward the current target
-(no steering or pathfinding); this is intentional for readability and is
-the first thing a future "movement system" milestone would replace.
+Movement is a direct straight-line walk toward the current target (no
+steering or pathfinding, and target selection is unchanged); this is
+intentional for readability and is the first thing a future "movement
+system" milestone would replace.
+
+### Collision approach
+
+Each `Unit` is a `CharacterBody3D` carrying a single `CapsuleShape3D`
+(built at runtime from `UnitStats.collision_radius`, the same
+data-driven pattern as its visual mesh). Every physics frame it sets
+`velocity` from the existing AI logic (unchanged) and calls
+`move_and_slide()` — Godot's physics server does the actual overlap
+resolution and sliding against every other unit's capsule. There is no
+custom "find nearby units and push them apart" code anywhere in this
+codebase.
+
+Why this is the scalable choice, not just the convenient one:
+
+- **Broad-phase collision is the engine's job, not the AI's.** The
+  physics server spatially partitions bodies so it only tests capsules
+  that are actually near each other. A hand-rolled overlap check in
+  GDScript (`for each unit, for each other unit, check distance`) is
+  O(n²) *in script* with no partitioning — that's the "custom overlap
+  code" the sprint brief explicitly said to avoid, and it's the part
+  that would fall over first at hundreds of units.
+- **`CharacterBody3D` is kinematic, not a full rigid body.** It gets
+  depenetration and sliding without the cost of mass/inertia/constraint
+  solving that a `RigidBody3D` would carry for every unit — we don't
+  need units to be knocked around or stacked, just to not overlap.
+- **A dedicated "Units" physics layer** (`collision_layer`/
+  `collision_mask = 2`, named in `project.godot`) keeps the collision
+  query scoped to unit-vs-unit only, so adding future non-unit colliders
+  (terrain props, a building later) won't add unrelated pairs to check.
+- **Tank blocking and battle-line formation are emergent, not
+  scripted.** `collision_radius` is just data — Tank's is larger, so it
+  occupies more space and is harder to path around; nothing in `Unit.gd`
+  checks "am I a Tank." Lines form because units already stop at
+  `attack_range` and now can't stack on the way there, so a cluster
+  converging on the same enemy spreads out shoulder-to-shoulder instead
+  of piling into one point.
+- `move_and_slide()` is called every physics frame regardless of battle
+  state (with `velocity = Vector3.ZERO` outside of BATTLE), so it also
+  passively separates units placed too close together during the
+  placement phase, for free.
 
 ## Next Recommended Milestone
 
 Candidates once this sprint is validated in-editor:
 
+- **Smarter targeting**: `GameManager.find_nearest_enemy()` is still an
+  O(n) linear scan per unit per physics frame (explicitly left alone
+  this sprint) — worth revisiting once unit counts grow, independently
+  of the collision work done here.
 - **Placement polish**: unit count limits, a "reset arena" button, and
   visual placement preview before committing a click.
 - **Combat readability**: simple hit-flash feedback (still no

@@ -18,6 +18,13 @@ extends Resource
 @export_group("Movement")
 @export var move_speed: float = 3.0 ## Meters per second.
 
+@export_group("Collision")
+## Radius of the unit's physical footprint (a CapsuleShape3D in Unit.gd).
+## Larger values make a unit harder to path around and more effective at
+## physically blocking others -- this is how "tanks block movement" is
+## expressed, entirely through data rather than unit-specific code.
+@export var collision_radius: float = 0.5
+
 @export_group("Appearance")
 ## Which primitive mesh represents this unit. Team color is applied
 ## separately at spawn time, so archetypes are told apart by shape/size.

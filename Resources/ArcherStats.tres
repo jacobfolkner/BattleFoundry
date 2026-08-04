@@ -10,5 +10,6 @@ damage = 14.0
 attack_range = 6.0
 attack_interval = 1.0
 move_speed = 3.5
+collision_radius = 0.4
 mesh_shape = "Cone"
 mesh_size = Vector3(0.5, 1.4, 0.5)
