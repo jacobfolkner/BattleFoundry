@@ -2,7 +2,11 @@
 ##
 ## Owns the arena, points the camera at it, wires the HUD to unit
 ## placement, and turns mouse clicks into spawned units while
-## GameManager is in the PLACEMENT phase.
+## GameManager is in the PLACEMENT phase. A click first gets offered to
+## DebugInspector (Scripts/DebugInspector.gd) in case it landed on a
+## unit; only an unclaimed click can place one. Main.gd otherwise knows
+## nothing about selection or debug UI -- that's the whole point of
+## routing through DebugInspector rather than handling it here.
 extends Node3D
 
 const GROUND_PLANE := Plane(Vector3.UP, 0.0)
@@ -27,9 +31,13 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if GameManager.battle_state != GameManager.BattleState.PLACEMENT:
+	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+
+	if DebugInspector.try_select_at(_camera, event.position):
+		return
+
+	if GameManager.battle_state == GameManager.BattleState.PLACEMENT:
 		_try_place_unit(event.position)
 
 

@@ -147,3 +147,45 @@ func take_damage(amount: float) -> void:
 func die() -> void:
 	died.emit(self)
 	queue_free()
+
+
+## Read-only snapshot for Scripts/DebugInspector.gd / UI/DebugPanel.gd.
+## Everything here is derived by re-reading existing public state -- this
+## method never sets anything, so it can't affect AI, combat, or
+## targeting. Values are pre-formatted display strings by design, so the
+## debug panel stays a generic "print whatever keys this returns" renderer
+## and never needs unit-specific formatting logic of its own.
+func get_debug_info() -> Dictionary:
+	return {
+		"Name": stats.unit_name,
+		"Team": Team.get_display_name(team),
+		"Health": "%.0f / %.0f" % [current_health, stats.max_health],
+		"AI State": _describe_state(),
+		"Target": target_enemy.stats.unit_name if target_enemy != null else "(none)",
+		"Distance to Target": _describe_distance_to_target(),
+		"Attack Range": "%.1f m" % stats.attack_range,
+		"Attack Cooldown": "%.1fs" % maxf(_attack_cooldown, 0.0),
+		"Position": "(%.1f, %.1f, %.1f)" % [global_position.x, global_position.y, global_position.z],
+	}
+
+
+## Mirrors the branches in _physics_process (without altering any of
+## them) to describe, in words, which one is currently active.
+func _describe_state() -> String:
+	if current_health <= 0.0:
+		return "Dead"
+	match GameManager.battle_state:
+		GameManager.BattleState.PLACEMENT:
+			return "Waiting (Placement)"
+		GameManager.BattleState.GAME_OVER:
+			return "Waiting (Game Over)"
+	if target_enemy == null:
+		return "Searching for Target"
+	var distance := global_position.distance_to(target_enemy.global_position)
+	return "Moving" if distance > stats.attack_range else "Attacking"
+
+
+func _describe_distance_to_target() -> String:
+	if target_enemy == null:
+		return "-"
+	return "%.1f m" % global_position.distance_to(target_enemy.global_position)

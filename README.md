@@ -7,7 +7,7 @@ The first playable prototype is a simplified recreation of the Warcraft III
 custom map **Blood Tournament**: place units for two teams, press Start
 Battle, and watch them fight automatically until one side wins.
 
-## Status: Sprint 4 — Grounded Units
+## Status: Sprint 5 — Engine Observability
 
 - Two teams (Blue / Red)
 - Three unit archetypes: Tank, Fighter, Archer
@@ -19,6 +19,9 @@ Battle, and watch them fight automatically until one side wins.
   collision resolution can no longer launch or vertically stack them
 - Health bars above every unit, live-updated as damage is taken
 - Win detection when one team is eliminated, with a visible winner banner
+- Click any unit (placement or mid-battle) to select it and open a live
+  debug panel showing its state; a marker under it and a line to its
+  current target make the selection visible in the arena itself
 
 Out of scope for this milestone (see project brief): abilities, heroes,
 buildings, economy, animations, particles, networking, fog of war,
@@ -43,14 +46,22 @@ scene is `Scenes/Main.tscn`.
    red as it takes damage, and disappears with the unit when it dies.
 4. The winning team is announced in a centered banner.
 
+Click directly on any unit at any time (placement, mid-battle, or after
+a win) to select it: a flat disc appears under it, a line is drawn to
+its current target if it has one, and a panel in the top-right corner
+shows its live stats. Clicking a unit takes priority over placing a new
+one, so clicking on top of an existing unit during placement selects it
+instead of stacking another unit there.
+
 ## Project Structure
 
 ```
 Scenes/     Scene files (.tscn) — Main arena, Unit
-Scripts/    Gameplay logic (.gd) — Team, UnitStats, Unit, HealthBar, GameManager, Main
+Scripts/    Gameplay logic (.gd) — Team, UnitStats, Unit, HealthBar, GameManager,
+            Main, DebugInspector
 Resources/  Data-driven unit archetypes (.tres) — Tank/Fighter/Archer stats
 Assets/     Reserved for future imported art (empty — primitives only today)
-UI/         HUD scene/script
+UI/         HUD, DebugPanel scenes/scripts
 ```
 
 ### Architecture notes
@@ -81,6 +92,9 @@ UI/         HUD scene/script
   see the code comments on `_build_start_button` and `_build_winner_label`
   for why manual `position`/`size` on a not-yet-parented Control is a
   trap in Godot 4.7 (it resolves against a zero-size parent rect).
+- **DebugInspector** (`Scripts/DebugInspector.gd`) and **DebugPanel**
+  (`UI/DebugPanel.gd`) are a separate observation layer, not part of
+  gameplay — see "Observability" below.
 
 Movement is a direct straight-line walk toward the current target (no
 steering or pathfinding, and target selection is unchanged); this is
@@ -141,6 +155,55 @@ blocking are unaffected. The tradeoff: this assumes the game has no
 vertical gameplay (jumping, ramps, flight); if one is ever added, this
 line is exactly what would need to become conditional or be replaced by
 per-body axis locking.
+
+### Observability
+
+Sprint 5 adds a way to inspect a unit's live state without changing any
+gameplay code. It's built as a separate layer that only ever *reads*
+from Unit and GameManager, never writes to either:
+
+- **`Unit.get_debug_info() -> Dictionary`** is the entire contract. It's
+  a pure addition to `Unit.gd` — no existing method was touched to add
+  it — and it returns pre-formatted display strings ("Name", "Team",
+  "Health", "AI State", "Target", "Distance to Target", "Attack Range",
+  "Attack Cooldown", "Position"). "AI State" (`_describe_state()`) is
+  derived by re-reading the same public fields `_physics_process()`
+  already branches on (`current_health`, `GameManager.battle_state`,
+  `target_enemy`, distance vs. `attack_range`) — it's a second read of
+  that state for display purposes, not a second source of truth, and it
+  can't feed back into the AI because nothing ever calls it except the
+  debug layer.
+- **`DebugInspector`** (autoload) owns *selection*: which unit is
+  picked, a physics raycast (`try_select_at()`, masked to the "Units"
+  layer from Sprint 3) to find it from a screen click, and two small
+  cosmetic 3D indicators (a disc under the selected unit, a line to its
+  target) that it positions every frame by reading `global_position`
+  and `target_enemy` — the same public fields anything else in the
+  codebase could already read. `Main.gd` gives it first refusal on every
+  click (`DebugInspector.try_select_at(...)`) before falling through to
+  placement; that's the one integration point, and it's a single method
+  call, not a dependency in either direction beyond it.
+- **`DebugPanel`** (`UI/DebugPanel.gd`) never touches `Unit` or
+  `GameManager` at all. It listens to `DebugInspector.selection_changed`
+  and, every frame there's a valid selection, calls
+  `get_debug_info()` and renders each key/value pair generically —
+  `for key in info: ... "%s: %s"`. There's no per-field UI element and
+  no formatting logic keyed to specific field names.
+
+**Why future systems don't need to touch the panel:** anything —
+a future building, a projectile, a second game mode's entity — that
+adds its own `get_debug_info() -> Dictionary` method and gets selected
+(by whatever means makes sense for it) is displayed correctly the
+moment `DebugPanel` receives it, because the panel's rendering loop has
+no knowledge of what a "Unit" is. The coupling is one shared method
+name and return shape, not a shared base class or a growing switch
+statement in the panel.
+
+**Why gameplay stays untouched:** every requirement this sprint could
+be met by *reading* existing state, so nothing needed write access.
+The riskiest-looking change, `Main.gd`'s click routing, only reorders
+*which* handler a click reaches first — the placement code path itself
+(`_try_place_unit`) is byte-for-byte unchanged.
 
 ## Next Recommended Milestone
 
