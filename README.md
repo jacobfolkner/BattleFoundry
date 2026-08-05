@@ -7,7 +7,7 @@ The first playable prototype is a simplified recreation of the Warcraft III
 custom map **Blood Tournament**: place units for two teams, press Start
 Battle, and watch them fight automatically until one side wins.
 
-## Status: Sprint 5 — Engine Observability
+## Status: Sprint 6 — Battle Lifecycle Architecture
 
 - Two teams (Blue / Red)
 - Three unit archetypes: Tank, Fighter, Archer
@@ -85,7 +85,8 @@ UI/         HUD, DebugPanel scenes/scripts
   the only global piece of state. It tracks battle phase, registers
   units per team, and resolves win conditions. Units and UI talk to it
   rather than to each other, which keeps both reusable by future game
-  modes.
+  modes. It holds two responsibilities kept structurally (not
+  physically) separate — see "Battle lifecycle" below.
 - **HUD** (`UI/HUD.gd`) only emits signals — it never reaches into
   GameManager directly — for the same reason. Its controls are laid out
   with `VBoxContainer`/`CenterContainer` flow rather than manual anchors;
@@ -205,6 +206,45 @@ The riskiest-looking change, `Main.gd`'s click routing, only reorders
 *which* handler a click reaches first — the placement code path itself
 (`_try_place_unit`) is byte-for-byte unchanged.
 
+### Battle lifecycle
+
+Sprint 6 made the PLACEMENT / BATTLE / GAME_OVER state machine explicit
+without moving it out of `GameManager` — every consumer (`Main.gd`,
+`Unit.gd`, tests) already addresses it as `GameManager.battle_state` /
+`GameManager.BattleState.*` / `GameManager.start_battle()`, and none of
+that had to change.
+
+- **`battle_state` is written in exactly one place**, a private
+  `_transition_to()`. Every public entry point (`start_battle()`,
+  `reset_battle()`, and the private `_end_battle()`) validates itself
+  before calling it, so an invalid transition doesn't happen rather
+  than being something a caller has to avoid.
+- **Query methods replace inline enum comparisons**:
+  `is_placement_phase()`, `is_battle_active()`, `is_game_over()`, and
+  `can_start_battle()` (true only in PLACEMENT with both rosters
+  non-empty — the same two conditions `start_battle()` already checked,
+  just now askable without attempting the transition).
+- **`reset_battle()`** (PLACEMENT/BATTLE/GAME_OVER → PLACEMENT) frees
+  any units still in the arena, clears both rosters, and returns to
+  PLACEMENT. Nothing in gameplay calls it yet — no "New Battle" button
+  exists — but it's the natural foundation for a future Rematch/Replay
+  state, and `tests/test_battle_flow.gd`'s `before_each()` now uses it
+  instead of reaching into `GameManager`'s private `_units_by_team`
+  directly.
+- **Unit registry stays a separate section of the same file**
+  (`spawn_unit`, `find_nearest_enemy`, `_units_by_team`), queried by the
+  lifecycle methods only through `_team_is_empty()`. Splitting it into
+  a second autoload was considered and rejected: every lifecycle
+  transition needs roster state, so two globals would trade one
+  coupling for another without reducing it.
+- **Tradeoff, left as-is deliberately**: `battle_state` is still a
+  plain public `var`, not enforced read-only via a property setter.
+  Nothing in the codebase writes it externally anymore (the one place
+  that did, the test suite, now goes through `reset_battle()`), so a
+  hard guard would be defending against a case that no longer exists —
+  if a future contributor starts assigning it directly again, that's
+  the signal to revisit this with a real getter/setter split.
+
 ## Testing
 
 Automated tests use [GUT](https://github.com/bitwes/Gut) (`addons/gut/`,
@@ -267,7 +307,15 @@ Candidates once this sprint is validated in-editor:
   visual placement preview before committing a click.
 - **Combat readability**: simple hit-flash feedback (still no
   animations/particles, just a color pulse), and a "New Battle" button
-  to reset the arena after a winner is announced.
+  to reset the arena after a winner is announced — `GameManager.reset_battle()`
+  (Sprint 6) already does the lifecycle/roster half of this; only the
+  HUD button and wiring are missing.
+- **Lifecycle states**: Countdown (a beat between Start Battle and
+  units actually moving), Pause, Rematch, Replay, and Spectator were
+  named as eventual states when the lifecycle was made explicit this
+  sprint. None are implemented; `can_start_battle()` / `is_battle_active()`
+  / `reset_battle()` exist so a future state can be added as one more
+  guarded transition rather than a rewrite.
 - **Engine modularity**: extract combat (targeting/attack) into a
   reusable `CombatComponent` separate from movement, so a future melee
   vs. ranged distinction or a second game mode can swap pieces
