@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.0
+          use-dotnet: false
+          include-templates: false
+      - name: Cache GUT addon
+        uses: actions/cache@v4
+        with:
+          path: addons/gut
+          key: gut-${{ hashFiles('tools/fetch_gut.sh') }}
+      - name: Fetch GUT (skips download if cache hit restored it)
+        run: ./tools/fetch_gut.sh
+      - name: Import project headlessly and fail on Godot errors
+        run: |
+          set -o pipefail
+          godot --headless --editor --quit --path . 2>&1 | tee godot-import.log
+          if grep -q "^ERROR" godot-import.log; then
+            echo "Godot reported errors during import/parse"
+            exit 1
+          fi
+      - name: Run GUT test suite
+        run: |
+          set -o pipefail
+          godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit 2>&1 | tee gut.log
+          if grep -q "failing tests" gut.log; then
+            echo "GUT reported test failures"
+            exit 1
+          fi
