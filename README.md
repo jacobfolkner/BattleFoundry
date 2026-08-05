@@ -142,6 +142,44 @@ vertical gameplay (jumping, ramps, flight); if one is ever added, this
 line is exactly what would need to become conditional or be replaced by
 per-body axis locking.
 
+## Testing
+
+Automated tests use [GUT](https://github.com/bitwes/Gut) (`addons/gut/`,
+vendored in-repo) and run fully headless — no X server, Xvfb, or WSLg
+required, since these tests exercise game logic and physics
+(`move_and_slide`, combat, win detection) rather than rendering.
+`tests/test_battle_flow.gd` boots the real `Main.tscn`, spawns units
+through `GameManager.spawn_unit()` (the same entry point Main.gd's
+click-to-place uses), starts the battle, and asserts a winner is resolved
+through the actual simulation — no mocking.
+
+### One-time setup (fresh clone, any machine including WSL)
+
+1. Install [Godot 4.7](https://godotengine.org/) and put the `godot`
+   binary on `PATH`.
+2. From the repo root, run an import pass once. `.godot/` (Godot's
+   import cache) is gitignored, so a fresh clone has no import metadata
+   yet — GUT's class_names won't resolve without this step, and the
+   error is `Some GUT class_names have not been imported.`:
+
+   ```sh
+   godot --headless --editor --quit
+   ```
+
+### Running the suite
+
+```sh
+godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
+```
+
+Exits 0 on success. Re-run the one-time import step above if
+`addons/gut` is ever updated or a new addon is added.
+
+### CI
+
+`.github/workflows/ci.yml` runs the import check and GUT suite above on
+every push to `main` and every pull request.
+
 ## Next Recommended Milestone
 
 Candidates once this sprint is validated in-editor:
