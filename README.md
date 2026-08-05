@@ -205,6 +205,56 @@ The riskiest-looking change, `Main.gd`'s click routing, only reorders
 *which* handler a click reaches first — the placement code path itself
 (`_try_place_unit`) is byte-for-byte unchanged.
 
+## Testing
+
+Automated tests use [GUT](https://github.com/bitwes/Gut) (`addons/gut/`,
+fetched by `tools/fetch_gut.sh` rather than vendored — see below) and run
+fully headless — no X server, Xvfb, or WSLg required, since these tests
+exercise game logic and physics (`move_and_slide`, combat, win detection)
+rather than rendering. `tests/test_battle_flow.gd` boots the real
+`Main.tscn`, spawns units through `GameManager.spawn_unit()` (the same
+entry point Main.gd's click-to-place uses), starts the battle, and
+asserts a winner is resolved through the actual simulation — no mocking.
+
+### One-time setup (fresh clone, any machine including WSL)
+
+1. Install [Godot 4.7](https://godotengine.org/) and put the `godot`
+   binary on `PATH`.
+2. Fetch GUT. `addons/gut/` is gitignored (it's ~260 static third-party
+   files that never change once fetched, so vendoring it in git just
+   bloats every diff) — this script downloads the pinned version,
+   verifies its checksum, and is a safe no-op if already present:
+
+   ```sh
+   ./tools/fetch_gut.sh
+   ```
+
+3. Run an import pass once. `.godot/` (Godot's import cache) is
+   gitignored, so a fresh clone has no import metadata yet — GUT's
+   class_names won't resolve without this step, and the error is
+   `Some GUT class_names have not been imported.`:
+
+   ```sh
+   godot --headless --editor --quit
+   ```
+
+### Running the suite
+
+```sh
+godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
+```
+
+Exits 0 on success. Re-run the import step above if `addons/gut` is ever
+updated (bump the version in `tools/fetch_gut.sh` first) or a new addon
+is added.
+
+### CI
+
+`.github/workflows/ci.yml` fetches GUT (cached by
+`actions/cache`, keyed on `tools/fetch_gut.sh`'s contents so a version
+bump invalidates it automatically), then runs the import check and GUT
+suite on every push to `main` and every pull request.
+
 ## Next Recommended Milestone
 
 Candidates once this sprint is validated in-editor:
