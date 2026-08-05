@@ -15,6 +15,13 @@ jobs:
           version: 4.7.0
           use-dotnet: false
           include-templates: false
+      - name: Cache GUT addon
+        uses: actions/cache@v4
+        with:
+          path: addons/gut
+          key: gut-${{ hashFiles('tools/fetch_gut.sh') }}
+      - name: Fetch GUT (skips download if cache hit restored it)
+        run: ./tools/fetch_gut.sh
       - name: Import project headlessly and fail on Godot errors
         run: |
           set -o pipefail
