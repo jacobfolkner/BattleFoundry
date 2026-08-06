@@ -1,26 +1,28 @@
 ## A single combat unit: a primitive-mesh body that fights automatically
 ## once GameManager enters the BATTLE state.
 ##
-## Movement is still a straight-line walk toward the current target (no
-## steering or pathfinding); a real steering system can replace
-## _move_toward_target() later without touching the rest of the class or
-## GameManager. What's no longer true is that units pass through each
-## other: Unit is a CharacterBody3D and moves via move_and_slide(), so
-## Godot's physics server resolves overlap and blocking against every
-## other unit's CollisionShape3D -- no custom overlap code here at all.
+## Seeks target_enemy via NavigationAgent3D avoidance (RVO) rather than a
+## raw straight line, so units route around blocking allies instead of
+## queuing up behind them. Unit is a CharacterBody3D and moves via
+## move_and_slide(), so Godot's physics server also resolves any overlap
+## avoidance didn't fully avoid -- no custom overlap code here at all.
 class_name Unit
 extends CharacterBody3D
 
 signal died(unit: Unit)
+
+const _AVOIDANCE_NEIGHBOR_DISTANCE := 6.0
 
 @export var stats: UnitStats
 
 var team: Team.Type
 var current_health: float
 var target_enemy: Unit = null
+var desired_velocity: Vector3 = Vector3.ZERO ## Pre-avoidance seek velocity; read by DebugInspector.
 
 var _attack_cooldown: float = 0.0
 var _health_bar: HealthBar
+var _nav_agent: NavigationAgent3D
 
 @onready var _mesh_instance: MeshInstance3D = $MeshInstance3D
 @onready var _collision_shape: CollisionShape3D = $CollisionShape3D
@@ -32,6 +34,7 @@ func setup(new_stats: UnitStats, new_team: Team.Type) -> void:
 	team = new_team
 	current_health = stats.max_health
 	_build_appearance()
+	_build_avoidance()
 
 
 func _build_appearance() -> void:
@@ -83,8 +86,18 @@ func _build_health_bar() -> void:
 	add_child(_health_bar)
 
 
+func _build_avoidance() -> void:
+	_nav_agent = NavigationAgent3D.new()
+	_nav_agent.radius = stats.collision_radius
+	_nav_agent.max_speed = stats.move_speed
+	_nav_agent.neighbor_distance = _AVOIDANCE_NEIGHBOR_DISTANCE
+	_nav_agent.avoidance_enabled = true
+	add_child(_nav_agent)
+	_nav_agent.velocity_computed.connect(_on_safe_velocity_computed)
+
+
 func _physics_process(delta: float) -> void:
-	velocity = Vector3.ZERO
+	desired_velocity = Vector3.ZERO
 
 	var is_battling := GameManager.battle_state == GameManager.BattleState.BATTLE and current_health > 0.0
 	if is_battling:
@@ -92,13 +105,28 @@ func _physics_process(delta: float) -> void:
 		if target_enemy != null:
 			var distance := global_position.distance_to(target_enemy.global_position)
 			if distance > stats.attack_range:
-				_move_toward_target()
+				_seek_target()
 			else:
 				_attack(delta)
 
-	# Called every physics frame, even when velocity is zero, so the
-	# physics server also resolves any resting overlap (e.g. two units
-	# placed too close together) rather than only reacting while moving.
+	# target_position is required for avoidance to produce a non-zero
+	# safe_velocity at all, even with no navmesh/pathfinding involved --
+	# undocumented on the property itself, but avoidance silently no-ops
+	# without it. Requested every physics frame, even when desired_velocity
+	# is zero, so avoidance keeps resolving resting overlap (e.g. units
+	# placed too close together) the same way move_and_slide() used to
+	# unconditionally.
+	_nav_agent.target_position = global_position + desired_velocity
+	_nav_agent.set_velocity(desired_velocity)
+
+
+## NavigationAgent3D returns the RVO-adjusted "safe" velocity here, one
+## frame after set_velocity() -- this is where movement actually applies.
+func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
+	velocity = safe_velocity
+	if velocity.length() > 0.05:
+		look_at(global_position + velocity, Vector3.UP)
+
 	move_and_slide()
 
 	# move_and_slide() (MOTION_MODE_FLOATING) resolves penetration along
@@ -121,12 +149,10 @@ func _update_target() -> void:
 		target_enemy = GameManager.find_nearest_enemy(self)
 
 
-func _move_toward_target() -> void:
+func _seek_target() -> void:
 	var direction := target_enemy.global_position - global_position
 	direction.y = 0.0
-	direction = direction.normalized()
-	velocity = direction * stats.move_speed
-	look_at(global_position + direction, Vector3.UP)
+	desired_velocity = direction.normalized() * stats.move_speed
 
 
 func _attack(delta: float) -> void:
@@ -149,12 +175,13 @@ func die() -> void:
 	queue_free()
 
 
-## Read-only snapshot for Scripts/DebugInspector.gd / UI/DebugPanel.gd.
-## Everything here is derived by re-reading existing public state -- this
-## method never sets anything, so it can't affect AI, combat, or
-## targeting. Values are pre-formatted display strings by design, so the
-## debug panel stays a generic "print whatever keys this returns" renderer
-## and never needs unit-specific formatting logic of its own.
+## Read-only snapshot for Scripts/DebugInspector.gd / UI/DebugPanel.gd,
+## shown regardless of debug-menu toggles. Everything here is derived by
+## re-reading existing public state -- this method never sets anything,
+## so it can't affect AI, combat, or targeting. Values are pre-formatted
+## display strings by design, so the debug panel stays a generic "print
+## whatever keys this returns" renderer and never needs unit-specific
+## formatting logic of its own.
 func get_debug_info() -> Dictionary:
 	return {
 		"Name": stats.unit_name,
@@ -162,10 +189,20 @@ func get_debug_info() -> Dictionary:
 		"Health": "%.0f / %.0f" % [current_health, stats.max_health],
 		"AI State": _describe_state(),
 		"Target": target_enemy.stats.unit_name if target_enemy != null else "(none)",
+	}
+
+
+## Same contract and rules as get_debug_info(), but only shown when
+## DebugSettings.FLAG_DETAILED_STATS is on -- DebugPanel checks
+## has_method() before calling this, so it's optional for any future
+## inspectable object.
+func get_debug_info_detailed() -> Dictionary:
+	return {
 		"Distance to Target": _describe_distance_to_target(),
 		"Attack Range": "%.1f m" % stats.attack_range,
 		"Attack Cooldown": "%.1fs" % maxf(_attack_cooldown, 0.0),
 		"Position": "(%.1f, %.1f, %.1f)" % [global_position.x, global_position.y, global_position.z],
+		"Avoidance": _describe_avoidance(),
 	}
 
 
@@ -189,3 +226,12 @@ func _describe_distance_to_target() -> String:
 	if target_enemy == null:
 		return "-"
 	return "%.1f m" % global_position.distance_to(target_enemy.global_position)
+
+
+## How far avoidance is steering velocity away from the raw seek
+## direction -- large values mean it's actively routing around a blocker.
+func _describe_avoidance() -> String:
+	if desired_velocity.length() < 0.05:
+		return "-"
+	var deviation_degrees := rad_to_deg(desired_velocity.angle_to(velocity))
+	return "%.0f°" % deviation_degrees

@@ -1,8 +1,10 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://Scripts/Main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://UI/HUD.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://UI/DebugPanel.tscn" id="3"]
+[ext_resource type="Script" path="res://Scripts/OrbitCamera.gd" id="4"]
+[ext_resource type="PackedScene" path="res://UI/DebugMenu.tscn" id="5"]
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 size = Vector2(40, 40)
@@ -24,6 +26,7 @@ shadow_enabled = true
 [node name="Camera3D" type="Camera3D" parent="."]
 position = Vector3(0, 20, 16)
 current = true
+script = ExtResource("4")
 
 [node name="UnitsContainer" type="Node3D" parent="."]
 
@@ -32,3 +35,5 @@ current = true
 [node name="HUD" parent="HUDLayer" instance=ExtResource("2")]
 
 [node name="DebugPanel" parent="HUDLayer" instance=ExtResource("3")]
+
+[node name="DebugMenu" parent="HUDLayer" instance=ExtResource("5")]

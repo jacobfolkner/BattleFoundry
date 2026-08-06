@@ -7,12 +7,14 @@ The first playable prototype is a simplified recreation of the Warcraft III
 custom map **Blood Tournament**: place units for two teams, press Start
 Battle, and watch them fight automatically until one side wins.
 
-## Status: Sprint 5 — Engine Observability
+## Status: Sprint 6 — Avoidance Steering
 
 - Two teams (Blue / Red)
 - Three unit archetypes: Tank, Fighter, Archer
 - Click-to-place unit placement phase
 - Fully automatic combat (nearest-enemy targeting, move-into-range, attack)
+- Units steer around blocking allies instead of queuing up behind them,
+  via `NavigationAgent3D` avoidance
 - Units have physical presence: they can no longer overlap, push against
   each other, and naturally form battle lines instead of stacking
 - Units are hard-constrained to the ground plane: dense spawning or
@@ -20,12 +22,16 @@ Battle, and watch them fight automatically until one side wins.
 - Health bars above every unit, live-updated as damage is taken
 - Win detection when one team is eliminated, with a visible winner banner
 - Click any unit (placement or mid-battle) to select it and open a live
-  debug panel showing its state; a marker under it and a line to its
-  current target make the selection visible in the arena itself
+  debug panel showing its basic state; a disc under it marks the selection
+- Camera: scroll to zoom, right-click-drag to orbit
+- Debug menu (backtick **`` ` ``**) with per-feature toggles (off by
+  default) and a color legend, extensible by design: "Pathfinding" adds
+  arena-space targeting/steering indicators, "Detailed Stats" expands
+  the stats panel
 
 Out of scope for this milestone (see project brief): abilities, heroes,
 buildings, economy, animations, particles, networking, fog of war,
-pathfinding, save/load, a map editor, and audio.
+save/load, a map editor, and audio.
 
 ## Requirements
 
@@ -47,21 +53,38 @@ scene is `Scenes/Main.tscn`.
 4. The winning team is announced in a centered banner.
 
 Click directly on any unit at any time (placement, mid-battle, or after
-a win) to select it: a flat disc appears under it, a line is drawn to
-its current target if it has one, and a panel in the top-right corner
-shows its live stats. Clicking a unit takes priority over placing a new
-one, so clicking on top of an existing unit during placement selects it
-instead of stacking another unit there.
+a win) to select it: a yellow disc marks it, and a panel in the
+top-right corner shows its basic stats (name, team, health, AI state,
+target). Clicking a unit takes priority over placing a new one, so
+clicking on top of an existing unit during placement selects it instead
+of stacking another unit there.
+
+**Camera:** scroll to zoom, right-click-drag to orbit around the arena.
+
+**Debug menu:** press backtick (**`` ` ``**) to open a small panel
+(bottom-right — HUD owns top-left, the unit-stats panel owns top-right)
+of debug-feature toggles and a color legend. Both toggles are off by
+default, so a plain click stays uncluttered:
+
+- **Pathfinding** — an attack-range ring, a line to the selected unit's
+  target (with a second, orange-red disc highlighting that target), and
+  cyan/magenta desired-vs-actual steering vectors, all in the arena (see
+  "Avoidance steering" below)
+- **Detailed Stats** — adds distance-to-target, attack range, attack
+  cooldown, position, and steering-deviation degrees to the top-right
+  stats panel
+
+See "Observability" for how to add another toggle.
 
 ## Project Structure
 
 ```
 Scenes/     Scene files (.tscn) — Main arena, Unit
 Scripts/    Gameplay logic (.gd) — Team, UnitStats, Unit, HealthBar, GameManager,
-            Main, DebugInspector
+            Main, DebugInspector, DebugSettings, OrbitCamera
 Resources/  Data-driven unit archetypes (.tres) — Tank/Fighter/Archer stats
 Assets/     Reserved for future imported art (empty — primitives only today)
-UI/         HUD, DebugPanel scenes/scripts
+UI/         HUD, DebugPanel, DebugMenu scenes/scripts
 ```
 
 ### Architecture notes
@@ -92,14 +115,17 @@ UI/         HUD, DebugPanel scenes/scripts
   see the code comments on `_build_start_button` and `_build_winner_label`
   for why manual `position`/`size` on a not-yet-parented Control is a
   trap in Godot 4.7 (it resolves against a zero-size parent rect).
-- **DebugInspector** (`Scripts/DebugInspector.gd`) and **DebugPanel**
-  (`UI/DebugPanel.gd`) are a separate observation layer, not part of
-  gameplay — see "Observability" below.
+- **DebugInspector** (`Scripts/DebugInspector.gd`), **DebugPanel**
+  (`UI/DebugPanel.gd`), **DebugSettings** (`Scripts/DebugSettings.gd`),
+  and **DebugMenu** (`UI/DebugMenu.gd`) are a separate observation layer,
+  not part of gameplay — see "Observability" below.
+- **OrbitCamera** (`Scripts/OrbitCamera.gd`) is self-contained on the
+  `Camera3D` node: it owns zoom/orbit input and its own transform.
+  `Main.gd` no longer touches the camera at all.
 
-Movement is a direct straight-line walk toward the current target (no
-steering or pathfinding, and target selection is unchanged); this is
-intentional for readability and is the first thing a future "movement
-system" milestone would replace.
+Target selection (nearest enemy) is unchanged; movement now steers
+around blocking allies via avoidance rather than a raw straight line —
+see "Avoidance steering" below.
 
 ### Collision approach
 
@@ -156,39 +182,104 @@ vertical gameplay (jumping, ramps, flight); if one is ever added, this
 line is exactly what would need to become conditional or be replaced by
 per-body axis locking.
 
+### Avoidance steering
+
+Before Sprint 6, `_move_toward_target()` set `velocity` directly to a
+straight line at the target. With several units converging on the same
+enemy, the front unit would stop at `attack_range` and everyone behind
+it kept steering straight through it — `move_and_slide()` only pushes
+against that as a collision response, not a route around, so trailing
+units queued up and waited for the blocker to die instead of finding a
+clear path.
+
+Each `Unit` now carries a `NavigationAgent3D` (`_build_avoidance()`),
+data-driven the same way as its collision capsule (`radius` from
+`UnitStats.collision_radius`, `max_speed` from `move_speed`).
+`_physics_process()` computes the same seek direction as before into
+`desired_velocity`, then hands it to the agent instead of assigning
+`velocity` directly; the agent's RVO simulation returns an
+avoidance-adjusted *safe* velocity via the `velocity_computed` signal,
+and that's where `move_and_slide()` now actually runs. No navigation
+mesh is baked or needed — the arena has no static obstacles, only other
+units to route around, which is exactly what avoidance-without-a-navmesh
+does. One easy-to-miss requirement: `NavigationAgent3D.target_position`
+must be set every frame (even with no navmesh, even for avoidance-only
+use) or `velocity_computed` always reports zero — this isn't documented
+on the property itself, only in the navigation tutorial.
+
 ### Observability
 
 Sprint 5 adds a way to inspect a unit's live state without changing any
 gameplay code. It's built as a separate layer that only ever *reads*
 from Unit and GameManager, never writes to either:
 
-- **`Unit.get_debug_info() -> Dictionary`** is the entire contract. It's
-  a pure addition to `Unit.gd` — no existing method was touched to add
-  it — and it returns pre-formatted display strings ("Name", "Team",
-  "Health", "AI State", "Target", "Distance to Target", "Attack Range",
-  "Attack Cooldown", "Position"). "AI State" (`_describe_state()`) is
-  derived by re-reading the same public fields `_physics_process()`
+- **`Unit.get_debug_info() -> Dictionary`** is the entire *basic*
+  contract, always shown: pre-formatted display strings for "Name",
+  "Team", "Health", "AI State", "Target". "AI State" (`_describe_state()`)
+  is derived by re-reading the same public fields `_physics_process()`
   already branches on (`current_health`, `GameManager.battle_state`,
   `target_enemy`, distance vs. `attack_range`) — it's a second read of
   that state for display purposes, not a second source of truth, and it
   can't feed back into the AI because nothing ever calls it except the
-  debug layer.
+  debug layer. A parallel, optional `get_debug_info_detailed()` adds
+  "Distance to Target", "Attack Range", "Attack Cooldown", "Position",
+  "Avoidance" — shown only while `DebugSettings.FLAG_DETAILED_STATS` is
+  on; `DebugPanel` checks `has_method()` before calling it, so it's
+  opt-in for any future inspectable object, not a required part of the
+  contract.
 - **`DebugInspector`** (autoload) owns *selection*: which unit is
   picked, a physics raycast (`try_select_at()`, masked to the "Units"
-  layer from Sprint 3) to find it from a screen click, and two small
-  cosmetic 3D indicators (a disc under the selected unit, a line to its
-  target) that it positions every frame by reading `global_position`
-  and `target_enemy` — the same public fields anything else in the
-  codebase could already read. `Main.gd` gives it first refusal on every
-  click (`DebugInspector.try_select_at(...)`) before falling through to
+  layer from Sprint 3) to find it from a screen click, and cosmetic 3D
+  indicators. Only a disc under the selected unit is always on; a disc
+  under its target, a line between them, an attack-range ring, and
+  cyan/magenta lines for `desired_velocity` vs. `velocity` are all
+  targeting/steering detail gated behind
+  `DebugSettings.is_enabled(DebugSettings.FLAG_PATHFINDING)`, positioned
+  every frame by reading public fields anything else in the codebase
+  could already read. `Main.gd` gives it first refusal on every click
+  (`DebugInspector.try_select_at(...)`) before falling through to
   placement; that's the one integration point, and it's a single method
   call, not a dependency in either direction beyond it.
 - **`DebugPanel`** (`UI/DebugPanel.gd`) never touches `Unit` or
   `GameManager` at all. It listens to `DebugInspector.selection_changed`
-  and, every frame there's a valid selection, calls
-  `get_debug_info()` and renders each key/value pair generically —
-  `for key in info: ... "%s: %s"`. There's no per-field UI element and
-  no formatting logic keyed to specific field names.
+  and, every frame there's a valid selection, calls `get_debug_info()`
+  (plus `get_debug_info_detailed()` when enabled) and renders each
+  key/value pair generically — `for key in info: ... "%s: %s"`. There's
+  no per-field UI element and no formatting logic keyed to specific
+  field names.
+- **`DebugSettings`** (autoload) is a generic name → bool registry for
+  debug-feature toggles ("pathfinding" and "detailed_stats" so far, both
+  off by default) plus a `flag_changed` signal. **`DebugMenu`**
+  (`UI/DebugMenu.gd`, opened with backtick) builds one `CheckBox` per
+  `DebugSettings.get_flag_names()` — the same generic-renderer pattern
+  as `DebugPanel` — so it never needs
+  editing when a new flag is added elsewhere. It also renders a static
+  color legend, reading the same public color constants
+  (`DebugInspector.SELECTION_COLOR` etc.) that the 3D indicators use, so
+  the two can never drift out of sync. Backtick, not F1: F1 is commonly
+  intercepted by the OS/window manager as "Help" before it ever reaches
+  the game window (hit this during dev, under WSLg).
+
+**Adding a new debug toggle:** add a `FLAG_*` constant and a matching
+entry in `DebugSettings._flags`, then gate whatever it controls with
+`DebugSettings.is_enabled(FLAG_*)`. `DebugMenu` picks up the new
+checkbox automatically; no UI code to write.
+
+**Another Control-anchoring trap, worse than the Start Battle button
+one:** both `DebugPanel` and `DebugMenu` build a `PanelContainer` that
+positions itself corner-anchored via `set_anchors_preset(...)` +
+`position` on their own root `Control` (itself `set_anchors_preset(
+Control.PRESET_FULL_RECT)`) — the same pattern as `HUD`. Unlike `HUD`,
+though, both panels were invisible despite `visible == true`, no errors,
+and correct child content: the *outer* Control's own rect silently never
+resolves to the viewport size (`size` stays `(0, 0)`) when it has no
+parent `Control` driving its layout (only a `CanvasLayer` above it), so
+anchoring the inner panel *relative to that* collapses too. `HUD` never
+hit this because its buttons use raw, unanchored `position` — never
+dependent on `HUD`'s own size being correct. Fix: don't anchor the inner
+panel relative to the parent at all; call `reset_size()` for a real
+(post-content) size, then position it directly from
+`get_viewport_rect().size` instead.
 
 **Why future systems don't need to touch the panel:** anything —
 a future building, a projectile, a second game mode's entity — that
