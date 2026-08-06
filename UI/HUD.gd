@@ -16,6 +16,8 @@ signal start_battle_pressed
 const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
 const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
+const BAT_RIDER_STATS: UnitStats = preload("res://Resources/BatRiderStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/GiantStats.tres")
 
 var _start_button: Button
 var _winner_label: Label
@@ -43,11 +45,13 @@ func _build_unit_panel() -> void:
 	_add_toggle_button(panel, "Tank", group, true, func(): unit_type_selected.emit(TANK_STATS))
 	_add_toggle_button(panel, "Fighter", group, false, func(): unit_type_selected.emit(FIGHTER_STATS))
 	_add_toggle_button(panel, "Archer", group, false, func(): unit_type_selected.emit(ARCHER_STATS))
+	_add_toggle_button(panel, "Bat Rider", group, false, func(): unit_type_selected.emit(BAT_RIDER_STATS))
+	_add_toggle_button(panel, "Giant", group, false, func(): unit_type_selected.emit(GIANT_STATS))
 
 
 func _build_team_panel() -> void:
 	var panel := VBoxContainer.new()
-	panel.position = Vector2(16, 148)
+	panel.position = Vector2(16, 236) # below 5 unit-type buttons in the panel above
 	add_child(panel)
 
 	var group := ButtonGroup.new()

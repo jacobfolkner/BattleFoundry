@@ -14,9 +14,23 @@ extends Resource
 @export var damage: float = 10.0
 @export var attack_range: float = 2.0
 @export var attack_interval: float = 1.0 ## Seconds between attacks.
+## Horizontal distance this attack knocks the target back, in meters.
+## 0 (default) means this attack never knocks anyone back.
+@export var knockback_distance: float = 0.0
+## Peak height the target rises to mid-knockback, in meters. Only
+## matters if knockback_distance is also nonzero.
+@export var knockback_height: float = 0.0
 
 @export_group("Movement")
 @export var move_speed: float = 3.0 ## Meters per second.
+
+@export_group("Flight")
+## Flying units rest at flight_height instead of the ground plane, and
+## combat range checks become horizontal-only for everyone as a result
+## -- see Unit.horizontal_distance_to(). False (default) means this
+## unit behaves exactly as before: ground-locked at y=0.
+@export var is_flying: bool = false
+@export var flight_height: float = 0.0
 
 @export_group("Collision")
 ## Radius of the unit's physical footprint (a CapsuleShape3D in Unit.gd).

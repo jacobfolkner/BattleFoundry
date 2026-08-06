@@ -132,7 +132,7 @@ func find_nearest_enemy(unit: Unit) -> Unit:
 	for enemy in enemies:
 		if not is_instance_valid(enemy) or enemy.current_health <= 0.0:
 			continue
-		var distance := unit.global_position.distance_to(enemy.global_position)
+		var distance := Unit.horizontal_distance_to(unit.global_position, enemy.global_position)
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = enemy

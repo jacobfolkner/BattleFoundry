@@ -20,8 +20,12 @@ editor, and audio.
 Open this folder as a project in Godot and press **Run** (F5). The main
 scene is `Scenes/Main.tscn`.
 
-1. Pick a unit type (Tank / Fighter / Archer) and a team (Blue / Red) in
-   the top-left panels.
+1. Pick a unit type (Tank / Fighter / Archer / Bat Rider / Giant) and a
+   team (Blue / Red) in the top-left panels. Bat Rider flies — it rests
+   elevated at `flight_height` and passes over ground units, but still
+   fights normally (combat range is horizontal-only, so height doesn't
+   put it out of reach). Giant's attack knocks its target up and back
+   through the air, over other units, before it lands.
 2. Click inside the arena to place units. Repeat for both teams.
 3. Press **Start Battle**. Units automatically seek the nearest enemy,
    close distance, and attack until one team is eliminated.
@@ -52,7 +56,8 @@ file's header comment for the full contract.
 Scenes/     Scene files (.tscn) — Main arena, Unit
 Scripts/    Gameplay logic (.gd) — Team, UnitStats, Unit, HealthBar,
             GameManager, Main, DebugInspector, DebugSettings, OrbitCamera
-Resources/  Data-driven unit archetypes (.tres) — Tank/Fighter/Archer stats
+Resources/  Data-driven unit archetypes (.tres) — Tank/Fighter/Archer/
+            Bat Rider/Giant stats
 Assets/     Reserved for future imported art (empty — primitives only today)
 UI/         HUD, DebugPanel, DebugMenu scenes/scripts
 tools/      Dev scripts — tools/fetch_gut.sh

@@ -12,6 +12,7 @@ extends CharacterBody3D
 signal died(unit: Unit)
 
 const _AVOIDANCE_NEIGHBOR_DISTANCE := 6.0
+const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
 
 @export var stats: UnitStats
 
@@ -23,6 +24,13 @@ var desired_velocity: Vector3 = Vector3.ZERO ## Pre-avoidance seek velocity; rea
 var _attack_cooldown: float = 0.0
 var _health_bar: HealthBar
 var _nav_agent: NavigationAgent3D
+
+var _is_airborne: bool = false
+var _knockback_elapsed: float = 0.0
+var _knockback_start: Vector3
+var _knockback_direction: Vector3
+var _knockback_distance: float
+var _knockback_peak_height: float
 
 @onready var _mesh_instance: MeshInstance3D = $MeshInstance3D
 @onready var _collision_shape: CollisionShape3D = $CollisionShape3D
@@ -97,13 +105,17 @@ func _build_avoidance() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _is_airborne:
+		_process_knockback(delta)
+		return
+
 	desired_velocity = Vector3.ZERO
 
 	var is_battling := GameManager.battle_state == GameManager.BattleState.BATTLE and current_health > 0.0
 	if is_battling:
 		_update_target()
 		if target_enemy != null:
-			var distance := global_position.distance_to(target_enemy.global_position)
+			var distance := horizontal_distance_to(global_position, target_enemy.global_position)
 			if distance > stats.attack_range:
 				_seek_target()
 			else:
@@ -123,6 +135,14 @@ func _physics_process(delta: float) -> void:
 ## NavigationAgent3D returns the RVO-adjusted "safe" velocity here, one
 ## frame after set_velocity() -- this is where movement actually applies.
 func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
+	# NavigationAgent3D keeps emitting this every physics frame for as
+	# long as avoidance is enabled, whether or not set_velocity() was
+	# called that frame -- not a strict one-shot request/response. While
+	# airborne, _process_knockback() owns global_position directly; this
+	# callback firing anyway would silently clobber it back to resting
+	# height every frame if not guarded here.
+	if _is_airborne:
+		return
 	velocity = safe_velocity
 	if velocity.length() > 0.05:
 		look_at(global_position + velocity, Vector3.UP)
@@ -136,11 +156,58 @@ func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
 	# physics server can occasionally choose to push one straight up
 	# instead of sideways. Nothing here simulates height or gravity, so
 	# any such drift is permanent unless corrected: this line is the fix,
-	# re-asserting the ground-plane invariant every frame regardless of
+	# re-asserting the resting-height invariant every frame regardless of
 	# what direction collision resolution picked. It also forecloses
 	# vertical stacking, since two units can never end up on different Y
 	# layers long enough to stop colliding horizontally.
-	global_position.y = 0.0
+	global_position.y = _resting_height()
+
+
+## 0.0 for every ground unit (unchanged Sprint 4 invariant); flight_height
+## for a flying one. Knockback overrides this transiently -- see
+## apply_knockback() -- rather than changing what a unit rests at.
+func _resting_height() -> float:
+	return stats.flight_height if stats.is_flying else 0.0
+
+
+## XZ-plane distance, ignoring Y. Used for every combat-range/targeting
+## check instead of Vector3.distance_to() so a flying unit's height
+## doesn't count against its reach -- without this, nothing could ever
+## get "in range" of a unit sitting flight_height meters up. A no-op for
+## any two units at the same Y (true of every non-flying unit today).
+static func horizontal_distance_to(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+
+## Launches this unit along a fixed-duration parabolic arc, horizontally
+## in `direction` by `distance` meters, peaking at `height` meters up.
+## _physics_process() returns early while airborne, so avoidance/
+## move_and_slide() never run for this unit until it lands -- it moves
+## by direct position assignment instead, which is what makes "flies
+## over other units" literal rather than approximate. Collision is
+## disabled for the same reason: a unit landing exactly on a ground
+## unit's position at low arc height (near launch/landing) could
+## otherwise still get blocked right as this starts or ends.
+func apply_knockback(direction: Vector3, distance: float, height: float) -> void:
+	_is_airborne = true
+	_knockback_elapsed = 0.0
+	_knockback_start = global_position
+	_knockback_direction = direction
+	_knockback_distance = distance
+	_knockback_peak_height = height
+	_collision_shape.disabled = true
+
+
+func _process_knockback(delta: float) -> void:
+	_knockback_elapsed += delta
+	var t := clampf(_knockback_elapsed / _KNOCKBACK_DURATION, 0.0, 1.0)
+
+	global_position = _knockback_start + _knockback_direction * _knockback_distance * t
+	global_position.y = _resting_height() + _knockback_peak_height * 4.0 * t * (1.0 - t)
+
+	if t >= 1.0:
+		_is_airborne = false
+		_collision_shape.disabled = false
 
 
 func _update_target() -> void:
@@ -161,6 +228,11 @@ func _attack(delta: float) -> void:
 		return
 	_attack_cooldown = stats.attack_interval
 	target_enemy.take_damage(stats.damage)
+
+	if stats.knockback_distance > 0.0 and target_enemy.current_health > 0.0:
+		var direction := target_enemy.global_position - global_position
+		direction.y = 0.0
+		target_enemy.apply_knockback(direction.normalized(), stats.knockback_distance, stats.knockback_height)
 
 
 func take_damage(amount: float) -> void:
@@ -203,6 +275,8 @@ func get_debug_info_detailed() -> Dictionary:
 		"Attack Cooldown": "%.1fs" % maxf(_attack_cooldown, 0.0),
 		"Position": "(%.1f, %.1f, %.1f)" % [global_position.x, global_position.y, global_position.z],
 		"Avoidance": _describe_avoidance(),
+		"Flying": "Yes" if stats.is_flying else "No",
+		"Airborne": "Yes (knocked back)" if _is_airborne else "No",
 	}
 
 
@@ -211,6 +285,8 @@ func get_debug_info_detailed() -> Dictionary:
 func _describe_state() -> String:
 	if current_health <= 0.0:
 		return "Dead"
+	if _is_airborne:
+		return "Airborne (knocked back)"
 	match GameManager.battle_state:
 		GameManager.BattleState.PLACEMENT:
 			return "Waiting (Placement)"
@@ -218,14 +294,14 @@ func _describe_state() -> String:
 			return "Waiting (Game Over)"
 	if target_enemy == null:
 		return "Searching for Target"
-	var distance := global_position.distance_to(target_enemy.global_position)
+	var distance := horizontal_distance_to(global_position, target_enemy.global_position)
 	return "Moving" if distance > stats.attack_range else "Attacking"
 
 
 func _describe_distance_to_target() -> String:
 	if target_enemy == null:
 		return "-"
-	return "%.1f m" % global_position.distance_to(target_enemy.global_position)
+	return "%.1f m" % horizontal_distance_to(global_position, target_enemy.global_position)
 
 
 ## How far avoidance is steering velocity away from the raw seek
