@@ -1,12 +1,12 @@
 ## Root controller for the prototype scene.
 ##
-## Owns the arena, points the camera at it, wires the HUD to unit
-## placement, and turns mouse clicks into spawned units while
-## GameManager is in the PLACEMENT phase. A click first gets offered to
-## DebugInspector (Scripts/DebugInspector.gd) in case it landed on a
-## unit; only an unclaimed click can place one. Main.gd otherwise knows
-## nothing about selection or debug UI -- that's the whole point of
-## routing through DebugInspector rather than handling it here.
+## Owns the arena, wires the HUD to unit placement, and turns mouse
+## clicks into spawned units while GameManager is in the PLACEMENT phase.
+## A click first gets offered to DebugInspector (Scripts/DebugInspector.gd)
+## in case it landed on a unit; only an unclaimed click can place one.
+## Main.gd otherwise knows nothing about selection, debug UI, or the
+## camera (self-managed by Scripts/OrbitCamera.gd) -- that's the whole
+## point of routing through those rather than handling it here.
 extends Node3D
 
 const GROUND_PLANE := Plane(Vector3.UP, 0.0)
@@ -20,8 +20,6 @@ var _selected_team: Team.Type = Team.Type.BLUE
 
 
 func _ready() -> void:
-	_camera.look_at(Vector3.ZERO, Vector3.UP)
-
 	GameManager.units_container = _units_container
 	GameManager.battle_ended.connect(_hud.show_winner)
 

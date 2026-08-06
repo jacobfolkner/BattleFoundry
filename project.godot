@@ -22,6 +22,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 GameManager="*res://Scripts/GameManager.gd"
 DebugInspector="*res://Scripts/DebugInspector.gd"
+DebugSettings="*res://Scripts/DebugSettings.gd"
 
 [layer_names]
 

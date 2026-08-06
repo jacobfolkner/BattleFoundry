@@ -41,6 +41,32 @@ func test_lone_tank_beats_lone_fighter_and_battle_resolves() -> void:
 	assert_true(resolved, "battle should resolve within 15s of simulated time")
 
 
+## Regression test for the "units queue up behind a blocker instead of
+## routing around it" bug avoidance steering fixes. Clusters several
+## Tanks at one spawn point (so they start overlapping, forcing the front
+## one to block the others) against a single distant enemy, and checks
+## multiple Tanks made real progress -- a blocked queue would leave all
+## but the front one pinned near the spawn point.
+func test_crowded_units_all_make_progress_not_just_the_front_one() -> void:
+	var spawn := Vector3(-10, 0, 0)
+	var tanks: Array[Unit] = []
+	for i in range(4):
+		tanks.append(GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, spawn + Vector3(0, 0, i * 0.05)))
+	GameManager.spawn_unit(FIGHTER_STATS, Team.Type.RED, Vector3(10, 0, 0))
+
+	GameManager.start_battle()
+
+	for i in range(120): # 2s of simulated physics time
+		await wait_physics_frames(1)
+
+	var advanced_count := 0
+	for tank in tanks:
+		if tank.global_position.distance_to(spawn) > 1.5:
+			advanced_count += 1
+
+	assert_gt(advanced_count, 1, "more than one clustered Tank should have advanced toward the enemy, not just the front one")
+
+
 func test_start_battle_noop_when_a_team_is_empty() -> void:
 	GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, Vector3(-3, 0, 0))
 	GameManager.start_battle()
