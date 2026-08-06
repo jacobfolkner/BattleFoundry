@@ -115,8 +115,7 @@ func _physics_process(delta: float) -> void:
 	if is_battling:
 		_update_target()
 		if target_enemy != null:
-			var distance := horizontal_distance_to(global_position, target_enemy.global_position)
-			if distance > stats.attack_range:
+			if _distance_to_target_edge(target_enemy) > stats.attack_range:
 				_seek_target()
 			else:
 				_attack(delta)
@@ -177,6 +176,20 @@ func _resting_height() -> float:
 ## any two units at the same Y (true of every non-flying unit today).
 static func horizontal_distance_to(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+
+## Distance from this unit's own collision edge to target's center --
+## attack_range means "reach beyond my body," not "gap between two
+## centers." Subtracting only the attacker's own radius (not the
+## target's too) keeps attack_range a per-unit constant independent of
+## who it's fighting, rather than something that has to be reasoned
+## about per matchup. Without this, two units whose combined radii are
+## close to attack_range (e.g. two Giants, radius 1.1 each, range 2.2)
+## have essentially zero room to both stand in range of the same target
+## without their own capsules overlapping -- avoidance can't resolve
+## that cleanly and the pair visibly circles/jostles instead of settling.
+func _distance_to_target_edge(target: Unit) -> float:
+	return horizontal_distance_to(global_position, target.global_position) - stats.collision_radius
 
 
 ## Launches this unit along a fixed-duration parabolic arc, horizontally
@@ -294,14 +307,13 @@ func _describe_state() -> String:
 			return "Waiting (Game Over)"
 	if target_enemy == null:
 		return "Searching for Target"
-	var distance := horizontal_distance_to(global_position, target_enemy.global_position)
-	return "Moving" if distance > stats.attack_range else "Attacking"
+	return "Moving" if _distance_to_target_edge(target_enemy) > stats.attack_range else "Attacking"
 
 
 func _describe_distance_to_target() -> String:
 	if target_enemy == null:
 		return "-"
-	return "%.1f m" % horizontal_distance_to(global_position, target_enemy.global_position)
+	return "%.1f m" % _distance_to_target_edge(target_enemy)
 
 
 ## How far avoidance is steering velocity away from the raw seek

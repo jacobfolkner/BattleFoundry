@@ -12,6 +12,13 @@ extends Resource
 @export_group("Combat")
 @export var max_health: float = 100.0
 @export var damage: float = 10.0
+## Reach beyond this unit's own collision_radius, to the target's
+## center -- not raw center-to-center distance. See
+## Unit._distance_to_target_edge(). Keeps this a per-unit constant
+## independent of the target's size, and leaves room for multiple
+## attackers to stand in range of one target without their own bodies
+## overlapping (a real problem when a unit's radius is a large fraction
+## of its attack_range, as Giant's is).
 @export var attack_range: float = 2.0
 @export var attack_interval: float = 1.0 ## Seconds between attacks.
 ## Horizontal distance this attack knocks the target back, in meters.
