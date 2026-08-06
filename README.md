@@ -22,10 +22,11 @@ scene is `Scenes/Main.tscn`.
 
 1. Pick a unit type (Tank / Fighter / Archer / Bat Rider / Giant) and a
    team (Blue / Red) in the top-left panels. Bat Rider flies — it rests
-   elevated at `flight_height` and passes over ground units, but still
-   fights normally (combat range is horizontal-only, so height doesn't
-   put it out of reach). Giant's attack knocks its target up and back
-   through the air, over other units, before it lands.
+   elevated at `flight_height` and passes over ground units, and only a
+   unit with `can_attack_flying = true` (Archer, or Bat Rider itself)
+   can hit it; melee ground units can't target it at all. Giant's
+   attack knocks its target up and back through the air, over other
+   units, before it lands.
 2. Click inside the arena to place units. Repeat for both teams.
 3. Press **Start Battle**. Units automatically seek the nearest enemy,
    close distance, and attack until one team is eliminated.

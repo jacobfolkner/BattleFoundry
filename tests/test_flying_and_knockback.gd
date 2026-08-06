@@ -8,6 +8,7 @@ extends GutTest
 
 const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
+const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
 const BAT_RIDER_STATS: UnitStats = preload("res://Resources/BatRiderStats.tres")
 const GIANT_STATS: UnitStats = preload("res://Resources/GiantStats.tres")
 
@@ -37,18 +38,42 @@ func test_ground_unit_still_rests_at_zero() -> void:
 		"non-flying units must be unaffected by the flight-height change")
 
 
-func test_flying_unit_and_ground_unit_can_damage_each_other() -> void:
+## Archer has can_attack_flying = true (a ranged unit, per the "ground
+## can't hit air unless it's anti-air/ranged" convention) -- proves a
+## flying unit and a permitted ground unit can fight each other despite
+## the height difference, i.e. the horizontal-distance range fix works,
+## not just the can_attack_flying gate.
+func test_flying_unit_and_permitted_ground_unit_can_damage_each_other() -> void:
 	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, Team.Type.BLUE, Vector3(-1, 0, 0))
-	var tank := GameManager.spawn_unit(TANK_STATS, Team.Type.RED, Vector3(1, 0, 0))
+	var archer := GameManager.spawn_unit(ARCHER_STATS, Team.Type.RED, Vector3(1, 0, 0))
 	GameManager.start_battle()
 
 	for i in range(120): # 2s -- plenty for both to land at least one hit at this range
 		await wait_physics_frames(1)
 
 	assert_lt(bat_rider.current_health, BAT_RIDER_STATS.max_health,
-		"ground unit should be able to hit a flying unit despite the height difference")
-	assert_lt(tank.current_health, TANK_STATS.max_health,
+		"a unit with can_attack_flying = true should be able to hit a flying unit")
+	assert_lt(archer.current_health, ARCHER_STATS.max_health,
 		"flying unit should be able to hit a ground unit despite the height difference")
+
+
+## Tank has can_attack_flying = false (the default) -- it should never
+## even acquire the Bat Rider as a target, let alone damage it, while
+## the Bat Rider (unrestricted, flying units can always hit ground) can
+## still damage the Tank.
+func test_ground_melee_cannot_target_flying_unit() -> void:
+	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, Team.Type.BLUE, Vector3(-1, 0, 0))
+	var tank := GameManager.spawn_unit(TANK_STATS, Team.Type.RED, Vector3(1, 0, 0))
+	GameManager.start_battle()
+
+	for i in range(120): # 2s
+		await wait_physics_frames(1)
+
+	assert_eq(bat_rider.current_health, BAT_RIDER_STATS.max_health,
+		"can_attack_flying = false should mean the Tank never lands a hit on a flying unit")
+	assert_null(tank.target_enemy, "the Tank should never acquire the flying unit as a target at all")
+	assert_lt(tank.current_health, TANK_STATS.max_health,
+		"the flying unit should still be able to hit the ground unit")
 
 
 func test_giant_knockback_launches_target_up_and_back_and_lands() -> void:

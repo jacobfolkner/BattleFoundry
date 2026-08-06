@@ -27,6 +27,12 @@ extends Resource
 ## Peak height the target rises to mid-knockback, in meters. Only
 ## matters if knockback_distance is also nonzero.
 @export var knockback_height: float = 0.0
+## Whether this unit can target a flying enemy at all. False by default
+## (the classic "ground can't hit air" RTS convention) so a new
+## archetype has to opt in rather than opt out -- see
+## GameManager.find_nearest_enemy(). Irrelevant for a flying unit
+## attacking a ground one; that's always allowed.
+@export var can_attack_flying: bool = false
 
 @export_group("Movement")
 @export var move_speed: float = 3.0 ## Meters per second.
