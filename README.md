@@ -109,3 +109,24 @@ is added.
 `.github/workflows/ci.yml` fetches GUT (cached, keyed on
 `tools/fetch_gut.sh`'s contents), then runs the import check and GUT
 suite on every push to `main` and every pull request.
+
+### Screenshots
+
+`tools/screenshot.sh` boots the real game headless (Xvfb) and saves a
+PNG for visual/manual validation — not run in CI, ad-hoc only. Can place
+specific units, start a battle, select a unit (opening the debug
+inspector panel), and enable debug-menu flags, all from one command; see
+`tools/Screenshot.gd`'s header comment for the full option list.
+
+```sh
+tools/screenshot.sh
+tools/screenshot.sh --out=battle.png --place="Tank:BLUE:-2,0,0;Fighter:RED:2,0,0" --battle --wait=90
+```
+
+Defaults to Godot's Compatibility renderer (~5-10s, fine for checking
+shapes/positions/UI) rather than this project's actual Forward+ renderer,
+so lighting/shadows come out noticeably darker than real gameplay. Pass
+`--renderer=vulkan` for lighting that matches what you'd see in the
+editor — it runs on a software Vulkan implementation under Xvfb, so
+budget ~30s per screenshot (mostly fixed startup/shader-compile cost,
+not sensitive to `--wait` once above ~8 frames).
