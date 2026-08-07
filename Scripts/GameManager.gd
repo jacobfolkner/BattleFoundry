@@ -124,7 +124,10 @@ func spawn_unit(stats: UnitStats, team: Team.Type, spawn_position: Vector3) -> U
 	return unit
 
 
-## Returns the closest living enemy to `unit`, or null if none remain.
+## Returns the closest living enemy to `unit` that `unit` is actually
+## capable of targeting, or null if none remain. A flying enemy is
+## skipped unless unit.stats.can_attack_flying -- see UnitStats.
+## Flying units themselves are never restricted; they can target ground.
 func find_nearest_enemy(unit: Unit) -> Unit:
 	var enemies: Array = _units_by_team[Team.get_opponent(unit.team)]
 	var nearest: Unit = null
@@ -132,7 +135,9 @@ func find_nearest_enemy(unit: Unit) -> Unit:
 	for enemy in enemies:
 		if not is_instance_valid(enemy) or enemy.current_health <= 0.0:
 			continue
-		var distance := unit.global_position.distance_to(enemy.global_position)
+		if enemy.stats.is_flying and not unit.stats.can_attack_flying:
+			continue
+		var distance := Unit.horizontal_distance_to(unit.global_position, enemy.global_position)
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = enemy

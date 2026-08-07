@@ -16,6 +16,8 @@ signal start_battle_pressed
 const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
 const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
+const BAT_RIDER_STATS: UnitStats = preload("res://Resources/BatRiderStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/GiantStats.tres")
 
 var _start_button: Button
 var _winner_label: Label
@@ -25,8 +27,18 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_build_unit_panel()
-	_build_team_panel()
+	# One outer VBoxContainer stacks the unit panel above the team panel,
+	# so the team panel's position is never a hand-computed pixel offset
+	# that silently goes stale (and overlaps the row above) every time a
+	# unit-type button is added -- it just follows whatever height the
+	# panel above it ends up with.
+	var root := VBoxContainer.new()
+	root.position = Vector2(16, 16)
+	add_child(root)
+
+	_build_unit_panel(root)
+	_add_spacer(root, 12)
+	_build_team_panel(root)
 	_build_winner_label()
 
 	# Sensible defaults so a click places a unit immediately.
@@ -34,31 +46,34 @@ func _ready() -> void:
 	team_selected.emit(Team.Type.BLUE)
 
 
-func _build_unit_panel() -> void:
+func _build_unit_panel(parent: Control) -> void:
 	var panel := VBoxContainer.new()
-	panel.position = Vector2(16, 16)
-	add_child(panel)
+	parent.add_child(panel)
 
 	var group := ButtonGroup.new()
 	_add_toggle_button(panel, "Tank", group, true, func(): unit_type_selected.emit(TANK_STATS))
 	_add_toggle_button(panel, "Fighter", group, false, func(): unit_type_selected.emit(FIGHTER_STATS))
 	_add_toggle_button(panel, "Archer", group, false, func(): unit_type_selected.emit(ARCHER_STATS))
+	_add_toggle_button(panel, "Bat Rider", group, false, func(): unit_type_selected.emit(BAT_RIDER_STATS))
+	_add_toggle_button(panel, "Giant", group, false, func(): unit_type_selected.emit(GIANT_STATS))
 
 
-func _build_team_panel() -> void:
+func _build_team_panel(parent: Control) -> void:
 	var panel := VBoxContainer.new()
-	panel.position = Vector2(16, 148)
-	add_child(panel)
+	parent.add_child(panel)
 
 	var group := ButtonGroup.new()
 	_add_toggle_button(panel, "Blue Team", group, true, func(): team_selected.emit(Team.Type.BLUE))
 	_add_toggle_button(panel, "Red Team", group, false, func(): team_selected.emit(Team.Type.RED))
 
-	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, 12)
-	panel.add_child(spacer)
-
+	_add_spacer(panel, 12)
 	_build_start_button(panel)
+
+
+func _add_spacer(parent: Control, height: float) -> void:
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, height)
+	parent.add_child(spacer)
 
 
 func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_pressed: bool, on_pressed: Callable) -> void:

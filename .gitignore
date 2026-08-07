@@ -8,6 +8,9 @@
 # Third-party addon, fetched by tools/fetch_gut.sh rather than vendored
 /addons/gut/
 
+# Ad-hoc output from tools/screenshot.sh
+/screenshots/
+
 # Export artifacts
 export.cfg
 export_presets.cfg

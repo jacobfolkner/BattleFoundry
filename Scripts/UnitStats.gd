@@ -12,11 +12,38 @@ extends Resource
 @export_group("Combat")
 @export var max_health: float = 100.0
 @export var damage: float = 10.0
+## Reach beyond this unit's own collision_radius, to the target's
+## center -- not raw center-to-center distance. See
+## Unit._distance_to_target_edge(). Keeps this a per-unit constant
+## independent of the target's size, and leaves room for multiple
+## attackers to stand in range of one target without their own bodies
+## overlapping (a real problem when a unit's radius is a large fraction
+## of its attack_range, as Giant's is).
 @export var attack_range: float = 2.0
 @export var attack_interval: float = 1.0 ## Seconds between attacks.
+## Horizontal distance this attack knocks the target back, in meters.
+## 0 (default) means this attack never knocks anyone back.
+@export var knockback_distance: float = 0.0
+## Peak height the target rises to mid-knockback, in meters. Only
+## matters if knockback_distance is also nonzero.
+@export var knockback_height: float = 0.0
+## Whether this unit can target a flying enemy at all. False by default
+## (the classic "ground can't hit air" RTS convention) so a new
+## archetype has to opt in rather than opt out -- see
+## GameManager.find_nearest_enemy(). Irrelevant for a flying unit
+## attacking a ground one; that's always allowed.
+@export var can_attack_flying: bool = false
 
 @export_group("Movement")
 @export var move_speed: float = 3.0 ## Meters per second.
+
+@export_group("Flight")
+## Flying units rest at flight_height instead of the ground plane, and
+## combat range checks become horizontal-only for everyone as a result
+## -- see Unit.horizontal_distance_to(). False (default) means this
+## unit behaves exactly as before: ground-locked at y=0.
+@export var is_flying: bool = false
+@export var flight_height: float = 0.0
 
 @export_group("Collision")
 ## Radius of the unit's physical footprint (a CapsuleShape3D in Unit.gd).

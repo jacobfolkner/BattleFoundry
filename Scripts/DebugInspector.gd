@@ -68,7 +68,10 @@ func _process(_delta: float) -> void:
 
 	_attack_range_ring.visible = show_pathfinding
 	if show_pathfinding:
-		_resize_ring(_attack_range_ring, selected_unit.stats.attack_range)
+		# attack_range is reach *beyond* the unit's own body (see
+		# Unit._distance_to_target_edge()), so the ring showing true
+		# reach needs collision_radius added back in.
+		_resize_ring(_attack_range_ring, selected_unit.stats.attack_range + selected_unit.stats.collision_radius)
 		_attack_range_ring.global_position = selected_unit.global_position + Vector3(0, 0.02, 0)
 
 	var target: Unit = selected_unit.target_enemy if is_valid else null

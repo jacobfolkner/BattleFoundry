@@ -40,6 +40,20 @@ Runs fully headless, no display needed — GUT tests exercise game logic
 and physics, not rendering. Fresh clone (or after touching `addons/gut`)
 needs the first two steps once; CI does this automatically.
 
+## Visual/manual validation
+
+Use `tools/screenshot.sh` for this — don't write a new throwaway
+GDScript driver scene under `tools/` to boot the game and grab a
+screenshot; that pattern already exists, is scriptable (place units,
+start a battle, select a unit, toggle debug-menu flags, all via one
+command), and deleting-and-recreating it every session wastes a turn.
+See the README's "Screenshots" section or `tools/Screenshot.gd`'s
+header comment for the option list. Defaults to a fast renderer that
+renders noticeably darker than real gameplay (`--renderer=vulkan` for
+accurate lighting, ~30s instead of ~5-10s) — mention this if screenshot
+output looks unexpectedly dark, it's a known renderer mismatch, not a
+lighting bug in the game itself.
+
 ## Godot gotchas worth remembering
 
 - **`NavigationAgent3D` avoidance without a navmesh**: `target_position`
@@ -53,3 +67,11 @@ needs the first two steps once; CI does this automatically.
   building content, then position it from `get_viewport_rect().size`
   directly rather than anchors. See `UI/DebugMenu.gd` /
   `UI/DebugPanel.gd`.
+- **Godot's Compatibility renderer (`--rendering-driver opengl3`) vs.
+  this project's configured Forward+**: Compatibility renders
+  noticeably darker/flatter lighting for the same scene. Xvfb here has
+  no real GPU, so Forward+ (Vulkan) only works via a software
+  implementation (llvmpipe) — functional but ~30s per invocation
+  (mostly fixed engine/shader-compile startup cost, not much affected
+  by `--wait` once above ~8 frames), vs. ~5-10s for Compatibility. See
+  `tools/screenshot.sh`'s `--renderer` flag.

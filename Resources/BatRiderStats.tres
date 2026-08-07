@@ -4,13 +4,15 @@
 
 [resource]
 script = ExtResource("1")
-unit_name = "Archer"
-max_health = 70.0
-damage = 14.0
-attack_range = 5.6
-attack_interval = 1.0
+unit_name = "Bat Rider"
+max_health = 60.0
+damage = 12.0
+attack_range = 1.1
+attack_interval = 0.8
 can_attack_flying = true
-move_speed = 3.5
+move_speed = 5.5
 collision_radius = 0.4
-mesh_shape = "Cone"
-mesh_size = Vector3(0.5, 1.4, 0.5)
+mesh_shape = "Capsule"
+mesh_size = Vector3(0.4, 1.0, 0.4)
+is_flying = true
+flight_height = 3.0

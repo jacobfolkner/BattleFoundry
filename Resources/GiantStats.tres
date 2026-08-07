@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+unit_name = "Giant"
+max_health = 400.0
+damage = 25.0
+attack_range = 1.9
+attack_interval = 1.8
+knockback_distance = 4.0
+knockback_height = 2.5
+move_speed = 1.5
+collision_radius = 1.1
+mesh_shape = "Box"
+mesh_size = Vector3(2.0, 2.4, 2.0)
