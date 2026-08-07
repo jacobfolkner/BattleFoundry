@@ -11,9 +11,6 @@
 # Ad-hoc output from tools/screenshot.sh
 /screenshots/
 
-# Personal/local notes, never committed
-/BattleFoundry-Roadmap.md
-
 # Export artifacts
 export.cfg
 export_presets.cfg
