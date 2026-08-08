@@ -207,12 +207,12 @@ func order_follow(target_unit: Unit, queue: bool = false) -> void:
 
 
 ## Casts ability slot `index` (0/1/2, the Q/W/E hotkeys in Main.gd) on
-## every selected unit that has one there. There's no target-picking
-## input mode in this v1 -- a UNIT_TARGET ability auto-targets whatever
-## the unit is already fighting (target_enemy), same as autoattacks do;
-## NO_TARGET/PASSIVE ignore the concept of a target entirely. A real
-## "click to choose the target" cursor mode is future work once there's
-## a hotbar UI to pair it with.
+## every selected unit that has one there, auto-targeting whatever each
+## unit is already fighting (target_enemy), same as autoattacks do --
+## NO_TARGET/PASSIVE/AURA ignore the concept of a target entirely. This is
+## the auto-target path Main.gd falls back to for anything that isn't a
+## UNIT_TARGET ability; see cast_ability_at_target() for the click-to-
+## target flow UNIT_TARGET abilities actually use now.
 func cast_ability(index: int) -> void:
 	for unit in _owned_selection():
 		if index < 0 or index >= unit.stats.abilities.size():
@@ -222,6 +222,26 @@ func cast_ability(index: int) -> void:
 			continue
 		if ability.cast_type == Ability.CastType.UNIT_TARGET:
 			unit.cast_ability(index, unit.target_enemy)
+		else:
+			unit.cast_ability(index)
+
+
+## Like cast_ability(), but for the click-to-target flow (see
+## Main._pending_ability_target/_resolve_pending_ability_target()) --
+## every owned selected unit with a UNIT_TARGET ability in this slot casts
+## it at the same explicit `target` instead of whatever each unit's own
+## target_enemy happens to be. NO_TARGET/PASSIVE/AURA slots ignore target
+## entirely, same as cast_ability() -- this only actually changes behavior
+## for UNIT_TARGET.
+func cast_ability_at_target(index: int, target: Unit) -> void:
+	for unit in _owned_selection():
+		if index < 0 or index >= unit.stats.abilities.size():
+			continue
+		var ability: Ability = unit.stats.abilities[index]
+		if ability == null:
+			continue
+		if ability.cast_type == Ability.CastType.UNIT_TARGET:
+			unit.cast_ability(index, target)
 		else:
 			unit.cast_ability(index)
 

@@ -248,6 +248,42 @@ func test_queued_order_runs_after_current_completes() -> void:
 
 
 # ---------------------------------------------------------------------
+# Default autonomous AI (current_order == null) -- acquisition_range
+# ---------------------------------------------------------------------
+
+## The "known rough edge" this project shipped with from the start:
+## GameManager.find_nearest_enemy() had no distance cutoff, so an idle
+## unit would immediately start walking toward -- and never give up on --
+## whatever enemy existed anywhere on the field, however far away. See
+## UnitStats.acquisition_range/Unit._update_target().
+func test_idle_unit_does_not_chase_an_enemy_beyond_acquisition_range() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(TANK_STATS.acquisition_range + 5.0, 0, 0))
+	GameManager.start_battle()
+
+	for i in range(30):
+		await wait_physics_frames(1)
+
+	assert_null(tank.target_enemy, "an enemy beyond acquisition_range should never be auto-targeted")
+	assert_almost_eq(tank.global_position.distance_to(Vector3.ZERO), 0.0, 0.1,
+		"an idle unit with nothing within acquisition_range should not wander at all")
+
+
+func test_an_already_engaged_unit_gives_up_once_its_target_drifts_beyond_acquisition_range() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	var fighter := GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(2, 0, 0))
+	GameManager.start_battle()
+	await wait_physics_frames(2) # let the tank auto-acquire the fighter as target_enemy
+
+	assert_eq(tank.target_enemy, fighter)
+
+	fighter.global_position = Vector3(TANK_STATS.acquisition_range + 10.0, 0, 0) # simulate having drifted far away
+	await wait_physics_frames(2)
+
+	assert_null(tank.target_enemy, "a target that drifts beyond acquisition_range should be given up on, not chased forever")
+
+
+# ---------------------------------------------------------------------
 # SelectionManager
 # ---------------------------------------------------------------------
 

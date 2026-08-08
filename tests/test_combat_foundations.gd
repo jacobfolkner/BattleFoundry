@@ -226,6 +226,33 @@ func test_corpse_frees_itself_after_decay_duration() -> void:
 	assert_false(is_instance_valid(victim), "a corpse should free itself once its decay duration elapses")
 
 
+func _channel_sum(color: Color) -> float:
+	return color.r + color.g + color.b
+
+
+## Asserts on direction/shape (darker, then fully black), not a precise
+## fraction at a precise frame count -- a wait_physics_frames() loop's
+## simulated-time-per-call isn't reliably 1/60s for larger N (confirmed
+## elsewhere this project; pinning "exactly halfway at exactly 90 frames"
+## is exactly the brittleness that's bitten tests here before).
+func test_corpse_darkens_toward_black_as_it_decays() -> void:
+	var victim := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	var brightness_at_spawn := _channel_sum(victim._body_material.albedo_color)
+
+	victim.take_damage(DamageInstance.new(victim.stat_block.max_health() + 100.0))
+	assert_eq(_channel_sum(victim._body_material.albedo_color), brightness_at_spawn, "should still be full team color the instant it dies")
+
+	for i in range(10): # short waits, well clear of the 3s decay actually finishing (and freeing the corpse out from under this test)
+		await wait_physics_frames(1)
+	var first_check := _channel_sum(victim._body_material.albedo_color)
+	assert_lt(first_check, brightness_at_spawn, "should already be darker than spawn shortly after dying")
+	assert_gt(first_check, 0.0, "should not already be fully black this early into decay")
+
+	for i in range(10):
+		await wait_physics_frames(1)
+	assert_lt(_channel_sum(victim._body_material.albedo_color), first_check, "should keep getting darker as decay progresses")
+
+
 func test_dead_unit_ignores_further_damage() -> void:
 	var victim := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
 	watch_signals(victim)

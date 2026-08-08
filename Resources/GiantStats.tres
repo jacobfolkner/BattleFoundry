@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1")
 unit_name = "Giant"
+cost = 250
 max_health = 400.0
 damage = 25.0
 attack_range = 1.9

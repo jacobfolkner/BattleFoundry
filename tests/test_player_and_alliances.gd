@@ -104,3 +104,26 @@ func test_allied_teams_do_not_target_each_other() -> void:
 		"an allied team's units should never be returned as an enemy")
 
 	GameManager.alliances.unally(blue.team_id, green.team_id) # don't leak into other tests
+
+
+## The "known rough edge" this project shipped with from the start: no
+## distance cutoff meant find_nearest_enemy() always returned *some*
+## enemy anywhere on the field, so an idle unit would walk clear across
+## the arena to fight something on the other side of it.
+func test_find_nearest_enemy_ignores_a_target_beyond_acquisition_range() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	var blue_unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3.ZERO)
+	GameManager.spawn_unit(TANK_STATS, red, Vector3(TANK_STATS.acquisition_range + 5.0, 0, 0))
+
+	assert_null(GameManager.find_nearest_enemy(blue_unit),
+		"an enemy beyond acquisition_range should never be found, even with nothing closer to prefer instead")
+
+
+func test_find_nearest_enemy_still_finds_a_target_within_acquisition_range() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	var blue_unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3.ZERO)
+	var enemy := GameManager.spawn_unit(TANK_STATS, red, Vector3(TANK_STATS.acquisition_range - 2.0, 0, 0))
+
+	assert_eq(GameManager.find_nearest_enemy(blue_unit), enemy)

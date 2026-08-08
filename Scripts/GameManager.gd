@@ -150,6 +150,7 @@ func start_battle() -> void:
 func set_mode(mode: GameMode) -> void:
 	reset_battle()
 	current_mode = mode
+	mode.on_activated()
 
 
 ## BATTLE -> GAME_OVER. Private: the only legal route to GAME_OVER is
@@ -181,22 +182,38 @@ func _process(delta: float) -> void:
 		_declare_draw()
 
 
-## PLACEMENT, BATTLE, or GAME_OVER -> PLACEMENT. Frees any units still
-## in the arena and clears both rosters, so the lifecycle state and the
-## actual battlefield can never disagree about whether a battle is in
-## progress.
+## PLACEMENT, BATTLE, or GAME_OVER -> PLACEMENT. Frees units still in the
+## arena and clears both rosters, so the lifecycle state and the actual
+## battlefield can never disagree about whether a battle is in progress.
 ##
-## Also what set_mode() calls before swapping current_mode, and (once a
-## mode like Blood Tournament wires it up) the natural way to reset the
-## arena between rounds. Lets tests get a clean PLACEMENT state between
-## cases through the public API instead of reaching into _units_by_team
-## directly.
-func reset_battle() -> void:
+## `preserve_survivors`: when true, any unit still alive (Unit.LifeState.ALIVE
+## -- a decaying corpse doesn't count) is kept instead of freed, and re-seeded
+## into its team's roster so can_start_battle()/team_is_empty() see it
+## immediately. This is Blood Tournament's roster-carryover mechanic
+## (Main._advance_to_next_round() is the only caller that passes true) --
+## permadeath is the point of that genre, so only *living* units carry over,
+## never corpses. Defaults to false so every other caller (set_mode(), tests,
+## a plain single-battle reset) keeps the original free-everything behavior
+## exactly, with no risk of a leftover GameManager.current_mode from an
+## earlier call deciding this by accident.
+func reset_battle(preserve_survivors: bool = false) -> void:
+	var survivors: Array[Unit] = []
+	if preserve_survivors:
+		for unit in _all_units:
+			if is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE:
+				survivors.append(unit)
+
 	for unit in _all_units:
-		if is_instance_valid(unit):
+		if is_instance_valid(unit) and not survivors.has(unit):
 			unit.queue_free()
-	_all_units.clear()
+
+	_all_units = survivors
 	_units_by_team.clear()
+	for unit in survivors:
+		if not _units_by_team.has(unit.player.team_id):
+			_units_by_team[unit.player.team_id] = []
+		_units_by_team[unit.player.team_id].append(unit)
+
 	_transition_to(BattleState.PLACEMENT)
 
 
@@ -256,6 +273,52 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 	return unit
 
 
+## Fraction of UnitStats.cost refunded by sell_unit() -- only meaningful
+## while current_mode.uses_economy() is true.
+const SELL_REFUND_FRACTION := 0.5
+
+## Removes `unit` from the arena during PLACEMENT -- undoing a placement
+## (a survivor you'd rather not keep, or a fresh unit placed by mistake),
+## not something available mid-battle. Refunds SELL_REFUND_FRACTION of its
+## cost only if the active mode uses_economy(); the removal itself works
+## either way, since "undo my placement" is useful even in a free-to-place
+## classic match. No-ops silently for an already-dead/invalid unit or
+## outside PLACEMENT, same "an invalid transition simply doesn't happen"
+## contract the battle lifecycle methods above use.
+func sell_unit(unit: Unit) -> void:
+	if not is_instance_valid(unit) or unit.life_state != Unit.LifeState.ALIVE:
+		return
+	if not is_placement_phase():
+		return
+
+	if current_mode.uses_economy():
+		unit.player.add_gold(int(unit.stats.cost * SELL_REFUND_FRACTION))
+
+	_units_by_team[unit.player.team_id].erase(unit)
+	_all_units.erase(unit)
+	unit.queue_free()
+
+
+## The "shop" half of Blood Tournament's economy (slice 3): spends gold to
+## apply a permanent Effect to an owned, living unit during PLACEMENT --
+## reuses Ability.cast_unit_target() (caster == target == `unit`) rather
+## than inventing a second way to apply an Effect, per the roadmap's own
+## "no new framework needed" framing. Returns whether the purchase went
+## through, so a caller (Main.gd's hotkey handler) can tell a no-op from a
+## successful buy without duplicating these checks itself.
+func buy_upgrade(unit: Unit, upgrade: UnitUpgrade) -> bool:
+	if not is_instance_valid(unit) or unit.life_state != Unit.LifeState.ALIVE:
+		return false
+	if not is_placement_phase() or not current_mode.uses_economy():
+		return false
+	if not unit.player.can_afford(upgrade.cost):
+		return false
+
+	unit.player.spend(upgrade.cost)
+	upgrade.ability.cast_unit_target(unit, unit)
+	return true
+
+
 ## Every currently-valid unit spawned this battle, alive or (briefly)
 ## decaying corpses -- SelectionManager's drag-box selection needs to
 ## test every unit on the field against a screen rect, not just one
@@ -268,13 +331,22 @@ func get_all_units() -> Array[Unit]:
 	return units
 
 
-## Returns the closest living enemy to `unit` that `unit` is actually
-## capable of targeting, or null if none remain. Considers every team
+## Returns the closest living enemy to `unit` within its
+## UnitStats.acquisition_range that `unit` is actually capable of
+## targeting, or null if none qualify. Considers every team
 ## AllianceMatrix.is_hostile() says is hostile to unit's team, not just a
 ## single binary opponent -- this is what makes FFA/neutral factions work
 ## without find_nearest_enemy() itself needing to change again. A flying
 ## enemy is skipped unless unit.stats.can_attack_flying -- see UnitStats.
 ## Flying units themselves are never restricted; they can target ground.
+##
+## The acquisition_range cap is what fixes the "an idle unit walks across
+## the whole arena to fight something far away" rough edge -- previously
+## this always returned *some* enemy if one existed anywhere on the field,
+## no matter the distance. See Unit._update_target(), the only caller that
+## matters for autonomous AI, for the other half of the fix (an
+## already-acquired target gets dropped, not chased forever, once it
+## drifts out of range too).
 func find_nearest_enemy(unit: Unit) -> Unit:
 	var nearest: Unit = null
 	var nearest_distance: float = INF
@@ -287,6 +359,8 @@ func find_nearest_enemy(unit: Unit) -> Unit:
 			if enemy.stats.is_flying and not unit.stats.can_attack_flying:
 				continue
 			var distance := Unit.horizontal_distance_to(unit.global_position, enemy.global_position)
+			if distance > unit.stats.acquisition_range:
+				continue
 			if distance < nearest_distance:
 				nearest_distance = distance
 				nearest = enemy
@@ -300,12 +374,15 @@ func team_is_empty(team_id: int) -> bool:
 	return not _units_by_team.has(team_id) or _units_by_team[team_id].is_empty()
 
 
-## `killer` (the DamageInstance.source of the killing blow) is unused here
-## today -- kill attribution now flows end-to-end through the damage
-## pipeline, ready for a future bounty/scoring system to read it without
-## another plumbing pass.
-func _on_unit_died(unit: Unit, _killer: Unit) -> void:
+## `killer` (the DamageInstance.source of the killing blow) is what the
+## kill-attribution plumbing threaded through the damage pipeline for --
+## Unit.gain_xp() itself no-ops for a non-hero, so this is safe to call
+## unconditionally rather than checking killer.stats.is_hero here too.
+func _on_unit_died(unit: Unit, killer: Unit) -> void:
 	_units_by_team[unit.player.team_id].erase(unit)
+
+	if is_instance_valid(killer):
+		killer.gain_xp(Unit.XP_PER_KILL)
 
 	if not is_battle_active():
 		return

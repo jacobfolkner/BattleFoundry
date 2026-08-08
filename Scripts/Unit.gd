@@ -96,6 +96,12 @@ var current_order: Order = null
 
 var _attack_cooldown: float = 0.0
 var _health_bar: HealthBar
+var _status_indicator: UnitStatusMarker
+## The mesh's own material -- stored so die()/_physics_process()'s corpse
+## tick can darken it toward black over _CORPSE_DECAY_DURATION, instead of
+## a corpse just sitting there at full team color until it vanishes.
+var _body_material: StandardMaterial3D
+var _body_color_at_death: Color
 var _nav_agent: NavigationAgent3D
 var _order_queue: Array[Order] = []
 var _patrol_forward: bool = true
@@ -110,6 +116,13 @@ var _stun_immunity_remaining: float = 0.0
 ## cooldown seconds. Absent/0 means ready.
 var _ability_cooldowns: Dictionary = {}
 
+## Re-ticking stats.aura_ability every physics frame would allocate a
+## fresh Effect 60x/sec per aura-bearing unit for no benefit -- REFRESH
+## stacking (Effect's own default) only needs to land often enough that
+## the buff never actually expires on someone standing in range.
+const _AURA_TICK_INTERVAL := 0.25
+var _aura_tick_elapsed: float = 0.0
+
 var _decay_elapsed: float = 0.0
 
 var _is_airborne: bool = false
@@ -121,6 +134,15 @@ var _knockback_peak_height: float
 
 @onready var _mesh_instance: MeshInstance3D = $MeshInstance3D
 @onready var _collision_shape: CollisionShape3D = $CollisionShape3D
+
+## Only meaningful when stats.is_hero is true -- see gain_xp(). Every
+## non-hero unit just carries these unused defaults.
+var level: int = 1
+var xp: float = 0.0
+## Flat, not scaled by the killed unit's cost/tier -- deliberately simple
+## for this first Heroes slice (roadmap Phase 4), matching how every other
+## v1 system in this project ships crude-but-real rather than fully tuned.
+const XP_PER_KILL := 50.0
 
 
 ## Called by GameManager right after the unit is added to the scene tree.
@@ -275,6 +297,13 @@ func get_effect(id: String) -> Effect:
 	return _find_effect_by_id(id)
 
 
+## Read-only snapshot for HUD display (see UI/HUD.gd's buff/debuff row) --
+## a duplicate, not the live array, so a caller iterating it is never
+## upset by _tick_effects()/apply_effect() mutating the original mid-loop.
+func get_active_effects() -> Array[Effect]:
+	return _active_effects.duplicate()
+
+
 func _find_effect_by_id(id: String) -> Effect:
 	for effect in _active_effects:
 		if effect.id == id:
@@ -301,6 +330,46 @@ func _tick_effects(delta: float) -> void:
 			if was_stun:
 				_stun_immunity_remaining = _STUN_IMMUNITY_DURATION
 
+	_refresh_status_indicator()
+
+
+## Priority order for which single active Effect's color gets shown when
+## more than one is active at once -- a CC flag always wins over a plain
+## stat modifier, since losing control of your unit is the thing a player
+## most needs to notice; arbitrary among the CC flags themselves. One
+## marker, not a full per-effect icon stack -- see UnitStatusMarker.gd's
+## own doc comment for why.
+const _CC_STATUS_COLORS := {
+	Effect.CCFlag.STUN: Color(1.0, 0.85, 0.1),
+	Effect.CCFlag.SILENCE: Color(0.6, 0.2, 0.9),
+	Effect.CCFlag.ROOT: Color(0.45, 0.3, 0.1),
+	Effect.CCFlag.ETHEREAL: Color(0.7, 0.9, 1.0),
+	Effect.CCFlag.INVULNERABLE: Color(0.9, 0.9, 0.95),
+}
+const _BUFF_STATUS_COLOR := Color(0.3, 1.0, 0.4)
+const _DEBUFF_STATUS_COLOR := Color(1.0, 0.3, 0.3)
+
+
+func _refresh_status_indicator() -> void:
+	for effect in _active_effects:
+		if _CC_STATUS_COLORS.has(effect.cc_flag):
+			_status_indicator.show_status(_CC_STATUS_COLORS[effect.cc_flag])
+			return
+	for effect in _active_effects:
+		if effect.stat != "":
+			_status_indicator.show_status(_BUFF_STATUS_COLOR if _is_buff(effect) else _DEBUFF_STATUS_COLOR)
+			return
+	_status_indicator.hide_status()
+
+
+## MULTIPLY and ADD need different "is this actually helping me" math --
+## a MULTIPLY of 0.5 (Frost Bolt's slow) is a debuff despite being a
+## positive number, which a naive stat_value >= 0.0 check would miss.
+func _is_buff(effect: Effect) -> bool:
+	if effect.stat_op == StatBlock.ModifierOp.MULTIPLY:
+		return effect.stat_value >= 1.0
+	return effect.stat_value >= 0.0
+
 
 func clear_all_effects() -> void:
 	for effect in _active_effects.duplicate():
@@ -310,6 +379,16 @@ func clear_all_effects() -> void:
 # ---------------------------------------------------------------------
 # Abilities (see Ability.gd)
 # ---------------------------------------------------------------------
+
+func _tick_aura(delta: float) -> void:
+	if stats.aura_ability == null:
+		return
+	_aura_tick_elapsed += delta
+	if _aura_tick_elapsed < _AURA_TICK_INTERVAL:
+		return
+	_aura_tick_elapsed = 0.0
+	stats.aura_ability.apply_aura(self)
+
 
 func _apply_passive_abilities() -> void:
 	for ability in stats.abilities:
@@ -322,8 +401,46 @@ func _tick_ability_cooldowns(delta: float) -> void:
 		_ability_cooldowns[index] = maxf(_ability_cooldowns[index] - delta, 0.0)
 
 
+## Read-only lookup for HUD display (see UI/HUD.gd's ability hotbar) --
+## 0.0 for a slot never cast yet (not in the dictionary at all), same as
+## cast_ability()'s own read of it.
+func get_ability_cooldown_remaining(index: int) -> float:
+	return _ability_cooldowns.get(index, 0.0)
+
+
+## No-op for a non-hero unit -- XP/leveling only exists when
+## stats.is_hero is true (see GameManager._on_unit_died(), the only
+## caller). A while loop, not a single if, so one big grant can carry a
+## hero through more than one level at once.
+func gain_xp(amount: float) -> void:
+	if not stats.is_hero:
+		return
+	xp += amount
+	while xp >= get_xp_to_next_level():
+		xp -= get_xp_to_next_level()
+		level += 1
+		_on_level_up()
+
+
+func get_xp_to_next_level() -> float:
+	return 100.0 * level
+
+
+## Flat per-level growth (not a percentage -- keeps this simple and
+## avoids any compounding-multiplication edge cases), then a full heal --
+## the classic RTS/MOBA "leveling up tops you off" convention, rather than
+## leaving a hero at a now-smaller fraction of a bigger health pool.
+func _on_level_up() -> void:
+	stat_block.base_max_health += 20.0
+	stat_block.base_damage += 3.0
+	stat_block.base_armor += 1.0
+	current_health = stat_block.max_health()
+	_health_bar.set_fraction(1.0)
+
+
 ## Triggers stats.abilities[index] (Q/W/E in Main.gd's input wiring).
 ## Returns false (and does nothing) if the slot is empty, on cooldown,
+## not yet unlocked (stats.is_hero only -- see stats.ability_unlock_levels),
 ## not a player-triggerable cast type, this unit can't currently act
 ## (stunned/silenced), or -- for UNIT_TARGET -- target is missing/out of
 ## range, so callers can tell a no-op from a successful cast.
@@ -331,7 +448,9 @@ func cast_ability(index: int, target: Unit = null) -> bool:
 	if index < 0 or index >= stats.abilities.size():
 		return false
 	var ability: Ability = stats.abilities[index]
-	if ability == null or ability.cast_type == Ability.CastType.PASSIVE or ability.cast_type == Ability.CastType.ON_HIT:
+	if ability == null or ability.cast_type == Ability.CastType.PASSIVE or ability.cast_type == Ability.CastType.ON_HIT or ability.cast_type == Ability.CastType.AURA:
+		return false
+	if stats.is_hero and index < stats.ability_unlock_levels.size() and level < stats.ability_unlock_levels[index]:
 		return false
 	if life_state != LifeState.ALIVE or is_stunned() or is_silenced():
 		return false
@@ -371,9 +490,9 @@ func _build_appearance() -> void:
 			box.size = stats.mesh_size
 			mesh = box
 
-	var material := StandardMaterial3D.new()
-	material.albedo_color = player.color
-	mesh.surface_set_material(0, material)
+	_body_material = StandardMaterial3D.new()
+	_body_material.albedo_color = player.color
+	mesh.surface_set_material(0, _body_material)
 
 	_mesh_instance.mesh = mesh
 	# Half the mesh height keeps the unit resting on the ground instead of
@@ -382,6 +501,7 @@ func _build_appearance() -> void:
 
 	_build_collision()
 	_build_health_bar()
+	_build_status_indicator()
 
 
 func _build_collision() -> void:
@@ -399,6 +519,12 @@ func _build_health_bar() -> void:
 	_health_bar = HealthBar.new()
 	_health_bar.position.y = stats.mesh_size.y + 0.35
 	add_child(_health_bar)
+
+
+func _build_status_indicator() -> void:
+	_status_indicator = UnitStatusMarker.new()
+	_status_indicator.position.y = stats.mesh_size.y + 0.65
+	add_child(_status_indicator)
 
 
 func _build_avoidance() -> void:
@@ -422,12 +548,14 @@ func _build_avoidance() -> void:
 func _physics_process(delta: float) -> void:
 	if life_state == LifeState.DEAD:
 		_decay_elapsed += delta
+		_body_material.albedo_color = _body_color_at_death.lerp(Color.BLACK, clampf(_decay_elapsed / _CORPSE_DECAY_DURATION, 0.0, 1.0))
 		if _decay_elapsed >= _CORPSE_DECAY_DURATION:
 			queue_free()
 		return
 
 	_tick_effects(delta)
 	_tick_ability_cooldowns(delta)
+	_tick_aura(delta)
 
 	if _is_airborne:
 		_process_knockback(delta)
@@ -613,10 +741,17 @@ func _process_knockback(delta: float) -> void:
 		_collision_shape.disabled = false
 
 
+## Keeps the current target_enemy only if it's still alive AND still
+## within acquisition_range of this unit's *current* position -- checked
+## fresh every call, not just at the moment a target was first picked, so
+## a target that drifts out of range gets given up on rather than chased
+## forever. Otherwise re-acquires via GameManager.find_nearest_enemy(),
+## which applies the same acquisition_range cap to the search itself.
 func _update_target() -> void:
 	var target_is_valid := target_enemy != null and is_instance_valid(target_enemy) and target_enemy.current_health > 0.0
-	if not target_is_valid:
-		target_enemy = GameManager.find_nearest_enemy(self)
+	if target_is_valid and horizontal_distance_to(global_position, target_enemy.global_position) <= stats.acquisition_range:
+		return
+	target_enemy = GameManager.find_nearest_enemy(self)
 
 
 func _seek_target() -> void:
@@ -669,16 +804,17 @@ func _process_order(delta: float) -> void:
 				return
 
 			# Plain attack-move to a point: only fight something already
-			# within attack range right now. _update_target() (via
-			# GameManager.find_nearest_enemy()) has no distance cutoff --
-			# it always returns *some* enemy if one exists anywhere on the
-			# field, regardless of how far away. Chasing that unconditionally
-			# (the bug this replaced) meant attack-move degenerated into
-			# the default autonomous "seek nearest enemy" the instant any
-			# enemy existed at all, and the actual clicked destination was
-			# never reachable. Falling back to the destination instead of
-			# _seek_target() is what makes "move there, fighting anything
-			# actually in the way" the real behavior.
+			# within attack range right now, never _seek_target() toward
+			# whatever _update_target() (via GameManager.find_nearest_enemy(),
+			# now capped by UnitStats.acquisition_range) picks. Chasing
+			# that unconditionally (the bug this replaced, back when
+			# find_nearest_enemy() had no cutoff at all) meant attack-move
+			# degenerated into the default autonomous "seek nearest enemy"
+			# the instant any enemy existed anywhere on the field, and the
+			# actual clicked destination was never reachable. Falling back
+			# to the destination instead of _seek_target() is what makes
+			# "move there, fighting anything actually in the way" the real
+			# behavior.
 			_update_target()
 			if target_enemy != null and _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
 				_attack(delta)
@@ -807,8 +943,10 @@ func die(killer: Unit = null) -> void:
 	current_health = 0.0
 	life_state = LifeState.DEAD
 	_decay_elapsed = 0.0
+	_body_color_at_death = _body_material.albedo_color
 	_collision_shape.disabled = true
 	_health_bar.visible = false
+	_status_indicator.hide_status()
 	clear_all_effects()
 	died.emit(self, killer)
 

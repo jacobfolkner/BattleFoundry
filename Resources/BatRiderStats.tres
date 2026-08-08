@@ -5,6 +5,7 @@
 [resource]
 script = ExtResource("1")
 unit_name = "Bat Rider"
+cost = 130
 max_health = 60.0
 damage = 12.0
 attack_range = 1.1

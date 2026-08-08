@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1")
 unit_name = "Fighter"
+cost = 100
 max_health = 120.0
 damage = 18.0
 attack_range = 1.0

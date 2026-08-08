@@ -245,6 +245,145 @@ func test_ability_cooldown_ticks_down_and_allows_recast() -> void:
 # Knockback ported to the ON_HIT ability framework (Giant Slam)
 # ---------------------------------------------------------------------
 
+# ---------------------------------------------------------------------
+# Ability: AURA (continuous, see Unit._tick_aura()/Ability.apply_aura())
+# ---------------------------------------------------------------------
+
+## A throwaway UnitStats (not one of the shared preloaded archetypes --
+## mutating TankStats.tres's own aura_ability field in a test would leak
+## into every other test that preloads it) with `aura` wired up as its
+## aura_ability.
+func _aura_caster_stats(aura: Ability) -> UnitStats:
+	var stats := UnitStats.new()
+	stats.unit_name = "AuraTestCaster"
+	stats.max_health = 100.0
+	stats.damage = 5.0
+	stats.attack_range = 1.0
+	stats.attack_interval = 1.0
+	stats.move_speed = 3.0
+	stats.collision_radius = 0.5
+	stats.aura_ability = aura
+	return stats
+
+
+func _build_test_aura(radius: float, duration: float = 1.0) -> Ability:
+	var aura := Ability.new()
+	aura.ability_name = "test_aura"
+	aura.cast_type = Ability.CastType.AURA
+	aura.aoe_radius = radius
+	aura.effect_duration = duration
+	aura.effect_stat = "armor"
+	aura.effect_stat_op = StatBlock.ModifierOp.ADD
+	aura.effect_stat_value = 4.0
+	return aura
+
+
+## Deliberately doesn't call GameManager.start_battle() -- _tick_effects()/
+## _tick_ability_cooldowns()/_tick_aura() all run every physics frame
+## regardless of battle_state (only gated by life_state != DEAD), same as
+## test_ability_cooldown_ticks_down_and_allows_recast() above already
+## relies on. Staying in PLACEMENT means _process_order()/_update_target()
+## never run, so units simply never move -- sidesteps the whole "no
+## acquisition-range cap" rough edge (units wandering toward the nearest
+## enemy) that a multi-second battle-active test would otherwise risk.
+func test_aura_buffs_the_caster_and_allies_within_radius_but_not_beyond_it() -> void:
+	var aura := _build_test_aura(5.0)
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var caster := GameManager.spawn_unit(_aura_caster_stats(aura), blue, Vector3.ZERO)
+	var nearby_ally := GameManager.spawn_unit(TANK_STATS, blue, Vector3(2, 0, 0))
+	var far_ally := GameManager.spawn_unit(TANK_STATS, blue, Vector3(20, 0, 0))
+
+	for i in range(20): # comfortably past Unit._AURA_TICK_INTERVAL (0.25s)
+		await wait_physics_frames(1)
+
+	assert_almost_eq(caster.stat_block.armor(), 4.0, 0.01, "an aura should buff its own caster too, same as WC3's own aura convention")
+	assert_almost_eq(nearby_ally.stat_block.armor(), TANK_STATS.armor + 4.0, 0.01, "an ally within aoe_radius should be buffed")
+	assert_almost_eq(far_ally.stat_block.armor(), TANK_STATS.armor, 0.01, "an ally outside aoe_radius should not be buffed")
+
+
+func test_aura_does_not_affect_hostile_units() -> void:
+	var aura := _build_test_aura(10.0)
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var caster := GameManager.spawn_unit(_aura_caster_stats(aura), blue, Vector3.ZERO)
+	var enemy := GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(2, 0, 0))
+	var enemy_baseline_armor := enemy.stat_block.armor() # Fighter's own Toughness passive already applies +5 at spawn -- capture the real baseline rather than assuming FIGHTER_STATS.armor alone
+
+	for i in range(20):
+		await wait_physics_frames(1)
+
+	assert_almost_eq(caster.stat_block.armor(), 4.0, 0.01)
+	assert_almost_eq(enemy.stat_block.armor(), enemy_baseline_armor, 0.01, "a hostile unit must never be buffed by an aura")
+
+
+## effect_duration (1.0s) is deliberately shorter than the test's own
+## observation window -- REFRESH stacking (Effect's default stack_rule)
+## re-ticking every _AURA_TICK_INTERVAL (0.25s) should keep resetting
+## elapsed back to 0 for as long as the ally stays in range, so the buff
+## must never actually expire on its own.
+func test_aura_effect_keeps_refreshing_so_it_never_expires_while_in_range() -> void:
+	var aura := _build_test_aura(5.0, 1.0)
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	GameManager.spawn_unit(_aura_caster_stats(aura), blue, Vector3.ZERO)
+	var ally := GameManager.spawn_unit(TANK_STATS, blue, Vector3(2, 0, 0))
+
+	for i in range(200): # ~3.3s simulated, well past the 1.0s effect_duration
+		await wait_physics_frames(1)
+
+	assert_almost_eq(ally.stat_block.armor(), TANK_STATS.armor + 4.0, 0.01,
+		"the aura buff should never expire while the ally stays in range")
+
+
+# ---------------------------------------------------------------------
+# In-world status indicator (see UnitStatusMarker.gd/Unit._refresh_status_indicator())
+# ---------------------------------------------------------------------
+
+func test_status_indicator_hidden_with_no_active_effects() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+
+	assert_false(tank._status_indicator._mesh_instance.visible)
+
+
+func test_status_indicator_shows_stun_color() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+
+	tank.apply_effect(Effect.new("test_stun", 5.0).with_cc(Effect.CCFlag.STUN))
+	tank._tick_effects(0.0) # _refresh_status_indicator() only runs as part of the tick
+
+	assert_true(tank._status_indicator._mesh_instance.visible)
+	assert_eq(tank._status_indicator._material.albedo_color, Unit._CC_STATUS_COLORS[Effect.CCFlag.STUN])
+
+
+func test_status_indicator_shows_buff_color_for_a_positive_stat_modifier() -> void:
+	var fighter := GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+
+	fighter._tick_effects(0.0) # Fighter's Toughness passive (+armor) already applied at spawn
+
+	assert_true(fighter._status_indicator._mesh_instance.visible)
+	assert_eq(fighter._status_indicator._material.albedo_color, Unit._BUFF_STATUS_COLOR)
+
+
+func test_status_indicator_shows_debuff_color_for_a_slow() -> void:
+	var archer := GameManager.spawn_unit(ARCHER_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	var target := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(4, 0, 0))
+
+	archer.cast_ability(0, target) # Frost Bolt: move_speed MULTIPLY 0.5, a debuff despite the positive number
+	target._tick_effects(0.0)
+
+	assert_true(target._status_indicator._mesh_instance.visible)
+	assert_eq(target._status_indicator._material.albedo_color, Unit._DEBUFF_STATUS_COLOR)
+
+
+func test_status_indicator_hides_on_death() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	tank.apply_effect(Effect.new("test_stun", 5.0).with_cc(Effect.CCFlag.STUN))
+	tank._tick_effects(0.0)
+	assert_true(tank._status_indicator._mesh_instance.visible, "sanity check: the indicator should be showing before death")
+
+	tank.die()
+
+	assert_false(tank._status_indicator._mesh_instance.visible, "a corpse should not keep showing its last status color")
+
+
 func test_on_hit_ability_is_not_player_triggerable() -> void:
 	var giant := GameManager.spawn_unit(preload("res://Resources/GiantStats.tres"), GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
 	# Giant Slam lives on stats.on_hit_ability, not stats.abilities -- slot

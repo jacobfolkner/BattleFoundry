@@ -9,6 +9,12 @@ extends Resource
 
 @export var unit_name: String = "Unit"
 
+@export_group("Economy")
+## Gold cost to place this archetype -- only enforced while
+## GameManager.current_mode.uses_economy() is true (see Main._try_place_unit()).
+## Irrelevant, and never checked, for a plain single-battle match.
+@export var cost: int = 0
+
 @export_group("Combat")
 @export var max_health: float = 100.0
 @export var damage: float = 10.0
@@ -20,6 +26,18 @@ extends Resource
 ## overlapping (a real problem when a unit's radius is a large fraction
 ## of its attack_range, as Giant's is).
 @export var attack_range: float = 2.0
+## How far (from this unit's own current position) GameManager.find_nearest_enemy()
+## will even consider an enemy for autonomous default-AI targeting
+## (Unit._update_target(), used whenever current_order == null, plus the
+## ATTACK_MOVE/PATROL/FOLLOW/HOLD orders' own "fight anything encountered"
+## fallback). Deliberately distinct from attack_range -- this is reach for
+## *noticing* an enemy exists at all, not reach for actually hitting one.
+## Comfortably above every archetype's attack_range so units still
+## naturally engage anything nearby, but well short of the 40x40 arena's
+## own diagonal, so an idle unit no longer walks clear across the map to
+## fight something on the other side of it (a real rough edge this
+## project shipped with from the start, see BattleFoundry-Roadmap.md).
+@export var acquisition_range: float = 12.0
 @export var attack_interval: float = 1.0 ## Seconds between attacks.
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
@@ -47,6 +65,10 @@ extends Resource
 ## lands an attack -- e.g. Giant's knockback (Resources/GiantSlamAbility.tres).
 ## null (default, most archetypes) means no on-hit effect at all.
 @export var on_hit_ability: Ability = null
+## Ticked continuously by Unit._tick_aura() -- must be an Ability with
+## cast_type == Ability.CastType.AURA (see Ability.apply_aura()). null
+## (default, most archetypes) means this unit projects no aura at all.
+@export var aura_ability: Ability = null
 
 @export_group("Projectile")
 ## 0 (default) means this attack deals damage the instant the cooldown
@@ -79,6 +101,18 @@ extends Resource
 ## physically blocking others -- this is how "tanks block movement" is
 ## expressed, entirely through data rather than unit-specific code.
 @export var collision_radius: float = 0.5
+
+@export_group("Hero")
+## True for a Hero archetype -- enables Unit.gain_xp()/level growth and the
+## ability_unlock_levels gate below. False (default, every non-hero
+## archetype) means Unit.level/xp are simply never touched by anything.
+@export var is_hero: bool = false
+## Parallel to `abilities` -- ability_unlock_levels[i] is the minimum
+## Unit.level required to cast abilities[i] (see Unit.cast_ability()).
+## Only consulted when is_hero is true; a missing/0 entry means "always
+## available," so leaving this empty (every non-hero archetype) is never a
+## behavior change from before Heroes existed.
+@export var ability_unlock_levels: Array[int] = []
 
 @export_group("Appearance")
 ## Which primitive mesh represents this unit. Team color is applied

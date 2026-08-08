@@ -16,8 +16,10 @@ extends Resource
 ## every landed attack, the same moment the old hardcoded
 ## stats.knockback_distance check used to (see knockback_distance below
 ## -- this is knockback ported into the ability framework, not a new
-## mechanic).
-enum CastType { NO_TARGET, UNIT_TARGET, PASSIVE, ON_HIT }
+## mechanic). AURA isn't player-triggered or cooldown-gated either --
+## Unit._tick_aura() calls apply_aura() on an interval for any unit whose
+## UnitStats.aura_ability is this; see apply_aura()'s doc comment.
+enum CastType { NO_TARGET, UNIT_TARGET, PASSIVE, ON_HIT, AURA }
 
 @export var ability_name: String = "Ability"
 @export var cast_type: CastType = CastType.NO_TARGET
@@ -90,6 +92,24 @@ func trigger_on_hit(caster: Unit, target: Unit, source_position: Vector3) -> voi
 		if direction.length_squared() < 0.0001:
 			direction = Vector3.FORWARD
 		target.apply_knockback(direction.normalized(), knockback_distance, knockback_height)
+
+
+## Continuous, not player-triggered -- Unit._tick_aura() calls this on an
+## interval (Unit._AURA_TICK_INTERVAL) for any unit whose
+## UnitStats.aura_ability is this. Applies to every living ally (same-or-
+## allied team, self included, matching the classic RTS aura convention)
+## within aoe_radius. effect_duration should be short, relying on
+## Effect's own default StackRule.REFRESH to make the buff fade
+## naturally off anyone who steps out of range on their own, rather than
+## this method tracking who it last buffed and removing it explicitly.
+func apply_aura(caster: Unit) -> void:
+	for unit in GameManager.get_all_units():
+		if unit.life_state != Unit.LifeState.ALIVE:
+			continue
+		if GameManager.alliances.is_hostile(caster.player.team_id, unit.player.team_id):
+			continue
+		if Unit.horizontal_distance_to(caster.global_position, unit.global_position) <= aoe_radius:
+			_apply_to(caster, unit)
 
 
 func _apply_to(caster: Unit, target: Unit) -> void:

@@ -16,9 +16,12 @@ var team_id: int
 var display_name: String
 var color: Color
 var is_human: bool
-## Placeholder for a future gold/lumber economy -- present now so
-## GameManager/HUD code that will eventually read it doesn't need
-## another Player field bolted on later.
+## Gold -- only meaningful while GameManager.current_mode.uses_economy() is
+## true (see GameMode.gd/BloodTournamentMode.gd); stays 0 and unused for
+## a plain single-battle match, same as before this field had real
+## behavior behind it. BloodTournamentMode grants a starting amount and
+## round-end income directly via add_gold(); spend()/can_afford() are what
+## Main.gd's placement/sell/upgrade flows check against.
 var resources: int = 0
 
 
@@ -29,3 +32,22 @@ func _init(p_id: int, p_slot: int, p_team_id: int, p_display_name: String, p_col
 	display_name = p_display_name
 	color = p_color
 	is_human = p_is_human
+
+
+func can_afford(amount: int) -> bool:
+	return resources >= amount
+
+
+## No affordability check here -- callers must call can_afford() first (see
+## GameManager.sell_unit()/buy_upgrade() and Main._try_place_unit()); keeps
+## this a plain ledger operation instead of a second place that decides
+## what "affordable" means.
+func spend(amount: int) -> void:
+	resources -= amount
+
+
+## Also how round income and starting gold are granted (see
+## BloodTournamentMode) -- there's no meaningful difference between
+## "earning" and "being refunded" gold, so one method covers both.
+func add_gold(amount: int) -> void:
+	resources += amount

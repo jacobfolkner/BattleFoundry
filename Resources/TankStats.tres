@@ -6,6 +6,7 @@
 [resource]
 script = ExtResource("1")
 unit_name = "Tank"
+cost = 150
 max_health = 250.0
 damage = 8.0
 attack_range = 0.9
