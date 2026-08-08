@@ -385,9 +385,13 @@ func _on_ai_opponent_toggled(enabled: bool) -> void:
 func _run_ai_turn_if_needed() -> void:
 	if not GameManager.is_placement_phase() or not GameManager.current_mode.uses_economy():
 		return
-	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	if not red.is_human:
-		_ai.take_turn(red)
+	var any_ai_took_a_turn := false
+	for team_id in GameManager.all_team_ids():
+		var player := GameManager.get_player(team_id)
+		if not player.is_human:
+			_ai.take_turn(player)
+			any_ai_took_a_turn = true
+	if any_ai_took_a_turn:
 		_refresh_gold_display()
 
 
@@ -415,17 +419,6 @@ func _advance_to_next_round() -> void:
 	_run_ai_turn_if_needed()
 
 
-## Team-id -> default deployment anchor for the staggered-deployment flow
-## below -- only Blue/Red for now, matching this stage's "prove it on the
-## existing 2-team match first" scope (see BattleFoundry-Roadmap.md §1/§2).
-## A real per-team anchor for all 8 cross-map teams is Main.ARM_SPAWN_POINTS,
-## already built for the cross map itself but not yet wired into
-## deployment -- that's explicitly deferred alongside the rest of the
-## 8-team scaling work.
-const _DEPLOYMENT_ANCHORS := {
-	0: Vector3(-8, 0, 0), # GameManager.BLUE_TEAM_ID
-	1: Vector3(8, 0, 0),  # GameManager.RED_TEAM_ID
-}
 ## Seconds between one roster slot's squad marching out and the next --
 ## not a balance number, just enough to actually read as a staggered
 ## arrival rather than everyone appearing on the same frame.
@@ -455,14 +448,13 @@ func _begin_staggered_deployment() -> void:
 	# team's roster, which shouldn't appear during a solo PvE turn at
 	# all) if it ran too. Same reasoning for a bracket matchup
 	# (FinalTournamentBracket) -- it deploys exactly the two paired teams
-	# itself; the hardcoded Blue/Red-only _DEPLOYMENT_ANCHORS below would
-	# be flatly wrong for a matchup between any other pair of teams anyway.
+	# itself.
 	if _tournament_mode != null and (_tournament_mode.current_boss_team_id != -1 or _tournament_mode.in_bracket_match):
 		return
 
 	_pending_deployments.clear()
 	_deploy_timers.clear()
-	for team_id in _DEPLOYMENT_ANCHORS:
+	for team_id in GameManager.all_team_ids():
 		var player := GameManager.get_player(team_id)
 		if player.roster.is_empty():
 			continue
@@ -498,7 +490,7 @@ func _deploy_next_pending_slot(player_id: int) -> void:
 	var queue: Array = _pending_deployments[player_id]
 	var stats: UnitStats = queue.pop_front()
 	var player := GameManager.get_player(player_id)
-	var squad := GameManager.spawn_squad(stats, player, _DEPLOYMENT_ANCHORS[player.team_id])
+	var squad := GameManager.spawn_squad(stats, player, ARM_SPAWN_POINTS[player.team_id])
 	for upgrade in player.roster_upgrades:
 		for unit in squad:
 			upgrade.ability.cast_unit_target(unit, unit)
