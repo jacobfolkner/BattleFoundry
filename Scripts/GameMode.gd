@@ -74,3 +74,15 @@ func on_battle_ended(_winning_team_id: int, _is_draw: bool) -> void:
 ## to receive gold.
 func uses_economy() -> bool:
 	return false
+
+
+## False (default) means Main.gd keeps the plain flat 40x40 square arena
+## live (GameManager.ARENA_HALF_EXTENT) -- every existing test and
+## ClassicEliminationMode assume this shape, and nothing about it changes
+## for a caller that never sets a cross-map mode. BloodTournamentMode
+## overrides this to true for its 8-team cross-shaped map (see
+## Main._sync_arena_shape()/Unit._clamp_to_cross_arena()). Kept as its own
+## GameMode query, independent of uses_economy(), since a future mode
+## might want gold without the cross map (or vice versa).
+func uses_cross_map() -> bool:
+	return false

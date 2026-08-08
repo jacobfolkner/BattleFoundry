@@ -51,6 +51,10 @@ func uses_economy() -> bool:
 	return true
 
 
+func uses_cross_map() -> bool:
+	return true
+
+
 ## At least 2 of the 8 registered teams need a unit -- an 8-way
 ## free-for-all shouldn't require every single spawn slot on the cross
 ## map to be filled before anyone can fight.

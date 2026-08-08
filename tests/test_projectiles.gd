@@ -14,6 +14,7 @@ var _main: Node3D
 
 func before_each() -> void:
 	GameManager.reset_battle()
+	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena) leak into this one
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)

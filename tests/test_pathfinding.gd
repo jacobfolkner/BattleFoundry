@@ -26,6 +26,7 @@ var _arena: Node3D
 
 func before_each() -> void:
 	GameManager.reset_battle()
+	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena clamp) leak into this one -- Unit._clamp_to_arena() reads current_mode regardless of which scene built the navmesh
 	_arena = Node3D.new()
 	add_child_autofree(_arena)
 

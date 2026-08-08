@@ -659,14 +659,45 @@ func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
 	global_position.y = _resting_height()
 
 
-## Keeps every unit inside the arena plane, including mid-knockback --
-## nothing else stops move_and_slide() or a knockback arc from carrying a
-## unit past the 40x40 ground plane (Scenes/Main.tscn) and off into the
-## void permanently, since nothing simulates falling once it's off the
-## edge. Only clamps X/Z; Y is owned by _resting_height()/knockback.
+## Keeps every unit inside whichever arena shape is currently live
+## (Main._sync_arena_shape()), including mid-knockback -- nothing else
+## stops move_and_slide() or a knockback arc from carrying a unit off the
+## edge and into the void permanently, since nothing simulates falling
+## once it's off. Only clamps X/Z; Y is owned by _resting_height()/knockback.
 func _clamp_to_arena() -> void:
-	global_position.x = clampf(global_position.x, -GameManager.ARENA_HALF_EXTENT, GameManager.ARENA_HALF_EXTENT)
-	global_position.z = clampf(global_position.z, -GameManager.ARENA_HALF_EXTENT, GameManager.ARENA_HALF_EXTENT)
+	if GameManager.current_mode.uses_cross_map():
+		_clamp_to_cross_arena()
+	else:
+		global_position.x = clampf(global_position.x, -GameManager.ARENA_HALF_EXTENT, GameManager.ARENA_HALF_EXTENT)
+		global_position.z = clampf(global_position.z, -GameManager.ARENA_HALF_EXTENT, GameManager.ARENA_HALF_EXTENT)
+
+
+## A cross isn't a square, so this isn't a plain clampf() on each axis:
+## a point is in-bounds if it's within the vertical bar (|x| <= half_width,
+## any z within the outer extent) OR the horizontal bar (|z| <= half_width,
+## any x within the outer extent). A point in neither -- a "dead corner"
+## diagonally outside both arms -- gets pulled onto whichever bar it's
+## already closer to (the axis with the smaller magnitude is the one
+## pulled in to half_width; the other is just capped at outer_extent).
+func _clamp_to_cross_arena() -> void:
+	var half_width := GameManager.CROSS_ARM_HALF_WIDTH
+	var outer := GameManager.CROSS_ARM_OUTER_EXTENT
+	var x := global_position.x
+	var z := global_position.z
+
+	if absf(x) <= half_width:
+		z = clampf(z, -outer, outer)
+	elif absf(z) <= half_width:
+		x = clampf(x, -outer, outer)
+	elif absf(x) < absf(z):
+		x = clampf(x, -half_width, half_width)
+		z = clampf(z, -outer, outer)
+	else:
+		z = clampf(z, -half_width, half_width)
+		x = clampf(x, -outer, outer)
+
+	global_position.x = x
+	global_position.z = z
 
 
 ## 0.0 for every ground unit (unchanged Sprint 4 invariant); flight_height

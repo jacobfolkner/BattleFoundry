@@ -14,6 +14,7 @@ var _original_stalemate_timeout: float
 
 func before_each() -> void:
 	GameManager.reset_battle()
+	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena) leak into this one
 	_original_stalemate_timeout = GameManager.STALEMATE_TIMEOUT
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)

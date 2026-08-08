@@ -51,9 +51,24 @@ var units_container: Node3D
 
 const UNIT_SCENE: PackedScene = preload("res://Scenes/Unit.tscn")
 
-## Half-width of the 40x40 ground plane (Scenes/Main.tscn), so Unit can
-## clamp itself to the arena without duplicating the plane's dimensions.
+## Half-width of the default 40x40 flat square ground plane
+## (Main._build_square_arena()), used by every mode whose
+## GameMode.uses_cross_map() is false (ClassicEliminationMode, and
+## everything before this constant had cross-map company) -- Unit can
+## clamp itself without duplicating the plane's dimensions.
 const ARENA_HALF_EXTENT := 20.0
+
+## The alternate, cross/plus-shaped arena Main.gd also builds up front
+## (Main._build_cross_arena()) but leaves disabled/hidden unless the
+## active GameMode.uses_cross_map() is true (BloodTournamentMode) --
+## Main._sync_arena_shape() is what actually swaps which one is live.
+## A square center plus 4 arms of the same width extending outward, one
+## per cardinal direction, each hosting 2 team spawn points (see
+## Main.ARM_SPAWN_POINTS) -- the 8-team Blood Tournament map. Unit's arena
+## clamp (_clamp_to_arena()) branches between this shape's math and the
+## plain square's, since a cross isn't a square.
+const CROSS_ARM_HALF_WIDTH := 8.0 ## Half-width of the center square and of every arm.
+const CROSS_ARM_OUTER_EXTENT := 32.0 ## Distance from the map center to each arm's outer (spawn) edge.
 
 ## No damage dealt anywhere on the field for this long during BATTLE means
 ## neither side can actually reach/hurt the other (e.g. an all-flying vs.
