@@ -124,6 +124,10 @@ func uses_cross_map() -> bool:
 	return true
 
 
+func get_arena_map() -> ArenaMap:
+	return CrossArenaMap.new()
+
+
 func is_auto_battle() -> bool:
 	return true
 

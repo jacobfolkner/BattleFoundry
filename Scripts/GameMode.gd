@@ -90,12 +90,38 @@ func on_unit_killed(_killer: Unit) -> void:
 ## live (GameManager.ARENA_HALF_EXTENT) -- every existing test and
 ## ClassicEliminationMode assume this shape, and nothing about it changes
 ## for a caller that never sets a cross-map mode. BloodTournamentMode
-## overrides this to true for its 8-team cross-shaped map (see
-## Main._sync_arena_shape()/Unit._clamp_to_cross_arena()). Kept as its own
-## GameMode query, independent of uses_economy(), since a future mode
+## overrides this to true for its 8-team cross-shaped map. Kept as its
+## own GameMode query, independent of uses_economy(), since a future mode
 ## might want gold without the cross map (or vice versa).
+##
+## Deliberately separate from get_arena_map() below, not derived from it
+## (e.g. `return get_arena_map() is CrossArenaMap`) -- this is read every
+## physics frame per unit by Unit._clamp_to_arena()/_clamp_to_cross_arena(),
+## and constructing a throwaway ArenaMap there just to type-check it would
+## be a needless per-unit-per-frame allocation. The two must agree (see
+## each concrete GameMode's own pair of overrides) but serve genuinely
+## different callers: this one is a cheap shape-only bool a hot path
+## reads constantly, get_arena_map() is the actual scene-building
+## instance Main.gd only ever needs once per mode swap.
 func uses_cross_map() -> bool:
 	return false
+
+
+## Which ArenaMap (Scripts/ArenaMap.gd) this mode wants built -- replaces
+## what used to be a bool-driven if/elif in Main.gd with a real OOP
+## extension point: a new mode wanting a new map shape overrides this to
+## return a new ArenaMap subclass instance, and Main.gd (see
+## Main._build_arenas()/_sync_arena_shape()) needs no per-shape
+## branching to support it. Default: the plain square arena, matching
+## uses_cross_map()'s own default -- every existing test/ClassicEliminationMode
+## caller sees no change. A fresh instance every call (cheap, RefCounted,
+## GDScript-idiomatic -- same as GameMode.check_victory() returning a
+## fresh Dictionary every call) -- Main.gd only uses the returned
+## instance's *type* to decide which of its own pre-built maps to
+## activate, never the instance itself (see ArenaMap.gd's own doc
+## comment for why building happens once, up front, not per mode swap).
+func get_arena_map() -> ArenaMap:
+	return SquareArenaMap.new()
 
 
 ## False (default) means BATTLE stays full manual RTS control -- every

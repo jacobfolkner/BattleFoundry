@@ -177,158 +177,50 @@ func _apply_menu_selection() -> void:
 		_hud.sync_tournament_toggle_visual(true)
 
 
-## team_id -> spawn anchor, near the outer edge of one of the cross map's
-## 4 arms (2 team_ids per arm) -- see _build_cross_arena(). Used by
-## Main._try_place_unit() to offer a sensible default and by AIController
-## to place a team's units on its own side rather than the map center.
-const ARM_SPAWN_POINTS: Array[Vector3] = [
-	Vector3(-4, 0, -26), # 0 Blue -- North arm, west half
-	Vector3(4, 0, -26),  # 1 Red -- North arm, east half
-	Vector3(26, 0, -4),  # 2 Green -- East arm, north half
-	Vector3(26, 0, 4),   # 3 Yellow -- East arm, south half
-	Vector3(4, 0, 26),   # 4 Purple -- South arm, east half
-	Vector3(-4, 0, 26),  # 5 Orange -- South arm, west half
-	Vector3(-26, 0, 4),  # 6 Cyan -- West arm, south half
-	Vector3(-26, 0, -4), # 7 Magenta -- West arm, north half
-]
+## Kept for backward compat (AIController and several tests read this
+## directly) -- the real source of truth is now CrossArenaMap.SPAWN_POINTS
+## (Scripts/CrossArenaMap.gd), referenced here rather than duplicated
+## (GDScript resolves another class's const at compile time, same
+## pattern MenuSelection.human_team_id's own default already uses for
+## GameManager.BLUE_TEAM_ID).
+const ARM_SPAWN_POINTS: Array[Vector3] = CrossArenaMap.SPAWN_POINTS
 
 @onready var _ground: Node3D = $Ground
-var _square_nav_region: NavigationRegion3D
-var _cross_nav_region: NavigationRegion3D
-var _square_ground_pieces: Array[MeshInstance3D] = []
-var _cross_ground_pieces: Array[MeshInstance3D] = []
+var _square_map := SquareArenaMap.new()
+var _cross_map := CrossArenaMap.new()
 
 
-## Builds both arena shapes once up front (ground meshes + navmesh) and
-## leaves only the one GameManager.current_mode.uses_cross_map() actually
+## Builds both arena maps once up front (ground meshes + navmesh) and
+## leaves only the one GameManager.current_mode.get_arena_map() actually
 ## wants enabled/visible -- see _sync_arena_shape(), the only thing that
 ## needs to run again on a mode swap. Building both up front (rather than
 ## freeing and rebuilding nodes on every toggle) means toggling Blood
 ## Tournament on and off never risks leaking/duplicating navigation
-## regions.
+## regions. Hardcodes exactly these two concrete ArenaMap classes here
+## (not derived generically from every possible GameMode) since building
+## requires real scene-tree parents (this node, _ground) only Main.gd
+## has -- a third map shape would need one more line here, still no
+## per-shape branching anywhere else (see _sync_arena_shape()).
 func _build_arenas() -> void:
-	_build_square_arena()
-	_build_cross_arena()
+	_square_map.build(self, _ground)
+	_cross_map.build(self, _ground)
 	_sync_arena_shape()
-
-
-## The default 40x40 flat square -- exactly what every pre-cross-map test
-## and ClassicEliminationMode still assume. A single open rectangle,
-## authored directly (NavigationMesh.vertices/add_polygon()) rather than
-## baked from Ground's geometry -- deterministic and instant, and there's
-## nothing to bake around: this shared arena has no static obstacles (see
-## tests/test_pathfinding.gd for a *baked* NavigationMesh with a real
-## wall to route around, built in an isolated scene rather than here,
-## since a shared obstacle here would sit in the footsteps of dozens of
-## existing tests that spawn/path units anywhere in the 40x40 plane,
-## corners included). Units path against this via
-## Unit._seek_position()/get_next_path_position() -- see its doc comment
-## for why that's an actual navmesh query now, not just a straight-line
-## direction fed to avoidance the way it was before this existed.
-func _build_square_arena() -> void:
-	var half := GameManager.ARENA_HALF_EXTENT
-	var nav_mesh := NavigationMesh.new()
-	nav_mesh.vertices = PackedVector3Array([
-		Vector3(-half, 0, -half),
-		Vector3(half, 0, -half),
-		Vector3(half, 0, half),
-		Vector3(-half, 0, half),
-	])
-	nav_mesh.add_polygon(PackedInt32Array([0, 1, 2, 3]))
-
-	_square_nav_region = NavigationRegion3D.new()
-	_square_nav_region.navigation_mesh = nav_mesh
-	add_child(_square_nav_region)
-
-	_square_ground_pieces.append(_build_ground_piece(Vector2(half * 2.0, half * 2.0), Vector3.ZERO))
-
-
-## The 8-team Blood Tournament map: a square center plus 4 arms of the
-## same width extending outward, one per cardinal direction (see
-## ARM_SPAWN_POINTS for where each team starts). Hand-authored as 5
-## quads sharing vertex indices at the center/arm junctions, the same
-## "direct NavigationMesh.vertices/add_polygon(), not baked" approach
-## _build_square_arena() uses and for the same reason (deterministic,
-## instant, nothing to bake around) -- junction vertices are shared by
-## index (not just coincident position) so Godot's navigation system
-## definitely stitches the 5 polygons into one walkable region rather
-## than relying on floating-point-exact edge matching between separately
-## authored polygons.
-func _build_cross_arena() -> void:
-	var half := GameManager.CROSS_ARM_HALF_WIDTH
-	var outer := GameManager.CROSS_ARM_OUTER_EXTENT
-
-	var vertices := PackedVector3Array([
-		Vector3(-half, 0, -half), # 0: center NW
-		Vector3(half, 0, -half),  # 1: center NE
-		Vector3(half, 0, half),   # 2: center SE
-		Vector3(-half, 0, half),  # 3: center SW
-		Vector3(-half, 0, -outer), # 4: north-arm outer NW
-		Vector3(half, 0, -outer),  # 5: north-arm outer NE
-		Vector3(outer, 0, -half),  # 6: east-arm outer NE
-		Vector3(outer, 0, half),   # 7: east-arm outer SE
-		Vector3(half, 0, outer),   # 8: south-arm outer SE
-		Vector3(-half, 0, outer),  # 9: south-arm outer SW
-		Vector3(-outer, 0, half),  # 10: west-arm outer SW
-		Vector3(-outer, 0, -half), # 11: west-arm outer NW
-	])
-
-	var nav_mesh := NavigationMesh.new()
-	nav_mesh.vertices = vertices
-	nav_mesh.add_polygon(PackedInt32Array([0, 1, 2, 3])) # center
-	nav_mesh.add_polygon(PackedInt32Array([4, 5, 1, 0])) # north arm
-	nav_mesh.add_polygon(PackedInt32Array([1, 6, 7, 2])) # east arm
-	nav_mesh.add_polygon(PackedInt32Array([2, 8, 9, 3])) # south arm
-	nav_mesh.add_polygon(PackedInt32Array([3, 10, 11, 0])) # west arm
-
-	_cross_nav_region = NavigationRegion3D.new()
-	_cross_nav_region.navigation_mesh = nav_mesh
-	add_child(_cross_nav_region)
-
-	var full := half * 2.0
-	var arm_length := outer - half
-	var arm_center := half + arm_length * 0.5
-	_cross_ground_pieces.append(_build_ground_piece(Vector2(full, full), Vector3.ZERO)) # center
-	_cross_ground_pieces.append(_build_ground_piece(Vector2(full, arm_length), Vector3(0, 0, -arm_center))) # north
-	_cross_ground_pieces.append(_build_ground_piece(Vector2(arm_length, full), Vector3(arm_center, 0, 0))) # east
-	_cross_ground_pieces.append(_build_ground_piece(Vector2(full, arm_length), Vector3(0, 0, arm_center))) # south
-	_cross_ground_pieces.append(_build_ground_piece(Vector2(arm_length, full), Vector3(-arm_center, 0, 0))) # west
-
-
-## A single flat PlaneMesh piece of the ground, matching the original
-## Scenes/Main.tscn Ground node's own mesh/material -- built in code (not
-## the .tscn) since there are now up to 9 of these (1 square + 5 cross
-## pieces) and authoring that by hand in the scene file would just
-## duplicate this same material/shape logic across every one.
-func _build_ground_piece(size: Vector2, position: Vector3) -> MeshInstance3D:
-	var mesh := PlaneMesh.new()
-	mesh.size = size
-
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.16, 0.18, 0.16, 1)
-	mesh.surface_set_material(0, material)
-
-	var instance := MeshInstance3D.new()
-	instance.mesh = mesh
-	instance.position = position
-	_ground.add_child(instance)
-	return instance
 
 
 ## The only thing that needs to run again after _build_arenas() -- called
 ## once there, and again from _on_tournament_toggled()/_apply_menu_selection()
 ## whenever GameManager.current_mode actually changes. Disabling (not
-## freeing) the inactive NavigationRegion3D fully excludes its navmesh
-## from the navigation map, so the two shapes never interfere with each
-## other's pathfinding.
+## freeing) the inactive map's NavigationRegion3D fully excludes its
+## navmesh from the navigation map, so the two shapes never interfere
+## with each other's pathfinding. Matches by the class of whatever
+## ArenaMap instance current_mode.get_arena_map() returns -- a throwaway
+## instance just for the type check (cheap, RefCounted, never added to
+## the scene tree), not the same object _square_map/_cross_map already
+## built.
 func _sync_arena_shape() -> void:
-	var cross_active := GameManager.current_mode.uses_cross_map()
-	_square_nav_region.enabled = not cross_active
-	_cross_nav_region.enabled = cross_active
-	for piece in _square_ground_pieces:
-		piece.visible = not cross_active
-	for piece in _cross_ground_pieces:
-		piece.visible = cross_active
+	var active_map := GameManager.current_mode.get_arena_map()
+	_square_map.set_active(active_map is SquareArenaMap)
+	_cross_map.set_active(active_map is CrossArenaMap)
 
 
 ## Swaps GameManager.current_mode between ClassicEliminationMode (the
