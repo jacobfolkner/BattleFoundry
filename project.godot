@@ -15,7 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="BattleFoundry"
-run/main_scene="res://Scenes/Main.tscn"
+run/main_scene="res://Scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]
@@ -24,6 +24,7 @@ GameManager="*res://Scripts/GameManager.gd"
 DebugInspector="*res://Scripts/DebugInspector.gd"
 DebugSettings="*res://Scripts/DebugSettings.gd"
 SelectionManager="*res://Scripts/SelectionManager.gd"
+MenuSelection="*res://Scripts/MenuSelection.gd"
 
 [layer_names]
 

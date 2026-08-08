@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="Ability" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Ability.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ability_name = "Aura of Vigor"
+cast_type = 4
+aoe_radius = 6.0
+effect_duration = 1.0
+effect_stat = "armor"
+effect_stat_op = 0
+effect_stat_value = 1.0

@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="UnitUpgrade" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitUpgrade.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/IronArmorAbility.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+upgrade_name = "Iron Armor"
+cost = 100
+ability = ExtResource("2")

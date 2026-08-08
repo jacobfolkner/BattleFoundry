@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="Ability" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Ability.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ability_name = "Cleave Strike"
+cast_type = 1
+range = 1.5
+cooldown = 4.0
+effect_duration = 4.0
+effect_stat = "armor"
+effect_stat_op = 0
+effect_stat_value = -2.0
+damage = 25.0
+damage_type = 0
