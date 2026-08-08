@@ -60,6 +60,21 @@ extends Resource
 ## whatever target_enemy is by then, so a re-target mid-swing can't
 ## redirect an already-committed hit.
 @export var attack_windup: float = 0.0
+## Splash/cleave: 0.0 (default, every archetype until this is explicitly
+## set) means a plain single-target attack, exactly the pre-splash
+## behavior. Above 0.0, every OTHER hostile unit within this radius of
+## the primary target (not the attacker) also takes splash damage -- see
+## Unit.resolve_hit()/_apply_splash_damage(). Deliberately a separate,
+## simpler mechanic from Ability.aoe_radius: this is an *auto-attack*
+## property (armor/attack-armor-table mitigation still applies per
+## splashed target, on_hit_ability does NOT re-trigger for them), not an
+## ability cast.
+@export var splash_radius: float = 0.0
+## Damage multiplier for a splashed unit sitting exactly at the edge of
+## splash_radius -- linearly interpolated between 1.0 (full damage) at
+## the primary target's own position and this value at splash_radius
+## distance from it. Only read when splash_radius > 0.0.
+@export var splash_falloff: float = 0.5
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
 ## archetype has to opt in rather than opt out -- see

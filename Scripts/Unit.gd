@@ -984,9 +984,34 @@ func resolve_hit(target: Unit, source_position: Vector3) -> void:
 	if not is_instance_valid(target) or target.current_health <= 0.0:
 		return
 	target.take_damage(DamageInstance.new(stat_block.damage(), self))
+	if stats.splash_radius > 0.0:
+		_apply_splash_damage(target)
 
 	if stats.on_hit_ability != null:
 		stats.on_hit_ability.trigger_on_hit(self, target, source_position)
+
+
+## UnitStats.splash_radius > 0.0: every other hostile-to-this-unit,
+## living unit within splash_radius of `primary_target`'s position also
+## takes damage, linearly falling off from full damage at the primary
+## target's own position to UnitStats.splash_falloff at the radius's
+## edge. Goes through the normal take_damage() pipeline (so armor/the
+## attack-armor-type table still apply per splashed target), but
+## deliberately does NOT re-trigger on_hit_ability -- e.g. Giant's
+## knockback firing once per splashed unit on every swing would be a
+## very different (and much stronger) mechanic than "this attack also
+## splashes," not what splash is meant to add.
+func _apply_splash_damage(primary_target: Unit) -> void:
+	for unit in GameManager.get_all_units():
+		if unit == primary_target or unit == self or unit.life_state != LifeState.ALIVE:
+			continue
+		if not GameManager.alliances.is_hostile(player.team_id, unit.player.team_id):
+			continue
+		var distance := horizontal_distance_to(primary_target.global_position, unit.global_position)
+		if distance > stats.splash_radius:
+			continue
+		var falloff := lerpf(1.0, stats.splash_falloff, distance / stats.splash_radius)
+		unit.take_damage(DamageInstance.new(stat_block.damage() * falloff, self))
 
 
 ## PURE damage skips armor entirely (see DamageInstance); ATTACK/SPELL are
