@@ -117,7 +117,7 @@ func _on_selection_changed(units: Array[Unit]) -> void:
 	_hud.track_unit(units[0] if not units.is_empty() else null)
 
 
-## Consumes (and immediately clears) MenuSelection's two flags -- UI/MainMenu.gd
+## Consumes (and immediately clears) MenuSelection's fields -- UI/MainMenu.gd
 ## sets these right before changing to this scene. Clearing them here, not
 ## just reading them, makes this a true one-shot hand-off: if this scene
 ## is ever entered again without going back through the menu (a GUT test
@@ -127,18 +127,31 @@ func _on_selection_changed(units: Array[Unit]) -> void:
 func _apply_menu_selection() -> void:
 	var tournament := MenuSelection.start_with_tournament
 	var ai_opponent := MenuSelection.start_with_ai_opponent
+	var human_team_id := MenuSelection.human_team_id
 	MenuSelection.start_with_tournament = false
 	MenuSelection.start_with_ai_opponent = false
+	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
+
+	_on_team_selected(human_team_id) # harmless no-op when this is already the default (Blue)
 
 	# AI first: _on_tournament_toggled(true)'s own tail call to
-	# _run_ai_turn_if_needed() only does anything once Red.is_human is
-	# already false, so this order lets round 1 auto-populate immediately
-	# rather than needing the (harmless, but redundant) second check
-	# _on_ai_opponent_toggled() would otherwise trigger if done second.
+	# _run_ai_turn_if_needed() only does anything once every other team is
+	# already non-human, so this order lets round 1 auto-populate
+	# immediately rather than needing a second, redundant check.
+	#
+	# Every OTHER registered team becomes AI-controlled, not just Red --
+	# generalizes the old single Blue-human/AI-Red menu assumption to
+	# whichever of the 8 teams was actually picked (see
+	# UI/MainMenu.gd's team selector). Deliberately doesn't go through
+	# HUD.set_ai_toggle()/Main._on_ai_opponent_toggled() -- that's the
+	# separate in-match HUD button, still hardcoded to flipping just Red
+	# (a known, narrower piece of UI this stage doesn't touch), not a fit
+	# for "N-1 teams become AI" at menu hand-off time.
 	if ai_opponent:
-		_hud.set_ai_toggle(true)
+		for team_id in GameManager.all_team_ids():
+			GameManager.get_player(team_id).is_human = (team_id == human_team_id)
 	if tournament:
-		_hud.set_tournament_toggle(true)
+		_hud.set_tournament_toggle(true) # its own tail call to _run_ai_turn_if_needed() is what actually runs the AI's first turn
 
 
 ## team_id -> spawn anchor, near the outer edge of one of the cross map's

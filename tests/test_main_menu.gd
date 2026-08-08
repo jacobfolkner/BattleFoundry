@@ -64,3 +64,43 @@ func test_main_defaults_to_classic_mode_with_no_menu_selection() -> void:
 
 	assert_false(GameManager.current_mode.uses_economy())
 	assert_true(GameManager.get_player(GameManager.RED_TEAM_ID).is_human)
+
+
+func test_team_selector_defaults_to_blue_and_lists_all_8_teams() -> void:
+	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
+	add_child_autofree(menu)
+	await wait_physics_frames(1)
+
+	assert_eq(menu._team_option.selected, GameManager.BLUE_TEAM_ID)
+	assert_eq(menu._team_option.item_count, GameManager.TEAM_COUNT)
+
+
+func test_selecting_a_different_team_records_it() -> void:
+	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
+	add_child_autofree(menu)
+	await wait_physics_frames(1)
+
+	menu._team_option.selected = 3 # Yellow
+	menu.apply_selection_to_menu_state()
+
+	assert_eq(MenuSelection.human_team_id, 3)
+
+
+## Full hand-off with a non-default team pick: every OTHER registered
+## team should become AI-controlled, not just Red -- generalizes the
+## single Blue-human/AI-Red assumption test_main_honors_menu_selection_and_clears_it_afterward()
+## already covers for the default case.
+func test_main_honors_a_non_blue_team_selection_and_ai_controls_every_other_team() -> void:
+	MenuSelection.start_with_tournament = true
+	MenuSelection.start_with_ai_opponent = true
+	MenuSelection.human_team_id = 3 # Yellow
+
+	var main: Node3D = load("res://Scenes/Main.tscn").instantiate()
+	add_child_autofree(main)
+	await wait_physics_frames(2)
+
+	assert_true(GameManager.get_player(3).is_human, "Yellow (the picked team) should stay human")
+	assert_false(GameManager.get_player(GameManager.BLUE_TEAM_ID).is_human, "every other team, Blue included, should be AI-controlled now")
+	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).is_human)
+	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).roster.is_empty(), "the AI should have bought a roster for a non-Blue AI team too")
+	assert_eq(MenuSelection.human_team_id, GameManager.BLUE_TEAM_ID, "the hand-off should be one-shot -- consumed and reset to the default")

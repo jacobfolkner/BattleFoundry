@@ -16,6 +16,7 @@ extends Control
 
 var _tournament_toggle: Button
 var _ai_toggle: Button
+var _team_option: OptionButton
 
 
 func _ready() -> void:
@@ -58,6 +59,22 @@ func _build_options(parent: Control) -> void:
 
 	_tournament_toggle = _add_toggle(row, "Blood Tournament: Off", "Blood Tournament: On")
 	_ai_toggle = _add_toggle(row, "AI Opponent: Off", "AI Opponent: On")
+	_build_team_selector(row)
+
+
+## Which of the 8 registered teams the player plays as -- only meaningful
+## alongside the AI Opponent toggle above (every OTHER team becomes AI,
+## see Main._apply_menu_selection()); harmless to leave at its default
+## otherwise, same as picking a team in classic mode with no AI opponent
+## on does nothing different from today. Defaults to index 0
+## (GameManager.BLUE_TEAM_ID), matching the original hardcoded behavior.
+func _build_team_selector(parent: Control) -> void:
+	_team_option = OptionButton.new()
+	_team_option.custom_minimum_size = Vector2(140, 40)
+	for team_id in GameManager.all_team_ids():
+		_team_option.add_item(GameManager.get_team_display_name(team_id))
+	_team_option.selected = GameManager.BLUE_TEAM_ID
+	parent.add_child(_team_option)
 
 
 func _add_toggle(parent: Control, off_text: String, on_text: String) -> Button:
@@ -81,7 +98,7 @@ func _build_controls_reference(parent: Control) -> void:
 		+ "S / H: stop / hold position\n" \
 		+ "Q / W / E: cast ability slot 0/1/2 (click a unit to target it)\n" \
 		+ "1-9: recall a control group -- Ctrl+1-9: assign the current selection\n" \
-		+ "U / I: buy a shop upgrade for the selected unit (Blood Tournament only)\n" \
+		+ "U / I: buy a shop upgrade for your whole roster (Blood Tournament only)\n" \
 		+ "Mouse wheel / right-drag: zoom / orbit the camera"
 	label.add_theme_font_size_override("font_size", 16)
 	panel.add_child(label)
@@ -101,6 +118,7 @@ func _build_play_button(parent: Control) -> void:
 func apply_selection_to_menu_state() -> void:
 	MenuSelection.start_with_tournament = _tournament_toggle.button_pressed
 	MenuSelection.start_with_ai_opponent = _ai_toggle.button_pressed
+	MenuSelection.human_team_id = _team_option.selected
 
 
 func _on_play_pressed() -> void:
