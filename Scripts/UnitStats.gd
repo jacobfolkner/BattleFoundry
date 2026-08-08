@@ -75,6 +75,16 @@ extends Resource
 ## the primary target's own position and this value at splash_radius
 ## distance from it. Only read when splash_radius > 0.0.
 @export var splash_falloff: float = 0.5
+## Degrees per second this unit can rotate to face target_enemy before a
+## swing can commit -- see Unit._attack()/_face_toward(). 0.0 (default,
+## every existing archetype) means facing is never checked at all before
+## attacking, exactly the pre-turn-rate behavior (a unit could always
+## fire immediately regardless of which way it was pointing). Above 0.0,
+## _attack() won't let a new swing commit until the unit has rotated to
+## face target_enemy within a small tolerance -- while still turning,
+## neither the swing nor its attack_interval cooldown advances that
+## frame.
+@export var turn_rate: float = 0.0
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
 ## archetype has to opt in rather than opt out -- see

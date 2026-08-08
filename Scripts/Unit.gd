@@ -932,6 +932,15 @@ func _attack(delta: float) -> void:
 			_attack_cooldown = stat_block.attack_interval()
 		return
 
+	# UnitStats.turn_rate (default 0.0) gates a NEW swing on already
+	# facing target_enemy -- 0.0 skips this check entirely, exactly the
+	# pre-turn-rate behavior (fire regardless of facing). While still
+	# turning, neither the cooldown nor a new swing progresses this
+	# frame; already-committed windup above is unaffected, since facing
+	# was already required before that swing ever committed.
+	if stats.turn_rate > 0.0 and target_enemy != null and not _face_toward(target_enemy.global_position, delta):
+		return
+
 	_attack_cooldown -= delta
 	if _attack_cooldown > 0.0:
 		return
@@ -942,6 +951,38 @@ func _attack(delta: float) -> void:
 	else:
 		_release_attack_at(target_enemy)
 		_attack_cooldown = stat_block.attack_interval()
+
+
+## Rotates this unit toward `target_position` at UnitStats.turn_rate
+## degrees/second, horizontal-only (matches every other facing/direction
+## calculation in this class). Returns true once already facing within
+## _FACING_TOLERANCE (or immediately, if turn_rate is somehow called with
+## <= 0.0) -- callers gate on the return value to know whether the turn
+## has finished this frame. Only used by _attack()'s turn_rate gate;
+## regular movement facing (_on_safe_velocity_computed()'s look_at()) is
+## untouched by this, since turn_rate only governs combat facing.
+const _FACING_TOLERANCE := deg_to_rad(2.0)
+
+func _face_toward(target_position: Vector3, delta: float) -> bool:
+	var to_target := target_position - global_position
+	to_target.y = 0.0
+	if to_target.length() < 0.01 or stats.turn_rate <= 0.0:
+		return true
+
+	var desired_basis := Basis.looking_at(to_target, Vector3.UP)
+	var current_quat := global_transform.basis.get_rotation_quaternion()
+	var desired_quat := desired_basis.get_rotation_quaternion()
+	var angle_remaining := current_quat.angle_to(desired_quat)
+	if angle_remaining <= _FACING_TOLERANCE:
+		return true
+
+	var max_radians := deg_to_rad(stats.turn_rate) * delta
+	if angle_remaining <= max_radians:
+		global_transform.basis = desired_basis
+		return true
+
+	global_transform.basis = Basis(current_quat.slerp(desired_quat, max_radians / angle_remaining))
+	return false
 
 
 ## Fires the hit itself (projectile or instant) at `target` -- shared by
