@@ -95,16 +95,16 @@ func test_classic_mode_placement_stays_free_regardless_of_gold() -> void:
 
 func test_blood_tournament_placement_is_blocked_when_unaffordable_and_spends_when_affordable() -> void:
 	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD (300)
-	GameManager.get_player(GameManager.BLUE_TEAM_ID).resources = TANK_STATS.cost - 1
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.resources = TANK_STATS.cost - 1
 
-	var screen_position := _main.get_viewport().get_visible_rect().size / 2
-	_main._try_place_unit(screen_position)
-	assert_eq(GameManager.get_all_units().size(), 0, "one gold short of Tank's cost should block placement")
+	_main._on_unit_type_selected(TANK_STATS)
+	assert_true(blue.roster.is_empty(), "one gold short of Tank's cost should block the purchase")
 
-	GameManager.get_player(GameManager.BLUE_TEAM_ID).resources = TANK_STATS.cost
-	_main._try_place_unit(screen_position)
-	assert_eq(GameManager.get_all_units().size(), TANK_STATS.squad_size, "exactly enough gold should place the whole squad")
-	assert_eq(GameManager.get_player(GameManager.BLUE_TEAM_ID).resources, 0, "the Tank's cost should be spent")
+	blue.resources = TANK_STATS.cost
+	_main._on_unit_type_selected(TANK_STATS)
+	assert_eq(blue.roster, [TANK_STATS], "exactly enough gold should buy the slot")
+	assert_eq(blue.resources, 0, "the Tank's cost should be spent")
 
 
 func test_selling_a_unit_removes_it_and_refunds_only_when_economy_is_active() -> void:
@@ -204,9 +204,9 @@ func test_buying_a_unit_appends_it_to_the_players_roster() -> void:
 	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 
-	_main._try_place_unit(_main.get_viewport().get_visible_rect().size / 2)
+	_main._on_unit_type_selected(TANK_STATS)
 
-	assert_eq(blue.roster, [TANK_STATS], "the default placement unit type (Tank) should have been appended to the roster")
+	assert_eq(blue.roster, [TANK_STATS], "buying a unit type should append it to the roster")
 
 
 func test_selling_a_unit_removes_it_from_the_players_roster() -> void:
@@ -313,15 +313,19 @@ func test_spawn_squad_of_one_spawns_exactly_one_unit_at_the_anchor() -> void:
 	assert_eq(squad[0].global_position, Vector3(3, 0, 3))
 
 
-func test_buying_a_squad_unit_deploys_the_whole_squad_for_one_charge() -> void:
+## Buying under Blood Tournament is a data-only roster append now -- see
+## Main._on_unit_type_selected()/_try_buy_for_roster() -- nothing spawns
+## until the staggered deployment queue runs at battle start (see
+## test_staggered_deployment_deploys_the_full_squad_for_a_purchased_slot()
+## below).
+func test_buying_a_squad_unit_only_charges_gold_and_records_one_roster_slot() -> void:
 	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
-	_main._selected_stats = FIGHTER_STATS # squad_size 5
 	var gold_before := blue.resources
 
-	_main._try_place_unit(_main.get_viewport().get_visible_rect().size / 2)
+	_main._on_unit_type_selected(FIGHTER_STATS) # squad_size 5
 
-	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size, "one purchase should deploy the full squad")
+	assert_eq(GameManager.get_all_units().size(), 0, "buying should not spawn anything during PLACEMENT under the staging-area model")
 	assert_eq(blue.resources, gold_before - FIGHTER_STATS.cost, "cost is charged once per purchase, not once per squad member")
 	assert_eq(blue.roster, [FIGHTER_STATS], "the roster should record one slot, not one entry per squad member")
 
@@ -334,11 +338,37 @@ func test_classic_mode_placement_still_deploys_a_single_unit_regardless_of_squad
 	assert_eq(GameManager.get_all_units().size(), 1, "classic mode should never deploy a squad, regardless of UnitStats.squad_size")
 
 
-func test_respawn_rosters_deploys_full_squads_for_each_roster_slot() -> void:
+## Exercises Main._begin_staggered_deployment()/_physics_process()/
+## _deploy_next_pending_slot() end to end: a purchased roster slot only
+## becomes live Units once BATTLE starts, and deploys the full squad in
+## one go for that slot (see GameManager.spawn_squad()).
+func test_staggered_deployment_deploys_the_full_squad_for_a_purchased_slot() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	blue.roster = [FIGHTER_STATS] # squad_size 5
+	red.roster = [TANK_STATS] # squad_size 3 -- can_start_battle() needs a second team's roster non-empty
 
-	_main._respawn_rosters()
+	GameManager.start_battle()
+	await wait_physics_frames(1)
 
-	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size)
+	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size + TANK_STATS.squad_size, "both teams' single roster slot should have marched out in full")
+
+
+## The staggered queue pops one roster slot per _DEPLOY_INTERVAL, not all
+## at once -- deploy order is purchase order reversed (most-recently-bought
+## -- the "rightmost" slot -- marches out first, see
+## Main._begin_staggered_deployment()), so with Fighter bought before Tank,
+## Tank's squad should be the only one on the field right after battle
+## starts.
+func test_staggered_deployment_deploys_one_roster_slot_at_a_time_rightmost_first() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	blue.roster = [FIGHTER_STATS, TANK_STATS] # bought in this order: Fighter first, Tank last (rightmost)
+	red.roster = [TANK_STATS] # can_start_battle() needs a second team's roster non-empty
+
+	GameManager.start_battle()
+	await wait_physics_frames(1)
+
+	assert_eq(GameManager.get_all_units().size(), TANK_STATS.squad_size + TANK_STATS.squad_size, "only Tank's slot (bought last, deploys first) should have marched out for Blue so far, alongside Red's single slot")

@@ -19,6 +19,10 @@ func before_each() -> void:
 	# one's own AI-opponent toggling) could have left dirty.
 	blue.resources = 0
 	red.resources = 0
+	blue.blood_points = 0
+	red.blood_points = 0
+	blue.roster.clear()
+	red.roster.clear()
 	blue.is_human = true
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()
@@ -32,7 +36,7 @@ func test_ai_spawns_nothing_when_it_cannot_afford_the_cheapest_unit() -> void:
 
 	AIController.new().take_turn(red)
 
-	assert_true(GameManager.team_is_empty(GameManager.RED_TEAM_ID))
+	assert_true(red.roster.is_empty())
 	assert_eq(red.resources, 10, "an all-unaffordable turn should spend nothing")
 
 
@@ -42,39 +46,22 @@ func test_ai_spends_gold_on_units_without_going_negative() -> void:
 
 	AIController.new().take_turn(red)
 
-	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "500 gold should afford at least one unit")
+	assert_false(red.roster.is_empty(), "500 gold should afford at least one unit")
 	assert_true(red.resources >= 0)
 	assert_true(red.resources < 500, "spending on at least one unit should have happened")
 
 
-## Loose bounds, not the exact [6, 18] _SPAWN_X_RANGE -- GameManager.spawn_squad()
-## spreads a squad's members out from the chosen anchor point (up to
-## roughly +-3 for the pool's widest squad, Fighter's 5), so a squad
-## anchored near either edge of _SPAWN_X_RANGE can land members somewhat
-## outside it. What actually matters for "its own side of the arena" is
-## staying clear of the human's negative-x half, not an exact range.
-func test_ai_placements_land_on_its_own_side_of_the_arena() -> void:
-	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	red.resources = 1000
-
-	AIController.new().take_turn(red)
-
-	for unit in GameManager.get_all_units():
-		assert_true(unit.global_position.x >= 2.0,
-			"AI unit landed at x=%s, drifted onto the human's side of the arena" % unit.global_position.x)
-
-
-## AIController._MAX_NEW_UNITS_PER_TURN (8) caps purchased *slots*, not raw
-## battlefield units -- each slot deploys via GameManager.spawn_squad(),
-## so the real ceiling is 8 slots times the largest squad_size in the
-## pool (Fighter's 5).
-func test_ai_turn_is_capped_so_it_cannot_spawn_an_unbounded_number_of_units() -> void:
+## AIController._MAX_NEW_UNITS_PER_TURN (8) caps purchased roster slots per
+## turn -- buying is data-only now (see AIController.take_turn()'s class
+## doc comment), nothing spawns until the staggered deployment queue runs
+## at battle start.
+func test_ai_turn_is_capped_so_it_cannot_buy_an_unbounded_number_of_roster_slots() -> void:
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	red.resources = 1000000
 
 	AIController.new().take_turn(red)
 
-	assert_true(GameManager.get_all_units().size() <= 8 * 5)
+	assert_true(red.roster.size() <= 8)
 
 
 ## Upgrades cost blood points, not gold (see GameManager.buy_upgrade()) --
@@ -113,7 +100,7 @@ func test_ai_does_not_crash_or_spend_when_it_has_no_living_units_and_no_affordab
 	AIController.new().take_turn(red) # should simply do nothing
 
 	assert_eq(red.resources, 0)
-	assert_true(GameManager.team_is_empty(GameManager.RED_TEAM_ID))
+	assert_true(red.roster.is_empty())
 
 
 func test_toggling_ai_opponent_flips_is_human_and_forces_blue_selection() -> void:
@@ -137,20 +124,28 @@ func test_ai_opponent_auto_populates_red_when_blood_tournament_starts() -> void:
 	_main._on_ai_opponent_toggled(true)
 	_main._on_tournament_toggled(true) # grants starting gold, then _run_ai_turn_if_needed() should spend it
 
-	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "the AI should have placed at least one unit for Red")
+	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).roster.is_empty(), "the AI should have bought at least one roster slot for Red")
 
 
 ## Full integration through a real round transition: the AI should also
 ## take a fresh turn (spending that round's income) once
-## Main._advance_to_next_round() reopens PLACEMENT for round 2.
+## Main._advance_to_next_round() reopens PLACEMENT for round 2. Buying is
+## data-only under the staggered/staging-area deployment model (see
+## Main._begin_staggered_deployment()), so round 1's units only appear
+## once battle actually starts, and round 2's roster is what's checked
+## afterward -- not live units, which go back to empty the moment
+## reset_battle() runs.
 func test_ai_opponent_takes_a_new_turn_every_round() -> void:
 	_main._on_ai_opponent_toggled(true)
 	_main._on_tournament_toggled(true)
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	blue.roster.append(TANK_STATS) # no permadeath -- only a roster entry (not a live node) carries a unit into round 2
-	GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
+	assert_false(red.roster.is_empty(), "sanity check: the AI should already have bought into Red's roster")
+
 	GameManager.start_battle()
+	await wait_physics_frames(2) # let the staggered deployment queue spawn round 1's rosters
 
 	# Kill every Red unit the AI placed for round 1 to force a round end.
 	for unit in GameManager.get_all_units():
@@ -158,5 +153,6 @@ func test_ai_opponent_takes_a_new_turn_every_round() -> void:
 			unit.take_damage(DamageInstance.new(unit.stat_block.max_health() + 1000.0))
 	await wait_physics_frames(2) # let the deferred _advance_to_next_round() (and its _run_ai_turn_if_needed()) run
 
-	assert_false(GameManager.team_is_empty(GameManager.BLUE_TEAM_ID), "Blue's roster should have respawned a fresh Tank for round 2")
-	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "the AI should have re-populated Red for round 2")
+	assert_true(GameManager.is_placement_phase())
+	assert_false(blue.roster.is_empty(), "Blue's roster should still carry the Tank into round 2 -- no permadeath")
+	assert_false(red.roster.is_empty(), "the AI should have re-populated Red's roster for round 2")

@@ -22,6 +22,10 @@ signal ai_opponent_toggled(enabled: bool)
 ## Main.gd routes this through the exact same _try_cast_or_target() the
 ## Q/W/E hotkeys use, so clicking and pressing the key are equivalent.
 signal ability_slot_pressed(index: int)
+## Emitted when a roster line-up slot is clicked (see _build_roster_row())
+## -- Main.gd routes this to GameManager.sell_roster_slot(), the
+## staging-area equivalent of the old click-a-live-unit-to-sell flow.
+signal roster_slot_sold(index: int)
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
@@ -45,6 +49,11 @@ var _red_team_button: Button
 ## lookup structure.
 var _unit_type_buttons: Array[Button] = []
 var _unit_type_stats: Array[UnitStats] = []
+
+var _roster_row: HBoxContainer
+## Grow-only pool, same pattern as the ability hotbar/buff row -- see
+## refresh_roster_row().
+var _roster_slot_buttons: Array[Button] = []
 
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
@@ -72,6 +81,8 @@ func _ready() -> void:
 	add_child(root)
 
 	_build_unit_panel(root)
+	_add_spacer(root, 12)
+	_build_roster_row(root)
 	_add_spacer(root, 12)
 	_build_team_panel(root)
 	_build_winner_label()
@@ -346,6 +357,41 @@ func refresh_affordability(player: Player) -> void:
 	var use_gold := GameManager.current_mode.uses_economy()
 	for i in _unit_type_buttons.size():
 		_unit_type_buttons[i].disabled = use_gold and not player.can_afford(_unit_type_stats[i].cost)
+
+
+## The "rectangle" -- a literal separate staging area's line-up display,
+## not the arena itself. Shows the currently active placement side's
+## roster in purchase order (see Player.roster); clicking a slot sells
+## it (roster_slot_sold, routed by Main.gd to
+## GameManager.sell_roster_slot()). Hidden entirely outside Blood
+## Tournament via refresh_roster_row([]) -- Main.gd is what decides that,
+## same as show_gold()/hide_gold().
+func _build_roster_row(parent: Control) -> void:
+	_roster_row = HBoxContainer.new()
+	_roster_row.add_theme_constant_override("separation", 4)
+	parent.add_child(_roster_row)
+
+
+## Grow-only Button pool (same reasoning as the buff row's Label pool --
+## see _refresh_buff_row()'s doc comment): rebuilding every call would
+## double-count still-present-until-idle-cleanup nodes if this container's
+## size were measured again the same frame.
+func refresh_roster_row(roster: Array[UnitStats]) -> void:
+	while _roster_slot_buttons.size() < roster.size():
+		var index := _roster_slot_buttons.size()
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(72, 32)
+		button.pressed.connect(func(): roster_slot_sold.emit(index))
+		_roster_row.add_child(button)
+		_roster_slot_buttons.append(button)
+
+	for i in _roster_slot_buttons.size():
+		var button := _roster_slot_buttons[i]
+		if i < roster.size():
+			button.text = roster[i].unit_name
+			button.visible = true
+		else:
+			button.visible = false
 
 
 ## Bottom-center, one button per ability slot (Q/W/E). Fixed at 3 buttons

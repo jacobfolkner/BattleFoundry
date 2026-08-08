@@ -61,13 +61,17 @@ func on_unit_killed(killer: Unit) -> void:
 	killer.player.add_blood_points(KILL_BLOOD_POINTS)
 
 
-## At least 2 of the 8 registered teams need a unit -- an 8-way
-## free-for-all shouldn't require every single spawn slot on the cross
-## map to be filled before anyone can fight.
+## At least 2 of the 8 registered teams need a roster slot bought -- an
+## 8-way free-for-all shouldn't require every single spawn slot on the
+## cross map to be filled before anyone can fight. Checks Player.roster,
+## not live units: under the staggered-deployment model (see
+## Main._begin_staggered_deployment()) nothing is actually spawned during
+## PLACEMENT anymore, so GameManager.team_is_empty() would always read
+## "empty" here and this could never return true.
 func can_start_battle() -> bool:
 	var teams_with_units := 0
 	for team_id in GameManager.all_team_ids():
-		if not GameManager.team_is_empty(team_id):
+		if not GameManager.get_player(team_id).roster.is_empty():
 			teams_with_units += 1
 	return teams_with_units >= 2
 

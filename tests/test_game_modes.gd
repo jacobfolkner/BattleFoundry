@@ -19,11 +19,30 @@ func before_each() -> void:
 	# an earlier test (test_ai_opponent.gd's, most likely) could leave
 	# Red's is_human false, which would make _main._on_tournament_toggled(true)
 	# below silently have the AI spawn bonus Red units on top of whatever
-	# a test spawns itself.
-	GameManager.get_player(GameManager.RED_TEAM_ID).is_human = true
+	# a test spawns itself. Roster/gold need the same reset -- an earlier
+	# Blood Tournament test in this file leaves them non-zero otherwise.
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	blue.resources = 0
+	red.resources = 0
+	blue.blood_points = 0
+	red.blood_points = 0
+	blue.roster.clear()
+	red.roster.clear()
+	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
+
+
+## Kills every currently-live unit belonging to `team_id` -- squad-sized
+## roster slots (UnitStats.squad_size, e.g. Fighter's 5 or Tank's 3) mean
+## a single kill rarely eliminates a whole team, so round-end tests need
+## to clear the entire squad, not just one member of it.
+func _kill_team(team_id: int) -> void:
+	for unit in GameManager.get_all_units():
+		if unit.player.team_id == team_id:
+			unit.take_damage(DamageInstance.new(unit.stat_block.max_health() + 1000.0))
 
 
 func test_default_mode_is_classic_elimination() -> void:
@@ -49,11 +68,12 @@ func test_blood_tournament_tracks_round_wins_and_emits_round_ended() -> void:
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var loser := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
+	blue.roster = [TANK_STATS]
+	red.roster = [FIGHTER_STATS] # can_start_battle() now checks roster, not live units -- see BloodTournamentMode.can_start_battle()
 	GameManager.start_battle()
+	await wait_physics_frames(2) # let the staggered deployment queue actually spawn the roster
 
-	loser.take_damage(DamageInstance.new(loser.stat_block.max_health() + 100.0))
+	_kill_team(GameManager.RED_TEAM_ID) # FIGHTER_STATS.squad_size is 5 -- one kill wouldn't eliminate the team
 
 	assert_eq(mode.round_number, 1)
 	assert_eq(mode.get_wins(GameManager.BLUE_TEAM_ID), 1)
@@ -68,19 +88,19 @@ func test_blood_tournament_match_ends_after_reaching_rounds_to_win() -> void:
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	blue.roster = [TANK_STATS]
+	red.roster = [FIGHTER_STATS]
 
-	GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var loser1 := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
 	GameManager.start_battle()
-	loser1.take_damage(DamageInstance.new(loser1.stat_block.max_health() + 100.0))
+	await wait_physics_frames(2)
+	_kill_team(GameManager.RED_TEAM_ID)
 	assert_false(mode.is_match_over(), "one round shouldn't decide a best-of-2")
 
-	GameManager.reset_battle()
+	GameManager.reset_battle() # no permadeath -- roster persists, so round 2 doesn't need buying anything new
 
-	GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var loser2 := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
 	GameManager.start_battle()
-	loser2.take_damage(DamageInstance.new(loser2.stat_block.max_health() + 100.0))
+	await wait_physics_frames(2)
+	_kill_team(GameManager.RED_TEAM_ID)
 
 	assert_true(mode.is_match_over(), "the same team winning twice should decide a best-of-2")
 	assert_signal_emitted_with_parameters(mode, "match_ended", [GameManager.BLUE_TEAM_ID])
@@ -107,11 +127,12 @@ func test_main_auto_advances_to_next_round_after_a_win() -> void:
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var loser := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
+	blue.roster = [TANK_STATS]
+	red.roster = [FIGHTER_STATS]
 	GameManager.start_battle()
+	await wait_physics_frames(2)
 
-	loser.take_damage(DamageInstance.new(loser.stat_block.max_health() + 100.0))
+	_kill_team(GameManager.RED_TEAM_ID)
 	assert_true(GameManager.is_game_over(), "sanity check: the round should have ended")
 
 	await wait_physics_frames(2) # let the deferred _advance_to_next_round() run
@@ -139,28 +160,35 @@ func test_reset_battle_always_frees_every_unit_dead_or_alive() -> void:
 
 
 ## Full integration through Main.gd's actual round-advance path: a unit
-## that DIES in round 1 must still respawn for round 2 (it's still on the
-## roster, no permadeath), and a unit that survived gets no special
-## treatment over one that died -- both are just "on the roster," and
-## neither literal Unit node survives the round transition.
-func test_blood_tournament_round_transition_respawns_the_full_roster_no_permadeath() -> void:
+## that DIES in round 1 must still stay on the roster for round 2 (no
+## permadeath), and a unit that survived gets no special treatment over
+## one that died -- both are just "on the roster," and neither literal
+## Unit node survives the round transition. Under the staggered/staging-
+## area deployment model (Main._begin_staggered_deployment()), the roster
+## only becomes live Units again once BATTLE actually starts for round 2
+## -- reopening PLACEMENT alone does not respawn anything, unlike the
+## earlier instant-respawn design this superseded.
+func test_blood_tournament_round_transition_keeps_the_full_roster_no_permadeath() -> void:
 	_main._on_tournament_toggled(true)
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	blue.roster = [TANK_STATS]
 	red.roster = [FIGHTER_STATS]
-	var blue_unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var red_unit := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
 	GameManager.start_battle()
+	await wait_physics_frames(2) # let the staggered deployment queue spawn round 1's squads
 
-	red_unit.take_damage(DamageInstance.new(red_unit.stat_block.max_health() + 100.0))
-	await wait_physics_frames(2) # let the deferred _advance_to_next_round() (and _respawn_rosters()) run
+	var round_1_units := GameManager.get_all_units() # TANK_STATS/FIGHTER_STATS both deploy multi-unit squads (squad_size 3/5)
+	_kill_team(GameManager.RED_TEAM_ID)
+	await wait_physics_frames(2) # let the deferred _advance_to_next_round() run
 
-	assert_false(is_instance_valid(blue_unit), "no unit survives as a literal node across rounds, winner included -- reset_battle() frees everyone")
-	assert_false(is_instance_valid(red_unit))
-	assert_false(GameManager.team_is_empty(GameManager.BLUE_TEAM_ID), "Blue's roster should have respawned a fresh Tank")
-	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "Red's roster should have respawned a fresh Fighter despite dying last round -- no permadeath")
+	for unit in round_1_units:
+		assert_false(is_instance_valid(unit), "no unit survives as a literal node across rounds, winner included -- reset_battle() frees everyone")
+	assert_true(GameManager.is_placement_phase())
+	assert_eq(blue.roster, [TANK_STATS], "Blue's roster should persist into round 2 -- no permadeath")
+	assert_eq(red.roster, [FIGHTER_STATS], "Red's roster should persist despite dying last round -- no permadeath")
+	assert_true(GameManager.team_is_empty(GameManager.BLUE_TEAM_ID), "nothing spawns live again until the next battle actually starts -- see Main._begin_staggered_deployment()")
+	assert_true(GameManager.team_is_empty(GameManager.RED_TEAM_ID))
 
 
 ## A surviving unit sitting in PLACEMENT can be picked up and moved by a

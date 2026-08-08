@@ -52,7 +52,7 @@ func test_main_honors_menu_selection_and_clears_it_afterward() -> void:
 
 	assert_true(GameManager.current_mode.uses_economy(), "Blood Tournament should already be active")
 	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).is_human, "the AI opponent should already be controlling Red")
-	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "the AI should have placed Red's round 1 roster already")
+	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).roster.is_empty(), "the AI should have bought Red's round 1 roster already")
 	assert_false(MenuSelection.start_with_tournament, "the hand-off should be one-shot -- consumed and cleared")
 	assert_false(MenuSelection.start_with_ai_opponent)
 

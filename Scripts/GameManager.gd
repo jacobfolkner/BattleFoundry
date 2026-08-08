@@ -346,6 +346,24 @@ func sell_unit(unit: Unit) -> void:
 	unit.queue_free()
 
 
+## The "line-up" half of selling, for the literal-staging-area placement
+## model: roster entries (Player.roster) aren't spawned as live Units
+## until BATTLE start (see Main._begin_staggered_deployment()), so
+## there's nothing live to click/right-click during PLACEMENT to sell --
+## this removes roster[index] directly instead, refunding the same
+## SELL_REFUND_FRACTION as sell_unit(). PLACEMENT-only, same reasoning as
+## sell_unit(). Returns whether it actually removed something, so a
+## caller can tell a no-op (bad index, wrong phase) from a real sale.
+func sell_roster_slot(player: Player, index: int) -> bool:
+	if not is_placement_phase() or index < 0 or index >= player.roster.size():
+		return false
+	var stats: UnitStats = player.roster[index]
+	player.roster.remove_at(index)
+	if current_mode.uses_economy():
+		player.add_gold(int(stats.cost * SELL_REFUND_FRACTION))
+	return true
+
+
 ## The "shop" half of Blood Tournament's economy: spends blood points
 ## (not gold -- earned only from kills, see BloodTournamentMode.on_unit_killed())
 ## to apply a permanent Effect to an owned, living unit during PLACEMENT --

@@ -1,16 +1,24 @@
-## A crude Blood Tournament opponent: spends a Player's gold on new units
-## (and, with whatever's left, a shop upgrade) during PLACEMENT, using the
-## same public GameManager API a human clicking around the HUD would --
-## GameManager.spawn_unit()/buy_upgrade(). This is deliberately not a real
-## utility AI (no board evaluation, no countering the human's
-## composition, no repositioning/selling survivors) -- it proves an
-## opponent that can be fought solo is possible without inventing a whole
-## decision-making framework the roadmap never asked for. Only ever
-## called by Main.gd for a Player whose is_human is false, while
-## GameManager.current_mode.uses_economy() is true (see
-## Main._run_ai_turn_if_needed()) -- this class itself doesn't check
-## either, same trust-the-caller split GameManager.buy_upgrade()/
-## sell_unit() already use for ownership.
+## A crude Blood Tournament opponent: spends a Player's gold on new roster
+## slots (and, with whatever blood points it has, a shop upgrade) during
+## PLACEMENT, using the same public GameManager API a human clicking
+## around the HUD would. This is deliberately not a real utility AI (no
+## board evaluation, no countering the human's composition, no
+## repositioning/selling survivors) -- it proves an opponent that can be
+## fought solo is possible without inventing a whole decision-making
+## framework the roadmap never asked for. Only ever called by Main.gd for
+## a Player whose is_human is false, while GameManager.current_mode.uses_economy()
+## is true (see Main._run_ai_turn_if_needed()) -- this class itself
+## doesn't check either, same trust-the-caller split
+## GameManager.buy_upgrade()/sell_unit() already use for ownership.
+##
+## Buys into player.roster (data) rather than spawning live Units
+## directly -- Main._begin_staggered_deployment() is what actually
+## deploys a roster once BATTLE starts, the same as a human's purchases.
+## One known gap from that: _maybe_buy_an_upgrade() targets a living
+## owned unit, and nothing is alive yet at the point this runs (PLACEMENT,
+## right after a round transition) -- it'll harmlessly no-op every time
+## until AI purchasing gets its own mid-battle trigger, same open item
+## noted for the human upgrade flow in BattleFoundry-Roadmap.md §1.
 class_name AIController
 extends RefCounted
 
@@ -25,41 +33,28 @@ const _UPGRADE_POOL: Array[UnitUpgrade] = [
 	preload("res://Resources/Upgrades/IronArmorUpgrade.tres"),
 	preload("res://Resources/Upgrades/WhetstoneUpgrade.tres"),
 ]
-## Safety cap on a single turn's new-unit spawns -- not a balance number,
-## just a guard against an unbounded loop if a future archetype ever had
-## cost <= 0.
+## Safety cap on a single turn's roster additions -- not a balance
+## number, just a guard against an unbounded loop if a future archetype
+## ever had cost <= 0.
 const _MAX_NEW_UNITS_PER_TURN := 8
-## The AI's side of the shared open 40x40 arena -- mirrors the +x
-## convention this codebase's own tests already use for "the second
-## team," so new units don't drop on top of whatever the human already
-## placed on the -x side. Flying units still spawn at y=0 like every
-## placement does; Unit._physics_process() floats them up to
-## flight_height on its own the next physics step, same as a human's
-## click-to-place.
-const _SPAWN_X_RANGE := Vector2(6.0, 18.0)
-const _SPAWN_Z_RANGE := Vector2(-18.0, 18.0)
 
 
 ## Spends `player`'s gold on a random affordable archetype, repeatedly,
-## until nothing left in _UNIT_POOL fits the remaining budget (or the
-## safety cap is hit), then spends whatever blood points it has on one
-## random affordable upgrade for one of its own living units. Each
-## purchase deploys via GameManager.spawn_squad() (honoring
-## UnitStats.squad_size), so _MAX_NEW_UNITS_PER_TURN caps purchased
-## slots, not raw battlefield unit count.
+## appending each to the roster, until nothing left in _UNIT_POOL fits
+## the remaining budget (or the safety cap is hit), then spends whatever
+## blood points it has on one random affordable upgrade for one of its
+## own living units (see the class doc comment for why that part
+## currently no-ops). _MAX_NEW_UNITS_PER_TURN caps purchased slots, not
+## raw battlefield unit count -- each slot deploys as a
+## GameManager.spawn_squad()-sized squad once battle starts.
 func take_turn(player: Player) -> void:
-	var spawned := 0
+	var added := 0
 	var affordable := _affordable_units(player)
-	while not affordable.is_empty() and spawned < _MAX_NEW_UNITS_PER_TURN:
+	while not affordable.is_empty() and added < _MAX_NEW_UNITS_PER_TURN:
 		var stats: UnitStats = affordable[randi() % affordable.size()]
-		var position := Vector3(
-			randf_range(_SPAWN_X_RANGE.x, _SPAWN_X_RANGE.y),
-			0.0,
-			randf_range(_SPAWN_Z_RANGE.x, _SPAWN_Z_RANGE.y)
-		)
-		GameManager.spawn_squad(stats, player, position)
+		player.roster.append(stats)
 		player.spend(stats.cost)
-		spawned += 1
+		added += 1
 		affordable = _affordable_units(player)
 
 	_maybe_buy_an_upgrade(player)

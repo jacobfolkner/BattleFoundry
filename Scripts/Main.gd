@@ -51,10 +51,13 @@ var _left_drag_start: Vector2 = Vector2.ZERO
 var _is_left_dragging: bool = false
 
 ## Non-null only while PLACEMENT's left-mouse-down landed on a unit
-## _selected_player already owns (a Blood Tournament roster entry
-## auto-respawned by _respawn_rosters(), most likely) -- lets it be
-## repositioned before the next round starts instead of only ever placing
-## a brand-new unit on click. See _try_start_unit_drag()/_drag_unit_to().
+## _selected_player already owns -- lets it be repositioned instead of
+## only ever placing a brand-new unit on click. See
+## _try_start_unit_drag()/_drag_unit_to(). Only ever finds anything under
+## classic mode now: Blood Tournament's roster (Player.roster) isn't
+## spawned as live Units during PLACEMENT anymore (see
+## _on_unit_type_selected()/_begin_staggered_deployment()), so there's
+## nothing on the field to drag until BATTLE actually starts.
 var _dragging_unit: Unit = null
 
 ## Non-null only while the HUD's Blood Tournament toggle is on -- see
@@ -75,6 +78,7 @@ var _pending_ability_target: int = -1
 func _ready() -> void:
 	GameManager.units_container = _units_container
 	GameManager.battle_ended.connect(_hud.show_winner)
+	GameManager.battle_started.connect(_begin_staggered_deployment)
 	_selected_player = GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	_selected_stats = _DEFAULT_UNIT_STATS
 	SelectionManager.local_player = _selected_player # keep in sync with the default team panel toggle
@@ -86,6 +90,7 @@ func _ready() -> void:
 	_hud.tournament_mode_toggled.connect(_on_tournament_toggled)
 	_hud.ai_opponent_toggled.connect(_on_ai_opponent_toggled)
 	_hud.ability_slot_pressed.connect(_try_cast_or_target)
+	_hud.roster_slot_sold.connect(_on_roster_slot_sold)
 	# HUD only ever displays whichever unit SelectionManager reports as
 	# selected -- it never reads SelectionManager itself (see HUD.gd's own
 	# doc comment on staying decoupled from selection/battle-lifecycle
@@ -344,40 +349,84 @@ func _on_tournament_round_ended(round_number: int, _winning_team_id: int, _is_dr
 
 
 func _advance_to_next_round() -> void:
-	GameManager.reset_battle() # no permadeath -- every unit is freed; _respawn_rosters() below is what actually carries the army forward
-	_respawn_rosters()
+	GameManager.reset_battle() # no permadeath -- every unit is freed; roster entries stay data-only until the next battle's staggered deployment
 	_hud.reset_for_new_round()
 	_run_ai_turn_if_needed()
 
 
-## Team-id -> default respawn anchor for the roster-respawn flow below --
-## only Blue/Red for now, matching this stage's "prove it on the existing
-## 2-team match first" scope (see BattleFoundry-Roadmap.md §1/§2). A
-## real per-team anchor for all 8 cross-map teams is Main.ARM_SPAWN_POINTS,
-## already built for the cross map itself but not yet wired into roster
-## respawn -- that's explicitly deferred alongside the rest of the 8-team
-## scaling work.
-const _ROSTER_RESPAWN_ANCHORS := {
+## Team-id -> default deployment anchor for the staggered-deployment flow
+## below -- only Blue/Red for now, matching this stage's "prove it on the
+## existing 2-team match first" scope (see BattleFoundry-Roadmap.md §1/§2).
+## A real per-team anchor for all 8 cross-map teams is Main.ARM_SPAWN_POINTS,
+## already built for the cross map itself but not yet wired into
+## deployment -- that's explicitly deferred alongside the rest of the
+## 8-team scaling work.
+const _DEPLOYMENT_ANCHORS := {
 	0: Vector3(-8, 0, 0), # GameManager.BLUE_TEAM_ID
 	1: Vector3(8, 0, 0),  # GameManager.RED_TEAM_ID
 }
+## Seconds between one roster slot's squad marching out and the next --
+## not a balance number, just enough to actually read as a staggered
+## arrival rather than everyone appearing on the same frame.
+const _DEPLOY_INTERVAL := 1.0
 
-## Spawns a fresh squad (GameManager.spawn_squad(), honoring
-## UnitStats.squad_size) for every entry in every (Blue/Red) player's
-## roster -- called right after GameManager.reset_battle() at the start
-## of every round after the first. No permadeath: a slot respawns
-## regardless of whether last round's copy died, at full health, until
-## the player explicitly sells it (see _try_sell_unit_at()). Roster slots
-## are spread along Z around the team's anchor (wider than a single
-## unit's own spawn_squad() spread, which is along X) so one slot's squad
-## doesn't overlap the next slot's.
-func _respawn_rosters() -> void:
-	for team_id in _ROSTER_RESPAWN_ANCHORS:
+## Player.id -> Array[UnitStats], the still-to-deploy remainder of that
+## player's roster, reversed (see _begin_staggered_deployment()) so it
+## pops right-to-left. Player.id -> float in _deploy_timers is seconds
+## remaining until that player's next entry deploys.
+var _pending_deployments: Dictionary = {}
+var _deploy_timers: Dictionary = {}
+
+
+## Literal separate staging area, not an instant respawn: Player.roster
+## entries are never spawned as live Units during PLACEMENT (see
+## _on_unit_type_selected()/_try_place_unit()) -- they only become real
+## Units once BATTLE actually starts, marching out from each player's pen
+## one slot at a time. "Rightmost deploys first, leftmost deploys last"
+## (per the reference genre) is expressed as *purchase order, reversed*:
+## buying appends to the end of Player.roster, so the most recently
+## bought slot -- the "rightmost" one in the line-up -- pops first here.
+func _begin_staggered_deployment() -> void:
+	_pending_deployments.clear()
+	_deploy_timers.clear()
+	for team_id in _DEPLOYMENT_ANCHORS:
 		var player := GameManager.get_player(team_id)
-		var anchor: Vector3 = _ROSTER_RESPAWN_ANCHORS[team_id]
-		for i in player.roster.size():
-			var offset := Vector3(0, 0, (i - (player.roster.size() - 1) * 0.5) * 2.5)
-			GameManager.spawn_squad(player.roster[i], player, anchor + offset)
+		if player.roster.is_empty():
+			continue
+		var queue := player.roster.duplicate()
+		queue.reverse()
+		_pending_deployments[player.id] = queue
+		_deploy_timers[player.id] = 0.0 # the first slot marches out immediately, not after a full interval's wait
+
+
+## _physics_process(), not _process() -- matches every other piece of
+## game-logic timing in this codebase (HUD's own _process() is the one
+## exception, but that's a pure UI refresh, not gameplay timing) and
+## guarantees this actually advances during GUT's wait_physics_frames(),
+## which is specifically tied to physics frames. Only does anything while
+## there's an active staggered deployment queue for at least one player --
+## a no-op every other physics frame of the game's life, including all of
+## PLACEMENT and any battle with an empty roster (classic mode, always).
+func _physics_process(delta: float) -> void:
+	if _pending_deployments.is_empty():
+		return
+	for player_id in _pending_deployments.keys().duplicate(): # duplicated: _deploy_next_pending_slot() below may erase from the dict mid-iteration
+		_deploy_timers[player_id] -= delta
+		if _deploy_timers[player_id] <= 0.0:
+			_deploy_next_pending_slot(player_id)
+
+
+func _deploy_next_pending_slot(player_id: int) -> void:
+	var queue: Array = _pending_deployments[player_id]
+	var stats: UnitStats = queue.pop_front()
+	var player := GameManager.get_player(player_id)
+	GameManager.spawn_squad(stats, player, _DEPLOYMENT_ANCHORS[player.team_id])
+
+	if queue.is_empty():
+		_pending_deployments.erase(player_id)
+		_deploy_timers.erase(player_id)
+	else:
+		_deploy_timers[player_id] = _DEPLOY_INTERVAL
 
 
 ## Shows Blue/Red's current gold and blood points whenever
@@ -386,13 +435,33 @@ func _respawn_rosters() -> void:
 ## spend/refund/income/kill call site can just call this without also
 ## branching on mode type itself.
 func _refresh_gold_display() -> void:
-	if GameManager.current_mode.uses_economy():
+	var use_gold := GameManager.current_mode.uses_economy()
+	if use_gold:
 		var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 		var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 		_hud.show_gold(blue.resources, red.resources, blue.blood_points, red.blood_points)
+		_hud.refresh_roster_row(_selected_player.roster)
 	else:
 		_hud.hide_gold()
+		# _hud is typed as plain Control (see its @onready declaration), so this
+		# call dispatches dynamically -- a bare [] literal has no static context
+		# to become Array[UnitStats] and fails HUD.refresh_roster_row()'s typed
+		# parameter at runtime. A typed local variable carries its own runtime
+		# type tag, unlike a fresh [] literal (Player.roster itself doesn't
+		# need this -- it's already a real typed-array value, not a literal).
+		var empty_roster: Array[UnitStats] = []
+		_hud.refresh_roster_row(empty_roster)
 	_hud.refresh_affordability(_selected_player)
+
+
+## Connected to HUD's roster line-up row (see UI/HUD.gd) -- clicking a
+## slot there sells it (GameManager.sell_roster_slot()) instead of the
+## old right-click-a-live-unit flow (_try_sell_unit_at()), since nothing
+## is live to click during PLACEMENT anymore under the staggered-deployment
+## model.
+func _on_roster_slot_sold(index: int) -> void:
+	if GameManager.sell_roster_slot(_selected_player, index):
+		_refresh_gold_display()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -622,19 +691,14 @@ func _drag_unit_to(screen_position: Vector2) -> void:
 		_dragging_unit.global_position = hit_position
 
 
-## Cost-gated only while GameManager.current_mode.uses_economy() is true --
-## a plain single-battle match stays exactly as free-to-place as it always
-## was (see GameMode.uses_economy()'s doc comment), and deploys a single
-## unit, not a squad -- UnitStats.squad_size is a Blood Tournament economy
-## concept, not a change to classic mode's one-click-one-unit RTS feel.
-## Under economy, also appends to the roster so this purchase respawns
-## automatically next round (see _respawn_rosters()) instead of needing
-## to be re-bought.
+## Classic-mode-only now: under Blood Tournament (current_mode.uses_economy())
+## there's no arena position to choose anymore -- a purchase just joins
+## the roster/line-up (see _on_unit_type_selected()) and deploys from a
+## fixed per-team anchor once battle starts (_begin_staggered_deployment()),
+## not wherever you clicked. A plain single-battle match is unaffected:
+## click a spot, place one unit there, exactly as before.
 func _try_place_unit(screen_position: Vector2) -> void:
-	if _selected_stats == null:
-		return
-	var use_gold := GameManager.current_mode.uses_economy()
-	if use_gold and not _selected_player.can_afford(_selected_stats.cost):
+	if _selected_stats == null or GameManager.current_mode.uses_economy():
 		return
 
 	var ray_origin := _camera.project_ray_origin(screen_position)
@@ -643,13 +707,7 @@ func _try_place_unit(screen_position: Vector2) -> void:
 	if hit_position == null:
 		return
 
-	if use_gold:
-		GameManager.spawn_squad(_selected_stats, _selected_player, hit_position)
-		_selected_player.spend(_selected_stats.cost)
-		_selected_player.roster.append(_selected_stats)
-		_refresh_gold_display()
-	else:
-		GameManager.spawn_unit(_selected_stats, _selected_player, hit_position)
+	GameManager.spawn_unit(_selected_stats, _selected_player, hit_position)
 
 
 ## PLACEMENT-only: right-click on a unit _selected_player owns sells it
@@ -670,8 +728,24 @@ func _try_sell_unit_at(screen_position: Vector2) -> void:
 		_refresh_gold_display()
 
 
+## Under Blood Tournament, clicking a unit-type button doesn't just pick
+## what a later arena click would place (there's no arena click for this
+## anymore, see _try_place_unit()) -- it buys one slot immediately,
+## appending to the roster/line-up. Classic mode keeps the original
+## two-step "pick a type, then click where" flow, so _selected_stats is
+## still tracked either way.
 func _on_unit_type_selected(stats: UnitStats) -> void:
 	_selected_stats = stats
+	if GameManager.current_mode.uses_economy():
+		_try_buy_for_roster(stats)
+
+
+func _try_buy_for_roster(stats: UnitStats) -> void:
+	if not _selected_player.can_afford(stats.cost):
+		return
+	_selected_player.spend(stats.cost)
+	_selected_player.roster.append(stats)
+	_refresh_gold_display()
 
 
 ## Doubles as "which side am I playing as" for this single-machine
