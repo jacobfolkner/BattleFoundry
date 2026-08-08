@@ -95,6 +95,13 @@ var _is_seeking: bool = false
 var current_order: Order = null
 
 var _attack_cooldown: float = 0.0
+## > 0.0 while mid-swing on a committed attack (see UnitStats.attack_windup) --
+## _windup_target is the enemy locked in at the moment the swing started,
+## used instead of a possibly-since-changed target_enemy when the hit
+## actually lands, so a re-target mid-swing can't redirect an already-
+## committed hit onto someone else.
+var _windup_remaining: float = 0.0
+var _windup_target: Unit = null
 var _health_bar: HealthBar
 var _status_indicator: UnitStatusMarker
 ## The mesh's own material -- stored so die()/_physics_process()'s corpse
@@ -907,16 +914,47 @@ func _patrol_step() -> void:
 		_seek_position(waypoint)
 
 
+## UnitStats.attack_windup (default 0.0) delays the hit landing after a
+## swing commits -- 0.0 (every archetype until this system was populated)
+## lands the hit the same frame the cooldown allows, exactly the old
+## behavior. attack_interval's own cooldown only starts counting once the
+## hit actually lands (whether instantly or after a windup), not at the
+## moment the swing commits -- keeps "time between hits" the single thing
+## attack_interval means, regardless of whether windup is 0 or not, rather
+## than needing every windup archetype's attack_interval re-tuned to
+## compensate for a windup that eats into it.
 func _attack(delta: float) -> void:
+	if _windup_remaining > 0.0:
+		_windup_remaining -= delta
+		if _windup_remaining <= 0.0:
+			_release_attack_at(_windup_target)
+			_windup_target = null
+			_attack_cooldown = stat_block.attack_interval()
+		return
+
 	_attack_cooldown -= delta
 	if _attack_cooldown > 0.0:
 		return
-	_attack_cooldown = stat_block.attack_interval()
 
-	if stats.projectile_speed > 0.0:
-		_fire_projectile_at(target_enemy)
+	if stats.attack_windup > 0.0:
+		_windup_remaining = stats.attack_windup
+		_windup_target = target_enemy
 	else:
-		resolve_hit(target_enemy, global_position)
+		_release_attack_at(target_enemy)
+		_attack_cooldown = stat_block.attack_interval()
+
+
+## Fires the hit itself (projectile or instant) at `target` -- shared by
+## _attack()'s instant path (windup == 0.0) and the windup-elapsed path
+## above. No-ops silently if `target` died or was freed while a windup
+## was in progress -- a fizzled swing, not a crash.
+func _release_attack_at(target: Unit) -> void:
+	if target == null or not is_instance_valid(target) or target.current_health <= 0.0:
+		return
+	if stats.projectile_speed > 0.0:
+		_fire_projectile_at(target)
+	else:
+		resolve_hit(target, global_position)
 
 
 ## Instantiates a Projectile (Scripts/Projectile.gd) aimed at `target`,

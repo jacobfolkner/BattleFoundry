@@ -51,6 +51,15 @@ extends Resource
 ## project shipped with from the start, see BattleFoundry-Roadmap.md).
 @export var acquisition_range: float = 12.0
 @export var attack_interval: float = 1.0 ## Seconds between attacks.
+## Seconds of delay between a swing committing (attack_interval's
+## cooldown allowing it) and the hit actually landing -- see
+## Unit._attack()/_release_attack_at(). 0.0 (default, every archetype
+## until this field is explicitly set on a resource) lands the hit the
+## same frame the swing commits, i.e. exactly the pre-windup behavior;
+## a locked-in target from swing-commit time is used at release, not
+## whatever target_enemy is by then, so a re-target mid-swing can't
+## redirect an already-committed hit.
+@export var attack_windup: float = 0.0
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
 ## archetype has to opt in rather than opt out -- see
