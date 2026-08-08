@@ -119,71 +119,48 @@ func test_main_auto_advances_to_next_round_after_a_win() -> void:
 	assert_true(GameManager.is_placement_phase(), "Main.gd should auto-reset for the next round")
 
 
-## Slice 1 of the roadmap's Blood Tournament persistence work: the winning
-## team's still-alive unit should carry over into the next round's
-## PLACEMENT instead of being freed like a normal reset_battle() call would.
-func test_reset_battle_preserves_units_still_alive_when_told_to() -> void:
+## Blood Tournament v2 correction: no permadeath. reset_battle() always
+## frees every unit, dead or alive -- what persists between rounds is
+## Player.roster (data), not a literal surviving Unit node. See
+## Main._respawn_rosters() for the other half.
+func test_reset_battle_always_frees_every_unit_dead_or_alive() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	var survivor := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var other_survivor := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
-
-	GameManager.reset_battle(true)
-
-	assert_true(is_instance_valid(survivor) and not survivor.is_queued_for_deletion())
-	assert_true(is_instance_valid(other_survivor) and not other_survivor.is_queued_for_deletion())
-	assert_true(GameManager.is_placement_phase())
-	assert_true(GameManager.can_start_battle(), "both rosters should already be non-empty from the carried-over units")
-
-
-## Regression guard: the default reset_battle() (no arg) must keep freeing
-## everyone even when units are still alive, exactly like before this
-## feature -- only an explicit reset_battle(true) call opts into carryover.
-func test_reset_battle_default_still_frees_living_units() -> void:
-	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
-	var unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
+	var alive_unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
+	var dead_unit := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
+	GameManager.start_battle()
+	dead_unit.take_damage(DamageInstance.new(dead_unit.stat_block.max_health() + 100.0))
 
 	GameManager.reset_battle()
 
-	assert_true(unit.is_queued_for_deletion())
+	assert_true(alive_unit.is_queued_for_deletion(), "no survivor carryover -- reset_battle() always frees every unit now")
+	assert_true(dead_unit.is_queued_for_deletion())
 	assert_false(GameManager.can_start_battle())
 
 
-## Dead units (permadeath) must never carry over, even mid-decay -- only
-## Unit.LifeState.ALIVE counts as a survivor.
-func test_reset_battle_preserve_does_not_carry_over_dead_units() -> void:
-	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
-	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	var survivor := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var loser := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
-	GameManager.start_battle()
-	loser.take_damage(DamageInstance.new(loser.stat_block.max_health() + 100.0))
-
-	GameManager.reset_battle(true)
-
-	assert_true(is_instance_valid(survivor) and not survivor.is_queued_for_deletion())
-	assert_true(loser.is_queued_for_deletion(), "a dead unit's corpse should still be freed by a preserving reset")
-
-
-## Full integration through Main.gd's actual round-advance path (not a
-## direct GameManager.reset_battle(true) call), proving
-## _advance_to_next_round() passes true and the loser's now-empty roster
-## requires a fresh placement while the winner's survivor is already there.
-func test_blood_tournament_round_transition_preserves_the_winning_teams_survivor() -> void:
+## Full integration through Main.gd's actual round-advance path: a unit
+## that DIES in round 1 must still respawn for round 2 (it's still on the
+## roster, no permadeath), and a unit that survived gets no special
+## treatment over one that died -- both are just "on the roster," and
+## neither literal Unit node survives the round transition.
+func test_blood_tournament_round_transition_respawns_the_full_roster_no_permadeath() -> void:
 	_main._on_tournament_toggled(true)
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	var survivor := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	var loser := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
+	blue.roster = [TANK_STATS]
+	red.roster = [FIGHTER_STATS]
+	var blue_unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
+	var red_unit := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(3, 0, 0))
 	GameManager.start_battle()
 
-	loser.take_damage(DamageInstance.new(loser.stat_block.max_health() + 100.0))
-	await wait_physics_frames(2) # let the deferred _advance_to_next_round() run
+	red_unit.take_damage(DamageInstance.new(red_unit.stat_block.max_health() + 100.0))
+	await wait_physics_frames(2) # let the deferred _advance_to_next_round() (and _respawn_rosters()) run
 
-	assert_true(is_instance_valid(survivor) and not survivor.is_queued_for_deletion(), "Blue's surviving Tank should carry into round 2")
-	assert_false(is_instance_valid(loser), "Red's dead Fighter should not carry over -- it should already be freed")
-	assert_false(GameManager.can_start_battle(), "Red's roster is empty until a new unit is placed for it")
+	assert_false(is_instance_valid(blue_unit), "no unit survives as a literal node across rounds, winner included -- reset_battle() frees everyone")
+	assert_false(is_instance_valid(red_unit))
+	assert_false(GameManager.team_is_empty(GameManager.BLUE_TEAM_ID), "Blue's roster should have respawned a fresh Tank")
+	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "Red's roster should have respawned a fresh Fighter despite dying last round -- no permadeath")
 
 
 ## A surviving unit sitting in PLACEMENT can be picked up and moved by a

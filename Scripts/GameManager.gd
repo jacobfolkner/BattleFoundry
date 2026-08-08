@@ -201,37 +201,24 @@ func _process(delta: float) -> void:
 		_declare_draw()
 
 
-## PLACEMENT, BATTLE, or GAME_OVER -> PLACEMENT. Frees units still in the
-## arena and clears both rosters, so the lifecycle state and the actual
-## battlefield can never disagree about whether a battle is in progress.
+## PLACEMENT, BATTLE, or GAME_OVER -> PLACEMENT. Frees every unit still in
+## the arena, dead or alive, and clears both rosters, so the lifecycle
+## state and the actual battlefield can never disagree about whether a
+## battle is in progress.
 ##
-## `preserve_survivors`: when true, any unit still alive (Unit.LifeState.ALIVE
-## -- a decaying corpse doesn't count) is kept instead of freed, and re-seeded
-## into its team's roster so can_start_battle()/team_is_empty() see it
-## immediately. This is Blood Tournament's roster-carryover mechanic
-## (Main._advance_to_next_round() is the only caller that passes true) --
-## permadeath is the point of that genre, so only *living* units carry over,
-## never corpses. Defaults to false so every other caller (set_mode(), tests,
-## a plain single-battle reset) keeps the original free-everything behavior
-## exactly, with no risk of a leftover GameManager.current_mode from an
-## earlier call deciding this by accident.
-func reset_battle(preserve_survivors: bool = false) -> void:
-	var survivors: Array[Unit] = []
-	if preserve_survivors:
-		for unit in _all_units:
-			if is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE:
-				survivors.append(unit)
-
+## No survivor-carryover option here (an earlier version of this method
+## had one) -- Blood Tournament doesn't have permadeath: what persists
+## between rounds is each Player's `roster` (purchased archetypes, data),
+## not literal surviving Unit nodes. Main._advance_to_next_round() is what
+## respawns a round's full roster fresh after calling this -- see
+## Main._respawn_rosters().
+func reset_battle() -> void:
 	for unit in _all_units:
-		if is_instance_valid(unit) and not survivors.has(unit):
+		if is_instance_valid(unit):
 			unit.queue_free()
 
-	_all_units = survivors
+	_all_units.clear()
 	_units_by_team.clear()
-	for unit in survivors:
-		if not _units_by_team.has(unit.player.team_id):
-			_units_by_team[unit.player.team_id] = []
-		_units_by_team[unit.player.team_id].append(unit)
 
 	_transition_to(BattleState.PLACEMENT)
 
@@ -341,22 +328,22 @@ func sell_unit(unit: Unit) -> void:
 	unit.queue_free()
 
 
-## The "shop" half of Blood Tournament's economy (slice 3): spends gold to
-## apply a permanent Effect to an owned, living unit during PLACEMENT --
+## The "shop" half of Blood Tournament's economy: spends blood points
+## (not gold -- earned only from kills, see BloodTournamentMode.on_unit_killed())
+## to apply a permanent Effect to an owned, living unit during PLACEMENT --
 ## reuses Ability.cast_unit_target() (caster == target == `unit`) rather
-## than inventing a second way to apply an Effect, per the roadmap's own
-## "no new framework needed" framing. Returns whether the purchase went
-## through, so a caller (Main.gd's hotkey handler) can tell a no-op from a
-## successful buy without duplicating these checks itself.
+## than inventing a second way to apply an Effect. Returns whether the
+## purchase went through, so a caller (Main.gd's hotkey handler) can tell
+## a no-op from a successful buy without duplicating these checks itself.
 func buy_upgrade(unit: Unit, upgrade: UnitUpgrade) -> bool:
 	if not is_instance_valid(unit) or unit.life_state != Unit.LifeState.ALIVE:
 		return false
 	if not is_placement_phase() or not current_mode.uses_economy():
 		return false
-	if not unit.player.can_afford(upgrade.cost):
+	if not unit.player.can_afford_blood_points(upgrade.cost):
 		return false
 
-	unit.player.spend(upgrade.cost)
+	unit.player.spend_blood_points(upgrade.cost)
 	upgrade.ability.cast_unit_target(unit, unit)
 	return true
 
@@ -425,6 +412,7 @@ func _on_unit_died(unit: Unit, killer: Unit) -> void:
 
 	if is_instance_valid(killer):
 		killer.gain_xp(Unit.XP_PER_KILL)
+		current_mode.on_unit_killed(killer)
 
 	if not is_battle_active():
 		return

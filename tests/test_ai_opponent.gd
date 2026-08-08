@@ -124,7 +124,8 @@ func test_ai_opponent_takes_a_new_turn_every_round() -> void:
 	_main._on_tournament_toggled(true)
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
-	var survivor := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
+	blue.roster.append(TANK_STATS) # no permadeath -- only a roster entry (not a live node) carries a unit into round 2
+	GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
 	GameManager.start_battle()
 
 	# Kill every Red unit the AI placed for round 1 to force a round end.
@@ -133,5 +134,5 @@ func test_ai_opponent_takes_a_new_turn_every_round() -> void:
 			unit.take_damage(DamageInstance.new(unit.stat_block.max_health() + 1000.0))
 	await wait_physics_frames(2) # let the deferred _advance_to_next_round() (and its _run_ai_turn_if_needed()) run
 
-	assert_true(is_instance_valid(survivor), "Blue's Tank should have survived an already-dead Red roster")
+	assert_false(GameManager.team_is_empty(GameManager.BLUE_TEAM_ID), "Blue's roster should have respawned a fresh Tank for round 2")
 	assert_false(GameManager.team_is_empty(GameManager.RED_TEAM_ID), "the AI should have re-populated Red for round 2")

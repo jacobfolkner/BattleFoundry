@@ -23,20 +23,22 @@ signal round_ended(round_number: int, winning_team_id: int, is_draw: bool)
 ## the match (a team reaches rounds_to_win).
 signal match_ended(winning_team_id: int)
 
-## Slice 2 of the roadmap's persistence+economy work (slice 1 was
-## GameManager.reset_battle(true)'s survivor carryover): real gold, granted
-## once at match start and again as round income, spent through
-## Main._try_place_unit()/GameManager.sell_unit()/buy_upgrade(). Walks
+## Real gold, granted once at match start and again as round income, spent
+## through Main._try_place_unit()/GameManager.sell_unit(). Walks
 ## GameManager.all_team_ids() rather than two hardcoded team_ids, for the
 ## 8-team cross map.
 const STARTING_GOLD := 300
-## Both teams get this every round, win or lose or draw -- a losing team
-## that got nothing would spiral (fewer survivors AND no gold to rebuild
-## with), so this is a deliberate catch-up-friendly design, not an
-## oversight.
+## Every registered team gets exactly this much every round, win, lose,
+## or draw -- deliberately flat/equal for everyone (no win bonus).
+## Winning a round shouldn't buy more army than losing one; that's what
+## blood points (see KILL_BLOOD_POINTS below) reward instead, and
+## unlike gold, those really are only earned by playing well.
 const PARTICIPATION_INCOME := 100
-## Added on top of PARTICIPATION_INCOME, winning team only, skipped on a draw.
-const WIN_BONUS := 50
+## Blood points, not gold -- awarded live (see on_unit_killed()) per
+## kill, spent only on GameManager.buy_upgrade(). A separate currency
+## from gold specifically so it can't be earned just by surviving/losing
+## a round the way gold can.
+const KILL_BLOOD_POINTS := 20
 
 var rounds_to_win: int
 var round_number: int = 0
@@ -53,6 +55,10 @@ func uses_economy() -> bool:
 
 func uses_cross_map() -> bool:
 	return true
+
+
+func on_unit_killed(killer: Unit) -> void:
+	killer.player.add_blood_points(KILL_BLOOD_POINTS)
 
 
 ## At least 2 of the 8 registered teams need a unit -- an 8-way
@@ -100,8 +106,6 @@ func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
 
 	for team_id in GameManager.all_team_ids():
 		GameManager.get_player(team_id).add_gold(PARTICIPATION_INCOME)
-	if not is_draw:
-		GameManager.get_player(winning_team_id).add_gold(WIN_BONUS)
 
 	round_ended.emit(round_number, winning_team_id, is_draw)
 

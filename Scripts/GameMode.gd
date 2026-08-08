@@ -76,6 +76,16 @@ func uses_economy() -> bool:
 	return false
 
 
+## Called by GameManager every time a unit dies during BATTLE with a
+## still-valid killer -- a hook for a mode-specific kill reward (gold,
+## XP, whatever). Unit.gain_xp() (hero leveling) always happens
+## regardless of mode, since it's a Unit-level mechanic, not a
+## GameMode one; this is for match-level rewards like
+## BloodTournamentMode's gold bounty.
+func on_unit_killed(_killer: Unit) -> void:
+	pass
+
+
 ## False (default) means Main.gd keeps the plain flat 40x40 square arena
 ## live (GameManager.ARENA_HALF_EXTENT) -- every existing test and
 ## ClassicEliminationMode assume this shape, and nothing about it changes

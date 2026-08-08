@@ -318,11 +318,16 @@ func hide_tournament_score() -> void:
 	_tournament_score_label.visible = false
 
 
-## Called by Main.gd whenever Blood Tournament gold changes (toggled on,
-## a round ending, or a placement/sell/upgrade spend) -- only meaningful
-## while economy is active, see GameMode.uses_economy().
-func show_gold(blue_gold: int, red_gold: int) -> void:
-	_gold_label.text = "Gold — Blue %d : %d Red" % [blue_gold, red_gold]
+## Called by Main.gd whenever Blood Tournament gold/blood points change
+## (toggled on, a round ending, a kill, or a placement/sell/upgrade spend)
+## -- only meaningful while economy is active, see GameMode.uses_economy().
+## One label for both currencies rather than two separately-positioned
+## ones -- they always change together often enough (round income touches
+## gold, a kill touches blood points, but a player wants to see both at a
+## glance either way) that a second label would just be more UI to keep
+## in sync for no real benefit.
+func show_gold(blue_gold: int, red_gold: int, blue_blood_points: int, red_blood_points: int) -> void:
+	_gold_label.text = "Gold — Blue %d : %d Red   |   Blood Points — Blue %d : %d Red" % [blue_gold, red_gold, blue_blood_points, red_blood_points]
 	_gold_label.reset_size()
 	var viewport_width := get_viewport_rect().size.x
 	_gold_label.position = Vector2((viewport_width - _gold_label.size.x) * 0.5, 52)

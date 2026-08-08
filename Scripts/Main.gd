@@ -51,8 +51,8 @@ var _left_drag_start: Vector2 = Vector2.ZERO
 var _is_left_dragging: bool = false
 
 ## Non-null only while PLACEMENT's left-mouse-down landed on a unit
-## _selected_player already owns (a Blood Tournament survivor carried over
-## by GameManager.reset_battle(true), most likely) -- lets it be
+## _selected_player already owns (a Blood Tournament roster entry
+## auto-respawned by _respawn_rosters(), most likely) -- lets it be
 ## repositioned before the next round starts instead of only ever placing
 ## a brand-new unit on click. See _try_start_unit_drag()/_drag_unit_to().
 var _dragging_unit: Unit = null
@@ -344,21 +344,50 @@ func _on_tournament_round_ended(round_number: int, _winning_team_id: int, _is_dr
 
 
 func _advance_to_next_round() -> void:
-	GameManager.reset_battle(true) # Blood Tournament: units still standing carry into the next round
+	GameManager.reset_battle() # no permadeath -- every unit is freed; _respawn_rosters() below is what actually carries the army forward
+	_respawn_rosters()
 	_hud.reset_for_new_round()
 	_run_ai_turn_if_needed()
 
 
-## Shows Blue/Red's current gold whenever current_mode.uses_economy() is
-## true, hides it otherwise -- self-deciding on every call (rather than
-## the caller tracking on/off) so every spend/refund/income call site can
-## just call this without also branching on mode type itself.
+## Team-id -> default respawn anchor for the roster-respawn flow below --
+## only Blue/Red for now, matching this stage's "prove it on the existing
+## 2-team match first" scope (see BattleFoundry-Roadmap.md §1/§2). A
+## real per-team anchor for all 8 cross-map teams is Main.ARM_SPAWN_POINTS,
+## already built for the cross map itself but not yet wired into roster
+## respawn -- that's explicitly deferred alongside the rest of the 8-team
+## scaling work.
+const _ROSTER_RESPAWN_ANCHORS := {
+	0: Vector3(-8, 0, 0), # GameManager.BLUE_TEAM_ID
+	1: Vector3(8, 0, 0),  # GameManager.RED_TEAM_ID
+}
+
+## Spawns a fresh Unit for every entry in every (Blue/Red) player's
+## roster -- called right after GameManager.reset_battle() at the start
+## of every round after the first. No permadeath: a slot respawns
+## regardless of whether last round's copy died, at full health, until
+## the player explicitly sells it (see _try_sell_unit_at()). Spread along
+## Z around the team's anchor so a roster of more than one unit doesn't
+## spawn stacked on the same point.
+func _respawn_rosters() -> void:
+	for team_id in _ROSTER_RESPAWN_ANCHORS:
+		var player := GameManager.get_player(team_id)
+		var anchor: Vector3 = _ROSTER_RESPAWN_ANCHORS[team_id]
+		for i in player.roster.size():
+			var offset := Vector3(0, 0, (i - (player.roster.size() - 1) * 0.5) * 1.5)
+			GameManager.spawn_unit(player.roster[i], player, anchor + offset)
+
+
+## Shows Blue/Red's current gold and blood points whenever
+## current_mode.uses_economy() is true, hides it otherwise -- self-deciding
+## on every call (rather than the caller tracking on/off) so every
+## spend/refund/income/kill call site can just call this without also
+## branching on mode type itself.
 func _refresh_gold_display() -> void:
 	if GameManager.current_mode.uses_economy():
-		_hud.show_gold(
-			GameManager.get_player(GameManager.BLUE_TEAM_ID).resources,
-			GameManager.get_player(GameManager.RED_TEAM_ID).resources
-		)
+		var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+		var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+		_hud.show_gold(blue.resources, red.resources, blue.blood_points, red.blood_points)
 	else:
 		_hud.hide_gold()
 	_hud.refresh_affordability(_selected_player)
@@ -593,7 +622,9 @@ func _drag_unit_to(screen_position: Vector2) -> void:
 
 ## Cost-gated only while GameManager.current_mode.uses_economy() is true --
 ## a plain single-battle match stays exactly as free-to-place as it always
-## was (see GameMode.uses_economy()'s doc comment).
+## was (see GameMode.uses_economy()'s doc comment). Also appends to the
+## roster under economy, so this purchase respawns automatically next
+## round (see _respawn_rosters()) instead of needing to be re-bought.
 func _try_place_unit(screen_position: Vector2) -> void:
 	if _selected_stats == null:
 		return
@@ -610,18 +641,24 @@ func _try_place_unit(screen_position: Vector2) -> void:
 	GameManager.spawn_unit(_selected_stats, _selected_player, hit_position)
 	if use_gold:
 		_selected_player.spend(_selected_stats.cost)
+		_selected_player.roster.append(_selected_stats)
 		_refresh_gold_display()
 
 
 ## PLACEMENT-only: right-click on a unit _selected_player owns sells it
 ## (see GameManager.sell_unit()) instead of the BATTLE right-click's
 ## attack/follow/attack-move routing, which only makes sense once a battle
-## is actually running.
+## is actually running. Also removes the matching entry from the
+## player's roster (Array.erase() removes the first match, a harmless
+## no-op if it isn't there -- e.g. outside Blood Tournament, where
+## nothing ever gets appended to begin with) -- otherwise a sold unit
+## would just respawn again next round regardless of being sold.
 func _try_sell_unit_at(screen_position: Vector2) -> void:
 	if not DebugInspector.try_select_at(_camera, screen_position):
 		return
 	var unit := DebugInspector.selected_unit
 	if unit.player == _selected_player:
+		unit.player.roster.erase(unit.stats)
 		GameManager.sell_unit(unit)
 		_refresh_gold_display()
 
