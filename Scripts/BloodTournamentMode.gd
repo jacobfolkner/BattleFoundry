@@ -44,6 +44,17 @@ var rounds_to_win: int
 var round_number: int = 0
 var wins_by_team: Dictionary = {} ## team_id -> rounds won so far
 
+## -1 (default): not currently in a goblin boss round's team-turn, every
+## method below behaves normally (N-team PvP). Set by GoblinBossRound for
+## the duration of exactly one team's solo turn against the goblin --
+## while set, can_start_battle()/check_victory()/on_battle_ended() all
+## treat that one team's own wipe as the end of just its turn (a DRAW,
+## "no PvP winner"), not the whole match, and skip the normal round
+## scoring GoblinBossRound.boss_round_finished/finish_boss_round() handles
+## once for the round as a whole instead. See GoblinBossRound's own class
+## doc comment for the full sequencing this supports.
+var current_boss_team_id: int = -1
+
 
 func _init(p_rounds_to_win: int = 2) -> void:
 	rounds_to_win = p_rounds_to_win
@@ -68,7 +79,16 @@ func on_unit_killed(killer: Unit) -> void:
 ## Main._begin_staggered_deployment()) nothing is actually spawned during
 ## PLACEMENT anymore, so GameManager.team_is_empty() would always read
 ## "empty" here and this could never return true.
+##
+## During a boss-round team-turn (current_boss_team_id set), this always
+## returns true instead -- GoblinBossRound._next_team_turn() is the sole
+## authority on when to call GameManager.start_battle() for that turn,
+## already having confirmed the team it's about to deploy has a roster;
+## the normal ">= 2 teams" rule doesn't apply since exactly one
+## competitive team ever fields anything during a boss round.
 func can_start_battle() -> bool:
+	if current_boss_team_id != -1:
+		return true
 	var teams_with_units := 0
 	for team_id in GameManager.all_team_ids():
 		if not GameManager.get_player(team_id).roster.is_empty():
@@ -90,7 +110,21 @@ func on_activated() -> void:
 ## old 2-team-only version of this check (only 2 of the 8 ever fielding a
 ## unit reduces to exactly the same behavior), so a plain Blue-vs-Red
 ## Blood Tournament match still works identically.
+##
+## During a boss-round team-turn, this ignores the normal N-team logic
+## entirely and only watches current_boss_team_id's own roster -- every
+## other competitive team fields nothing during a boss round anyway, so
+## the normal count would misread "only one team remains" as a PvP win
+## the instant the fighting team's very first unit died. Attrition, not a
+## win: the goblin encounter is designed to always end in the team's own
+## units wiping (see GoblinBossRound's class doc comment), so this only
+## ever reports DRAW ("no PvP winner") or NONE, never TEAM_WON.
 func check_victory() -> Dictionary:
+	if current_boss_team_id != -1:
+		if GameManager.team_is_empty(current_boss_team_id):
+			return {"result": VictoryResult.DRAW}
+		return {"result": VictoryResult.NONE}
+
 	var remaining: Array[int] = []
 	for team_id in GameManager.all_team_ids():
 		if not GameManager.team_is_empty(team_id):
@@ -103,7 +137,15 @@ func check_victory() -> Dictionary:
 	return {"result": VictoryResult.NONE}
 
 
+## No-ops during a boss-round team-turn: GameManager.battle_ended still
+## fires as normal (GoblinBossRound listens to that directly to advance
+## to the next team), but the round-scoring below -- income, round_number,
+## round_ended -- only happens once, for the boss round as a whole, via
+## finish_boss_round() below, not once per team-turn.
 func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
+	if current_boss_team_id != -1:
+		return
+
 	round_number += 1
 	if not is_draw:
 		wins_by_team[winning_team_id] = wins_by_team.get(winning_team_id, 0) + 1
@@ -115,6 +157,28 @@ func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
 
 	if not is_draw and wins_by_team[winning_team_id] >= rounds_to_win:
 		match_ended.emit(winning_team_id)
+
+
+## True when the *next* round (round_number hasn't incremented for it
+## yet) should be a goblin boss round instead of normal PvP -- every 3rd
+## round (3, 6, 9, 12...). Checked by Main.gd at the moment "Start
+## Battle" is pressed, to decide whether to hand off to GoblinBossRound
+## instead of calling GameManager.start_battle() directly.
+func is_boss_round() -> bool:
+	return (round_number + 1) % 3 == 0
+
+
+## Called once by GoblinBossRound, after every team with a roster has
+## taken its turn -- mirrors on_battle_ended()'s round scoring (income +
+## round_number + round_ended) for the boss round as a whole. No team
+## "wins" a boss round -- it's PvE, not PvP -- so wins_by_team is
+## untouched and match_ended never fires from here, only from a normal
+## PvP round's on_battle_ended().
+func finish_boss_round() -> void:
+	round_number += 1
+	for team_id in GameManager.all_team_ids():
+		GameManager.get_player(team_id).add_gold(PARTICIPATION_INCOME)
+	round_ended.emit(round_number, -1, true)
 
 
 func is_match_over() -> bool:

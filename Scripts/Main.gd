@@ -69,6 +69,12 @@ var _tournament_mode: BloodTournamentMode = null
 
 var _ai := AIController.new()
 
+## Non-null only while a goblin boss round's team-by-team sequence is
+## actually running (see _on_start_battle_pressed()/GoblinBossRound's own
+## class doc comment) -- a fresh instance every boss round, discarded once
+## boss_round_finished fires.
+var _boss_round: GoblinBossRound = null
+
 ## -1 means no ability is awaiting a target. Set only for a UNIT_TARGET
 ## ability slot (see _try_cast_or_target()) -- the next left-click resolves
 ## it (_resolve_pending_ability_target()); right-click or Escape cancels.
@@ -86,7 +92,7 @@ func _ready() -> void:
 
 	_hud.unit_type_selected.connect(_on_unit_type_selected)
 	_hud.team_selected.connect(_on_team_selected)
-	_hud.start_battle_pressed.connect(GameManager.start_battle)
+	_hud.start_battle_pressed.connect(_on_start_battle_pressed)
 	_hud.tournament_mode_toggled.connect(_on_tournament_toggled)
 	_hud.ai_opponent_toggled.connect(_on_ai_opponent_toggled)
 	_hud.ability_slot_pressed.connect(_try_cast_or_target)
@@ -302,6 +308,31 @@ func _on_tournament_toggled(enabled: bool) -> void:
 	_run_ai_turn_if_needed()
 
 
+## Connected to HUD's Start Battle button instead of GameManager.start_battle()
+## directly, so a goblin boss round (BloodTournamentMode.is_boss_round())
+## can be intercepted here and handed off to GoblinBossRound's own
+## team-by-team sequencing instead of one normal simultaneous PvP battle.
+## Every other mode/round just calls GameManager.start_battle() exactly as
+## before.
+func _on_start_battle_pressed() -> void:
+	if _tournament_mode != null and _tournament_mode.is_boss_round():
+		_boss_round = GoblinBossRound.new()
+		_boss_round.boss_round_finished.connect(_on_boss_round_finished)
+		_boss_round.start(_tournament_mode)
+	else:
+		GameManager.start_battle()
+
+
+## GoblinBossRound itself never touches round scoring (see its class doc
+## comment) -- finish_boss_round() does that once, for the boss round as a
+## whole, which in turn emits round_ended and drives the exact same
+## _on_tournament_round_ended() -> _advance_to_next_round() path a normal
+## PvP round's win already does.
+func _on_boss_round_finished() -> void:
+	_boss_round = null
+	_tournament_mode.finish_boss_round()
+
+
 ## Red's Player.is_human flips to match -- AIController.take_turn() (see
 ## _run_ai_turn_if_needed()) is the only other thing that ever checks it.
 ## Forces the human back to Blue if they happened to be playing Red when
@@ -387,6 +418,15 @@ var _deploy_timers: Dictionary = {}
 ## buying appends to the end of Player.roster, so the most recently
 ## bought slot -- the "rightmost" one in the line-up -- pops first here.
 func _begin_staggered_deployment() -> void:
+	# A goblin boss round's own controller (GoblinBossRound) deploys just
+	# the one team currently taking its turn directly -- the normal
+	# every-registered-team staggered flow below would double-deploy that
+	# same roster a second time (and also try to deploy every OTHER
+	# team's roster, which shouldn't appear during a solo PvE turn at
+	# all) if it ran too.
+	if _tournament_mode != null and _tournament_mode.current_boss_team_id != -1:
+		return
+
 	_pending_deployments.clear()
 	_deploy_timers.clear()
 	for team_id in _DEPLOYMENT_ANCHORS:

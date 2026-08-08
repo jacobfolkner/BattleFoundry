@@ -96,6 +96,15 @@ const RED_TEAM_ID := 1
 ## ClassicEliminationMode simply never looks past BLUE_TEAM_ID/RED_TEAM_ID.
 const TEAM_COUNT := 8
 
+## A dedicated non-competitive team_id, one past the 8 registered
+## competitive teams (all_team_ids() stops at TEAM_COUNT-1, so this never
+## collides with a real team) -- owns every unit GoblinBossRound spawns
+## during a Blood Tournament boss round. Hostile to every competitive
+## team automatically via AllianceMatrix's existing FFA-by-default rule;
+## needs no special hostility logic of its own. Deliberately excluded
+## from all_team_ids() so win-condition/income loops never see it.
+const GOBLIN_TEAM_ID := TEAM_COUNT
+
 ## player_id (int) -> Player. Seeded once at startup with the full
 ## TEAM_COUNT roster -- see _register_default_players().
 var players: Dictionary = {}
@@ -256,6 +265,7 @@ func _register_default_players() -> void:
 	for team_id in range(TEAM_COUNT):
 		var player := Player.new(team_id, team_id, team_id, _TEAM_NAMES[team_id], _TEAM_COLORS[team_id])
 		players[player.id] = player
+	players[GOBLIN_TEAM_ID] = Player.new(GOBLIN_TEAM_ID, GOBLIN_TEAM_ID, GOBLIN_TEAM_ID, "Goblins", Color(0.35, 0.55, 0.15))
 
 
 func get_player(player_id: int) -> Player:
