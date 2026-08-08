@@ -48,7 +48,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_yaw -= event.relative.x * _ORBIT_SENSITIVITY
 		_pitch = clampf(_pitch + event.relative.y * _ORBIT_SENSITIVITY, _MIN_PITCH, _MAX_PITCH)
 		_update_transform()
-	elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE:
+	elif event is InputEventKey and event.pressed and not event.echo and event.is_action_pressed("jump_to_hero"):
 		_jump_to_own_hero()
 
 
@@ -85,13 +85,13 @@ func _process(delta: float) -> void:
 
 func _arrow_key_pan_direction() -> Vector2:
 	var direction := Vector2.ZERO
-	if Input.is_key_pressed(KEY_UP):
+	if Input.is_action_pressed("camera_pan_up"):
 		direction.y += 1.0
-	if Input.is_key_pressed(KEY_DOWN):
+	if Input.is_action_pressed("camera_pan_down"):
 		direction.y -= 1.0
-	if Input.is_key_pressed(KEY_RIGHT):
+	if Input.is_action_pressed("camera_pan_right"):
 		direction.x += 1.0
-	if Input.is_key_pressed(KEY_LEFT):
+	if Input.is_action_pressed("camera_pan_left"):
 		direction.x -= 1.0
 	return direction
 

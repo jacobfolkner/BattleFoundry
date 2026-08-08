@@ -209,15 +209,15 @@ func handle_key(event: InputEventKey) -> void:
 	if GameManager.battle_state != GameManager.BattleState.BATTLE:
 		return
 	var can_command := not GameManager.current_mode.is_auto_battle()
-	if event.keycode == KEY_S and can_command:
+	if event.is_action_pressed("order_stop") and can_command:
 		SelectionManager.order_stop()
-	elif event.keycode == KEY_H and can_command:
+	elif event.is_action_pressed("order_hold") and can_command:
 		SelectionManager.order_hold()
-	elif event.keycode == KEY_Q:
+	elif event.is_action_pressed("ability_slot_0"):
 		try_cast_or_target(0)
-	elif event.keycode == KEY_W:
+	elif event.is_action_pressed("ability_slot_1"):
 		try_cast_or_target(1)
-	elif event.keycode == KEY_E:
+	elif event.is_action_pressed("ability_slot_2"):
 		try_cast_or_target(2)
 	elif event.keycode >= KEY_1 and event.keycode <= KEY_9:
 		var group := event.keycode - KEY_1 + 1
@@ -278,9 +278,11 @@ func cancel_pending_ability_target() -> void:
 ## replaced, there's no legal target to check ownership of at purchase
 ## time at all.
 func handle_placement_key(event: InputEventKey) -> void:
-	if event.keycode != KEY_U and event.keycode != KEY_I:
+	var is_slot_0 := event.is_action_pressed("buy_upgrade_0")
+	var is_slot_1 := event.is_action_pressed("buy_upgrade_1")
+	if not is_slot_0 and not is_slot_1:
 		return
-	var index := 0 if event.keycode == KEY_U else 1
+	var index := 0 if is_slot_0 else 1
 	if index < _UPGRADES.size() and GameManager.buy_roster_upgrade(selected_player, _UPGRADES[index]):
 		_refresh_gold_display.call()
 
