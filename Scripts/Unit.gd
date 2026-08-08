@@ -1024,10 +1024,12 @@ func _fire_projectile_at(target: Unit) -> void:
 func resolve_hit(target: Unit, source_position: Vector3) -> void:
 	if not is_instance_valid(target) or target.current_health <= 0.0:
 		return
-	target.take_damage(DamageInstance.new(stat_block.damage(), self))
+	var hit_landed := target.take_damage(DamageInstance.new(stat_block.damage(), self))
+	if not hit_landed:
+		return # evaded (see UnitStats.evasion) -- no splash, no on-hit ability, nothing else fires off a miss
+
 	if stats.splash_radius > 0.0:
 		_apply_splash_damage(target)
-
 	if stats.on_hit_ability != null:
 		stats.on_hit_ability.trigger_on_hit(self, target, source_position)
 
@@ -1067,14 +1069,25 @@ func _apply_splash_damage(primary_target: Unit) -> void:
 ## re-run die() during the decay window and double-fire the died signal.
 ## INVULNERABLE blocks every damage type outright, no exceptions;
 ## ETHEREAL (WC3's "spells only" state) blocks ATTACK specifically but
-## still takes SPELL/PURE.
-func take_damage(instance: DamageInstance) -> void:
+## still takes SPELL/PURE. UnitStats.evasion (default 0.0, every
+## existing archetype) can also avoid an ATTACK entirely, same as a
+## miss -- checked after ETHEREAL but before any mitigation math, so an
+## evaded hit costs no health and never reaches armor/the attack-armor
+## table at all.
+##
+## Returns true if the hit actually landed (health was reduced), false
+## if it was blocked/evaded/no-opped for any reason above -- resolve_hit()
+## uses this to skip splash/on_hit_ability on a miss, since nothing
+## should fire off an attack that never connected.
+func take_damage(instance: DamageInstance) -> bool:
 	if life_state == LifeState.DEAD:
-		return
+		return false
 	if is_invulnerable():
-		return
+		return false
 	if is_ethereal() and instance.damage_type == DamageInstance.DamageType.ATTACK:
-		return
+		return false
+	if instance.damage_type == DamageInstance.DamageType.ATTACK and stats.evasion > 0.0 and randf() < stats.evasion:
+		return false
 
 	var mitigated := instance.amount
 	if instance.damage_type != DamageInstance.DamageType.PURE:
@@ -1088,6 +1101,7 @@ func take_damage(instance: DamageInstance) -> void:
 
 	if current_health <= 0.0:
 		die(instance.source)
+	return true
 
 
 ## Enters the DEAD state -- collision off (no longer blocks or gets

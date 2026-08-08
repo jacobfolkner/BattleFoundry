@@ -85,6 +85,12 @@ extends Resource
 ## neither the swing nor its attack_interval cooldown advances that
 ## frame.
 @export var turn_rate: float = 0.0
+## Chance [0.0, 1.0] to avoid an incoming ATTACK entirely -- see
+## Unit.take_damage(). 0.0 (default, every existing archetype) never
+## evades, exactly the pre-evasion behavior; 1.0 always evades. Only
+## ATTACK damage can be evaded, matching WC3's own evasion convention
+## (SPELL/PURE always land).
+@export_range(0.0, 1.0) var evasion: float = 0.0
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
 ## archetype has to opt in rather than opt out -- see
