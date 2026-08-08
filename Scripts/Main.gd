@@ -128,9 +128,11 @@ func _apply_menu_selection() -> void:
 	var tournament := MenuSelection.start_with_tournament
 	var ai_opponent := MenuSelection.start_with_ai_opponent
 	var human_team_id := MenuSelection.human_team_id
+	var team_count := MenuSelection.team_count
 	MenuSelection.start_with_tournament = false
 	MenuSelection.start_with_ai_opponent = false
 	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
+	MenuSelection.team_count = GameManager.TEAM_COUNT
 
 	_on_team_selected(human_team_id) # harmless no-op when this is already the default (Blue)
 
@@ -139,19 +141,40 @@ func _apply_menu_selection() -> void:
 	# already non-human, so this order lets round 1 auto-populate
 	# immediately rather than needing a second, redundant check.
 	#
-	# Every OTHER registered team becomes AI-controlled, not just Red --
-	# generalizes the old single Blue-human/AI-Red menu assumption to
-	# whichever of the 8 teams was actually picked (see
-	# UI/MainMenu.gd's team selector). Deliberately doesn't go through
-	# HUD.set_ai_toggle()/Main._on_ai_opponent_toggled() -- that's the
-	# separate in-match HUD button, still hardcoded to flipping just Red
-	# (a known, narrower piece of UI this stage doesn't touch), not a fit
-	# for "N-1 teams become AI" at menu hand-off time.
+	# The human's own team plus the next (team_count - 1) registered
+	# teams (in team_id order, skipping the human's own) become the
+	# active roster for this match -- "2 to 8 teams, fill some or all
+	# remaining slots with bots." Left empty (meaning "every registered
+	# team," see BloodTournamentMode.active_team_ids' own doc comment)
+	# when ai_opponent is off -- team_count is only meaningful alongside
+	# it, and every registered team funded/playing is the original,
+	# pre-team-count behavior a plain "Blood Tournament: On" with no AI
+	# opponent should keep. Every OTHER registered team also becomes
+	# AI-controlled when ai_opponent is on (not restricted to just the
+	# active set) -- harmless, since an inactive team never gets gold
+	# (see BloodTournamentMode.active_team_ids) so AIController.take_turn()
+	# just finds nothing affordable and no-ops for it every round.
+	# Deliberately doesn't go through HUD.set_ai_toggle()/
+	# Main._on_ai_opponent_toggled() -- that's the separate in-match HUD
+	# button, still hardcoded to flipping just Red (a known, narrower
+	# piece of UI this doesn't touch), not a fit for "N-1 teams become
+	# AI" at menu hand-off time.
+	var active_team_ids: Array = []
 	if ai_opponent:
+		active_team_ids = [human_team_id]
 		for team_id in GameManager.all_team_ids():
 			GameManager.get_player(team_id).is_human = (team_id == human_team_id)
+			if team_id != human_team_id and active_team_ids.size() < team_count:
+				active_team_ids.append(team_id)
 	if tournament:
-		_hud.set_tournament_toggle(true) # its own tail call to _run_ai_turn_if_needed() is what actually runs the AI's first turn
+		# Goes straight to Main._on_tournament_toggled() instead of
+		# HUD.set_tournament_toggle() -- that button's own toggled signal
+		# only ever carries a bool, no way to also pass active_team_ids
+		# through it. sync_tournament_toggle_visual() afterward just
+		# matches the button's look to what already happened, without
+		# re-running activation a second time.
+		_on_tournament_toggled(true, active_team_ids) # its own tail call to _run_ai_turn_if_needed() is what actually runs the AI's first turn
+		_hud.sync_tournament_toggle_visual(true)
 
 
 ## team_id -> spawn anchor, near the outer edge of one of the cross map's
@@ -312,7 +335,18 @@ func _sync_arena_shape() -> void:
 ## default single-battle behavior) and a fresh BloodTournamentMode.
 ## GameManager.set_mode() already resets to PLACEMENT, so this just also
 ## resyncs the HUD (winner banner/Start button) to match.
-func _on_tournament_toggled(enabled: bool) -> void:
+##
+## active_team_ids (plain Array, see BloodTournamentMode.active_team_ids'
+## own doc comment) restricts which of the 8 registered teams actually
+## get starting gold -- empty (default) means every registered team,
+## unchanged for the in-game HUD toggle's own direct signal connection
+## (which only ever passes the bool) and every existing test. Only
+## Main._apply_menu_selection() passes a real, possibly-smaller list, for
+## the "2 to 8 teams, fill some or all remaining slots with bots" setup
+## choice. Must be set on the mode BEFORE GameManager.set_mode() runs --
+## that's what triggers on_activated()'s starting-gold grant, which reads
+## it.
+func _on_tournament_toggled(enabled: bool, active_team_ids: Array = []) -> void:
 	if enabled:
 		# 12 -- the genre-accurate fixed match length (see
 		# BloodTournamentMode.total_rounds' own doc comment): every round
@@ -320,9 +354,11 @@ func _on_tournament_toggled(enabled: bool) -> void:
 		# (is_boss_round() lands on 3/6/9/12 either way). rounds_to_win (2)
 		# is otherwise unused once total_rounds > 0, kept at its default.
 		_tournament_mode = BloodTournamentMode.new(2, 12)
+		_tournament_mode.active_team_ids = active_team_ids
 		_tournament_mode.round_ended.connect(_on_tournament_round_ended)
 		_tournament_mode.all_rounds_finished.connect(_on_all_rounds_finished)
 		GameManager.set_mode(_tournament_mode) # grants starting gold via BloodTournamentMode.on_activated()
+		_assign_random_spawn_points()
 	else:
 		_tournament_mode = null
 		GameManager.set_mode(ClassicEliminationMode.new())
@@ -447,6 +483,7 @@ func _scoreboard_text() -> String:
 func _advance_to_next_round() -> void:
 	GameManager.reset_battle() # no permadeath -- every unit is freed; roster entries stay data-only until the next battle's staggered deployment
 	_hud.reset_for_new_round()
+	_assign_random_spawn_points()
 	_run_ai_turn_if_needed()
 
 
@@ -461,6 +498,31 @@ const _DEPLOY_INTERVAL := 1.0
 ## remaining until that player's next entry deploys.
 var _pending_deployments: Dictionary = {}
 var _deploy_timers: Dictionary = {}
+
+## Team_id -> this round's cross-map arm anchor -- confirmed design:
+## spawn locations are randomized every round ("to give everyone a fair
+## chance"), not a fixed team_id -> arm mapping. Reassigned by
+## _assign_random_spawn_points(), called once when Blood Tournament
+## activates and again at the start of every subsequent round. Only ever
+## read by _deploy_next_pending_slot() below, in place of a direct
+## ARM_SPAWN_POINTS[player.team_id] lookup.
+var _round_spawn_points: Dictionary = {}
+
+
+## Shuffles the 8 cross-map arm anchors across GameManager.all_team_ids()
+## -- always all 8, regardless of how many teams are actually active
+## this match (BloodTournamentMode.active_team_ids); an inactive team's
+## assigned anchor is simply never read, since nothing ever deploys for
+## it (see _deploy_next_pending_slot()/GoblinBossRound's own separate
+## anchors, unaffected -- this only applies to normal PvP round
+## deployment).
+func _assign_random_spawn_points() -> void:
+	var arms := ARM_SPAWN_POINTS.duplicate()
+	arms.shuffle()
+	_round_spawn_points.clear()
+	var team_ids := GameManager.all_team_ids()
+	for i in team_ids.size():
+		_round_spawn_points[team_ids[i]] = arms[i]
 
 
 ## Literal separate staging area, not an instant respawn: Player.roster
@@ -521,7 +583,8 @@ func _deploy_next_pending_slot(player_id: int) -> void:
 	var queue: Array = _pending_deployments[player_id]
 	var stats: UnitStats = queue.pop_front()
 	var player := GameManager.get_player(player_id)
-	var squad := GameManager.spawn_squad(stats, player, ARM_SPAWN_POINTS[player.team_id])
+	var anchor: Vector3 = _round_spawn_points.get(player.team_id, ARM_SPAWN_POINTS[player.team_id])
+	var squad := GameManager.spawn_squad(stats, player, anchor)
 	for upgrade in player.roster_upgrades:
 		for unit in squad:
 			upgrade.ability.cast_unit_target(unit, unit)

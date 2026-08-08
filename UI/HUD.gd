@@ -221,6 +221,18 @@ func set_tournament_toggle(enabled: bool) -> void:
 	_on_tournament_toggled(enabled)
 
 
+## Pure visual sync -- unlike set_tournament_toggle() above, does NOT
+## re-run _on_tournament_toggled()/emit tournament_mode_toggled. For a
+## caller (Main._apply_menu_selection()) that already drove the actual
+## mode change itself with data this button's own toggled signal has no
+## way to carry (active_team_ids -- see Main._on_tournament_toggled()'s
+## own doc comment) and just needs the button's look to match afterward,
+## without triggering a second, redundant activation.
+func sync_tournament_toggle_visual(enabled: bool) -> void:
+	_tournament_toggle.set_pressed_no_signal(enabled)
+	_tournament_toggle.text = "Blood Tournament: On" if enabled else "Blood Tournament: Off"
+
+
 func set_ai_toggle(enabled: bool) -> void:
 	_ai_toggle.set_pressed_no_signal(enabled)
 	_on_ai_toggled(enabled)

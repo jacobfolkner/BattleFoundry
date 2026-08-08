@@ -277,7 +277,21 @@ func get_player(player_id: int) -> Player:
 ## condition/income loops walk this instead of hardcoding which teams
 ## exist.
 func all_team_ids() -> Array[int]:
-	return range(TEAM_COUNT)
+	# Not `return range(TEAM_COUNT)` -- range() returns a plain untyped
+	# Array, and Godot's return-type coercion for that into Array[int] is
+	# inconsistent between call sites (see this session's several other
+	# instances of the same underlying quirk) -- most callers just
+	# `for team_id in GameManager.all_team_ids():`, which tolerates an
+	# untyped runtime Array fine, but the first caller to actually
+	# `var x := GameManager.all_team_ids()` and rely on real Array[int]
+	# semantics hit a hard runtime error ("Trying to assign an array of
+	# type Array to a variable of type Array[int]"). Building the array
+	# explicitly, element by element, is the one pattern that's reliably
+	# produced a genuinely-typed Array[int] everywhere else this session.
+	var ids: Array[int] = []
+	for i in range(TEAM_COUNT):
+		ids.append(i)
+	return ids
 
 
 ## Display name for battle_ended's winning_team_id -- looks up any

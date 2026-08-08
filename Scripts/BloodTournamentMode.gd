@@ -84,6 +84,32 @@ var current_boss_team_id: int = -1
 ## for the full sequencing this supports.
 var in_bracket_match: bool = false
 
+## Which of the 8 registered teams are actually playing this match --
+## confirmed design: 2 to 8 teams, chosen at setup, "fill all slots with
+## bots or just some of them." Plain Array (not Array[int]) deliberately
+## -- see GoblinBossRound._pending_team_ids' own doc comment for why a
+## computed team-id list in this codebase keeps hitting a typed-array
+## assignment quirk not worth chasing further. Empty (default) means
+## "every registered team" -- get_active_team_ids() is what every caller
+## actually reads, so every existing test/caller that never sets this
+## explicitly keeps seeing all 8, unchanged. Main._apply_menu_selection()
+## is the one real caller that sets a smaller list.
+var active_team_ids: Array = []
+
+
+## Only teams actually playing get starting/round gold (on_activated()/
+## on_battle_ended()/finish_boss_round() below) -- an inactive slot
+## should never accumulate free gold nobody can ever spend on it.
+## Deliberately NOT consulted by can_start_battle()/check_victory()/the
+## goblin-boss-round/bracket-tournament participant filters elsewhere --
+## those already work correctly off Player.roster.is_empty(), which an
+## inactive team's roster always is (nobody ever funds it to buy
+## anything), so this needs to be the single source of truth for gold
+## only, not duplicated everywhere "who's really playing" already gets
+## asked a different way.
+func get_active_team_ids() -> Array:
+	return active_team_ids if not active_team_ids.is_empty() else GameManager.all_team_ids()
+
 
 func _init(p_rounds_to_win: int = 2, p_total_rounds: int = 0) -> void:
 	rounds_to_win = p_rounds_to_win
@@ -133,7 +159,7 @@ func can_start_battle() -> bool:
 ## See GameMode.on_activated()'s doc comment for why starting gold is
 ## granted here and not from _init() or on_battle_started().
 func on_activated() -> void:
-	for team_id in GameManager.all_team_ids():
+	for team_id in get_active_team_ids():
 		GameManager.get_player(team_id).add_gold(STARTING_GOLD)
 
 
@@ -184,7 +210,7 @@ func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
 	if not is_draw:
 		wins_by_team[winning_team_id] = wins_by_team.get(winning_team_id, 0) + 1
 
-	for team_id in GameManager.all_team_ids():
+	for team_id in get_active_team_ids():
 		GameManager.get_player(team_id).add_gold(PARTICIPATION_INCOME)
 
 	round_ended.emit(round_number, winning_team_id, is_draw)
@@ -213,7 +239,7 @@ func is_boss_round() -> bool:
 ## PvP round's on_battle_ended().
 func finish_boss_round() -> void:
 	round_number += 1
-	for team_id in GameManager.all_team_ids():
+	for team_id in get_active_team_ids():
 		GameManager.get_player(team_id).add_gold(PARTICIPATION_INCOME)
 	round_ended.emit(round_number, -1, true)
 	if total_rounds > 0 and round_number >= total_rounds:

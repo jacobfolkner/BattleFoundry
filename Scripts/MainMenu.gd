@@ -17,6 +17,7 @@ extends Control
 var _tournament_toggle: Button
 var _ai_toggle: Button
 var _team_option: OptionButton
+var _team_count_option: OptionButton
 
 
 func _ready() -> void:
@@ -60,6 +61,7 @@ func _build_options(parent: Control) -> void:
 	_tournament_toggle = _add_toggle(row, "Blood Tournament: Off", "Blood Tournament: On")
 	_ai_toggle = _add_toggle(row, "AI Opponent: Off", "AI Opponent: On")
 	_build_team_selector(row)
+	_build_team_count_selector(row)
 
 
 ## Which of the 8 registered teams the player plays as -- only meaningful
@@ -75,6 +77,21 @@ func _build_team_selector(parent: Control) -> void:
 		_team_option.add_item(GameManager.get_team_display_name(team_id))
 	_team_option.selected = GameManager.BLUE_TEAM_ID
 	parent.add_child(_team_option)
+
+
+## How many total teams (the player's own plus AI-filled slots) play this
+## match, 2 to GameManager.TEAM_COUNT -- confirmed design: "fill all
+## slots with bots or just some of them," not always a full 8. Item index
+## 0 -> 2 teams, ..., last index -> TEAM_COUNT teams; defaults selected to
+## the last item (the full 8-team experience stays the default, this just
+## lets the player dial it down).
+func _build_team_count_selector(parent: Control) -> void:
+	_team_count_option = OptionButton.new()
+	_team_count_option.custom_minimum_size = Vector2(110, 40)
+	for count in range(2, GameManager.TEAM_COUNT + 1):
+		_team_count_option.add_item("%d Teams" % count)
+	_team_count_option.selected = _team_count_option.item_count - 1
+	parent.add_child(_team_count_option)
 
 
 func _add_toggle(parent: Control, off_text: String, on_text: String) -> Button:
@@ -119,6 +136,7 @@ func apply_selection_to_menu_state() -> void:
 	MenuSelection.start_with_tournament = _tournament_toggle.button_pressed
 	MenuSelection.start_with_ai_opponent = _ai_toggle.button_pressed
 	MenuSelection.human_team_id = _team_option.selected
+	MenuSelection.team_count = _team_count_option.selected + 2
 
 
 func _on_play_pressed() -> void:

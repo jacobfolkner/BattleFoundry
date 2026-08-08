@@ -17,3 +17,13 @@ var start_with_ai_opponent: bool = false
 ## plain `const` read, not GameManager's runtime state, so this is safe
 ## as a field initializer regardless of autoload init order.
 var human_team_id: int = GameManager.BLUE_TEAM_ID
+## How many of the 8 registered teams actually play this Blood
+## Tournament match, from 2 (minimum -- a match needs an opponent) to 8 --
+## confirmed design: "fill all slots with bots or just some of them."
+## Only meaningful alongside start_with_ai_opponent (the human's own team
+## plus this many AI-controlled ones -- see Main._apply_menu_selection());
+## harmless to leave at its default otherwise. Defaults to
+## GameManager.TEAM_COUNT (8, every registered team fights) -- the
+## already-built full 8-team experience stays the default, this field
+## only lets the player dial it down.
+var team_count: int = GameManager.TEAM_COUNT
