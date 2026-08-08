@@ -60,6 +60,21 @@ lighting bug in the game itself.
   must be set every physics frame (even though nothing paths to it) or
   `velocity_computed` always reports zero. Undocumented on the property
   itself — only mentioned in the navigation tutorial.
+- **`NavigationAgent3D` pathfinding for an agent well above the
+  navmesh's Y plane** (a flying unit resting at `flight_height`, for
+  example): no path is found, and `get_next_path_position()` silently
+  falls back to returning the agent's *own* position — reads as the
+  agent being permanently frozen, no error anywhere. Flying units in
+  this project skip navmesh queries entirely and seek their destination
+  directly instead (they're meant to fly over ground obstacles anyway
+  — see `Unit._physics_process()`'s `stats.is_flying` branch).
+- **`NavigationAgent3D.target_desired_distance` defaults to 1.0m** —
+  looser than this project's own tolerances (`attack_range` as low as
+  0.9m, `Unit._ARRIVAL_EPSILON` of 0.3m). Left at the default, the agent
+  considers itself "close enough" well before either of those and
+  `get_next_path_position()` stops making further progress — reads as
+  units freezing just short of a nearby target. `Unit._build_avoidance()`
+  sets it to 0.1.
 - **A `PanelContainer` positioned via anchors on a parentless `Control`**
   (a `Control` whose only ancestor before the `CanvasLayer` is itself)
   never resolves a real size or position — it silently renders nothing
