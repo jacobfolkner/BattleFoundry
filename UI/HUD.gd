@@ -311,14 +311,20 @@ func show_winner(winning_team_id: int, is_draw: bool) -> void:
 	_winner_label.visible = true
 
 
-## Called by Main.gd on every BloodTournamentMode.round_ended. Positioned
+## Called by Main.gd on every BloodTournamentMode.round_ended --
+## score_text is a fully pre-formatted "TeamName wins : TeamName wins : ..."
+## string (Main._scoreboard_text() builds it, sorted, for however many of
+## the up to 8 teams are actually playing) so this stays a generic
+## "display whatever text you're given" renderer, same boundary this
+## class's own doc comment already describes for GameManager lookups --
+## HUD doesn't know how many teams exist or how ranking works. Positioned
 ## from get_viewport_rect().size directly rather than anchors -- a bare
 ## Label parented straight to this full-rect Control (not inside a
 ## layout Container) never resolves a real position from anchors alone,
 ## same gotcha _build_drag_box()'s sibling _drag_box would hit if it
 ## needed to be centered instead of just stretched to a drag rect.
-func show_tournament_score(round_number: int, blue_wins: int, red_wins: int) -> void:
-	_tournament_score_label.text = "Round %d — Blue %d : %d Red" % [round_number, blue_wins, red_wins]
+func show_tournament_score(round_number: int, score_text: String) -> void:
+	_tournament_score_label.text = "Round %d — %s" % [round_number, score_text]
 	_tournament_score_label.reset_size()
 	var viewport_width := get_viewport_rect().size.x
 	_tournament_score_label.position = Vector2((viewport_width - _tournament_score_label.size.x) * 0.5, 24)

@@ -400,7 +400,7 @@ func _run_ai_turn_if_needed() -> void:
 ## (see GameMode.gd), so mode-specific UI reactions like this one have to
 ## come from Main.gd holding the mode reference directly.
 func _on_tournament_round_ended(round_number: int, _winning_team_id: int, _is_draw: bool) -> void:
-	_hud.show_tournament_score(round_number, _tournament_mode.get_wins(GameManager.BLUE_TEAM_ID), _tournament_mode.get_wins(GameManager.RED_TEAM_ID))
+	_hud.show_tournament_score(round_number, _scoreboard_text())
 	_refresh_gold_display() # round income (BloodTournamentMode.on_battle_ended()) already landed by now
 	if not _tournament_mode.is_match_over():
 		# Deferred, not called straight from here: this handler runs
@@ -411,6 +411,24 @@ func _on_tournament_round_ended(round_number: int, _winning_team_id: int, _is_dr
 		# it clobbered back to visible right after. Deferring lets this
 		# round's result display first, uninterrupted.
 		call_deferred("_advance_to_next_round")
+
+
+## "TeamName wins : TeamName wins : ..." sorted by wins descending, only
+## for teams that have actually fielded a roster at some point (same
+## "who's really playing" filter GoblinBossRound/FinalTournamentBracket
+## use) -- BloodTournamentMode.wins_by_team only ever gets a key for a
+## team once it's WON a round, so a plain teams_with_units-style sort
+## would silently omit anyone still sitting on 0 wins.
+func _scoreboard_text() -> String:
+	var participants := GameManager.all_team_ids().filter(
+		func(team_id: int) -> bool: return not GameManager.get_player(team_id).roster.is_empty()
+	)
+	participants.sort_custom(func(a: int, b: int) -> bool: return _tournament_mode.get_wins(a) > _tournament_mode.get_wins(b))
+
+	var parts: Array[String] = []
+	for team_id in participants:
+		parts.append("%s %d" % [GameManager.get_team_display_name(team_id), _tournament_mode.get_wins(team_id)])
+	return " : ".join(parts)
 
 
 func _advance_to_next_round() -> void:
