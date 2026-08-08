@@ -953,13 +953,17 @@ func resolve_hit(target: Unit, source_position: Vector3) -> void:
 
 ## PURE damage skips armor entirely (see DamageInstance); ATTACK/SPELL are
 ## reduced flat by armor(), floored at 1 so armor can't fully negate a hit
-## outright -- a WC3-style minimum, not a full attack/armor-type table.
-## Mitigation happens here, not at the source, so it always applies
-## regardless of who/what dealt the DamageInstance. No-ops on a corpse --
-## without this, e.g. a lingering AoE tick could re-run die() during the
-## decay window and double-fire the died signal. INVULNERABLE blocks
-## every damage type outright, no exceptions; ETHEREAL (WC3's "spells
-## only" state) blocks ATTACK specifically but still takes SPELL/PURE.
+## outright -- a WC3-style minimum. ATTACK damage additionally passes
+## through AttackArmorTable's attack-type x armor-type multiplier
+## (source's UnitStats.attack_type against this unit's own armor_type) --
+## SPELL does not, matching WC3's own convention that the type table only
+## applies to normal attacks. Mitigation happens here, not at the source,
+## so it always applies regardless of who/what dealt the DamageInstance.
+## No-ops on a corpse -- without this, e.g. a lingering AoE tick could
+## re-run die() during the decay window and double-fire the died signal.
+## INVULNERABLE blocks every damage type outright, no exceptions;
+## ETHEREAL (WC3's "spells only" state) blocks ATTACK specifically but
+## still takes SPELL/PURE.
 func take_damage(instance: DamageInstance) -> void:
 	if life_state == LifeState.DEAD:
 		return
@@ -971,6 +975,8 @@ func take_damage(instance: DamageInstance) -> void:
 	var mitigated := instance.amount
 	if instance.damage_type != DamageInstance.DamageType.PURE:
 		mitigated = maxf(instance.amount - stat_block.armor(), 1.0)
+		if instance.damage_type == DamageInstance.DamageType.ATTACK and instance.source != null:
+			mitigated *= AttackArmorTable.multiplier(instance.source.stats.attack_type, stats.armor_type)
 
 	current_health -= mitigated
 	_health_bar.set_fraction(current_health / stat_block.max_health())

@@ -59,9 +59,21 @@ extends Resource
 @export var can_attack_flying: bool = false
 ## Flat damage reduction applied to incoming ATTACK/SPELL damage (not
 ## PURE -- see DamageInstance). Seeds StatBlock.base_armor; buffs/debuffs
-## modify the runtime copy, never this archetype value. This is a flat
-## reduction only -- no attack-type x armor-type multipliers yet.
+## modify the runtime copy, never this archetype value.
 @export var armor: float = 0.0
+
+## WC3-style attack-type x armor-type multiplier grid (see
+## Scripts/AttackArmorTable.gd), layered on top of the flat armor
+## reduction above -- only for ATTACK damage (Unit.take_damage()); SPELL
+## damage still only ever sees the flat armor reduction, matching WC3's
+## own "the type table doesn't apply to spells" convention. NORMAL x
+## MEDIUM (both defaults below) is a 1.0 multiplier, so any archetype
+## that never sets these two fields explicitly sees zero change in
+## damage taken/dealt from before this table existed.
+enum AttackType { NORMAL, PIERCING, SIEGE, HERO }
+enum ArmorType { UNARMORED, LIGHT, MEDIUM, HEAVY, FORTIFIED, HERO }
+@export var attack_type: AttackType = AttackType.NORMAL
+@export var armor_type: ArmorType = ArmorType.MEDIUM
 
 @export_group("Abilities")
 ## Index 0/1/2 map to the Q/W/E hotkeys in Main.gd. NO_TARGET/UNIT_TARGET

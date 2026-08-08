@@ -186,6 +186,74 @@ func test_pure_damage_bypasses_armor() -> void:
 		"PURE damage type should ignore armor entirely")
 
 
+# ---------------------------------------------------------------------
+# Attack-type x armor-type multiplier (AttackArmorTable)
+# ---------------------------------------------------------------------
+
+## NORMAL x MEDIUM is every archetype's default pairing -- both existing
+## armor tests above (null source, so the multiplier never even runs)
+## and every pre-existing archetype .tres file rely on this being exactly
+## 1.0, i.e. a complete no-op, to keep every prior test's damage numbers
+## unchanged now that this table exists.
+func test_normal_attack_type_against_medium_armor_type_is_a_full_multiplier_noop() -> void:
+	assert_eq(AttackArmorTable.multiplier(UnitStats.AttackType.NORMAL, UnitStats.ArmorType.MEDIUM), 1.0)
+
+
+func test_piercing_attack_type_deals_bonus_damage_to_light_armor_type() -> void:
+	assert_gt(AttackArmorTable.multiplier(UnitStats.AttackType.PIERCING, UnitStats.ArmorType.LIGHT), 1.0)
+
+
+func test_piercing_attack_type_deals_reduced_damage_to_heavy_armor_type() -> void:
+	assert_lt(AttackArmorTable.multiplier(UnitStats.AttackType.PIERCING, UnitStats.ArmorType.HEAVY), 1.0)
+
+
+func test_siege_attack_type_deals_bonus_damage_to_fortified_armor_type() -> void:
+	assert_gt(AttackArmorTable.multiplier(UnitStats.AttackType.SIEGE, UnitStats.ArmorType.FORTIFIED), 1.0)
+
+
+## Integration test through the real take_damage() pipeline, not just the
+## table function directly -- confirms Unit.take_damage() actually reads
+## the attacker's UnitStats.attack_type against the defender's own
+## UnitStats.armor_type. Uses freshly-constructed UnitStats (not a shared
+## archetype .tres) so this can set attack_type/armor_type in isolation
+## without touching any resource other tests/archetypes rely on.
+func test_take_damage_applies_the_attack_armor_multiplier_on_top_of_flat_armor_reduction() -> void:
+	var piercing_attacker_stats := UnitStats.new()
+	piercing_attacker_stats.attack_type = UnitStats.AttackType.PIERCING
+	var attacker := GameManager.spawn_unit(piercing_attacker_stats, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+
+	var light_armor_defender_stats := UnitStats.new()
+	light_armor_defender_stats.armor_type = UnitStats.ArmorType.LIGHT
+	var defender := GameManager.spawn_unit(light_armor_defender_stats, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3.ZERO)
+	defender.stat_block.base_armor = 5.0
+
+	defender.take_damage(DamageInstance.new(20.0, attacker, DamageInstance.DamageType.ATTACK))
+
+	var expected_multiplier := AttackArmorTable.multiplier(UnitStats.AttackType.PIERCING, UnitStats.ArmorType.LIGHT)
+	var expected_damage := (20.0 - 5.0) * expected_multiplier
+	assert_eq(defender.current_health, light_armor_defender_stats.max_health - expected_damage,
+		"PIERCING vs LIGHT should apply its table multiplier on top of the flat armor reduction")
+
+
+## SPELL damage still only sees the flat armor reduction -- WC3's own
+## "the type table doesn't apply to spells" convention, and the whole
+## reason take_damage() gates the multiplier on damage_type == ATTACK.
+func test_spell_damage_ignores_the_attack_armor_multiplier() -> void:
+	var piercing_attacker_stats := UnitStats.new()
+	piercing_attacker_stats.attack_type = UnitStats.AttackType.PIERCING
+	var attacker := GameManager.spawn_unit(piercing_attacker_stats, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+
+	var light_armor_defender_stats := UnitStats.new()
+	light_armor_defender_stats.armor_type = UnitStats.ArmorType.LIGHT
+	var defender := GameManager.spawn_unit(light_armor_defender_stats, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3.ZERO)
+	defender.stat_block.base_armor = 5.0
+
+	defender.take_damage(DamageInstance.new(20.0, attacker, DamageInstance.DamageType.SPELL))
+
+	assert_eq(defender.current_health, light_armor_defender_stats.max_health - 15.0,
+		"SPELL damage should only see the flat armor reduction, no attack/armor-type multiplier")
+
+
 ## Kill attribution falls out of the damage pipeline: the killing blow's
 ## DamageInstance.source is threaded through take_damage() -> die() ->
 ## the died signal, so anything downstream (bounty, XP, kill feed) can
