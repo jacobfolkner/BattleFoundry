@@ -14,6 +14,18 @@ extends Resource
 ## GameManager.current_mode.uses_economy() is true (see Main._try_place_unit()).
 ## Irrelevant, and never checked, for a plain single-battle match.
 @export var cost: int = 0
+## How many actual battlefield Units one purchased "slot" of this
+## archetype deploys -- see GameManager.spawn_squad(), the shared entry
+## point every purchase/roster-respawn call site uses instead of
+## spawn_unit() directly. `cost` above is charged once per *slot*, not
+## per squad member -- buying one Fighter slot for its listed cost still
+## fields the whole squad. Deliberately inverse to power: a cheap/weak
+## archetype should field more bodies than an expensive/tanky one (see
+## the concrete archetypes' own .tres files for actual tuning). 1
+## (default) means "no squad concept for this archetype" -- exactly
+## today's one-purchase-one-unit behavior, so anything that doesn't
+## explicitly set this is unaffected.
+@export var squad_size: int = 1
 
 @export_group("Combat")
 @export var max_health: float = 100.0

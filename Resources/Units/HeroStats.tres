@@ -10,6 +10,7 @@
 script = ExtResource("1")
 unit_name = "Warlord"
 cost = 200
+squad_size = 1
 max_health = 180.0
 damage = 14.0
 attack_range = 1.0

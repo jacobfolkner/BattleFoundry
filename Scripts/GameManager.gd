@@ -302,6 +302,24 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 	return unit
 
 
+## Spawns stats.squad_size Units for one purchased/roster slot, spread
+## along X around `anchor_position` so squad members don't land exactly
+## stacked on each other -- the shared entry point every "this was
+## purchased" call site (Main._try_place_unit()/_respawn_rosters(),
+## AIController.take_turn()) uses instead of spawn_unit() directly, so
+## squad_size is honored everywhere a roster slot actually deploys, not
+## just some of them. Each member is a fully independent Unit -- no
+## shared-fate/linkage between squad members, they fight and die on
+## their own like any other unit.
+func spawn_squad(stats: UnitStats, player: Player, anchor_position: Vector3) -> Array[Unit]:
+	var squad: Array[Unit] = []
+	var spacing := stats.collision_radius * 2.5 + 0.3
+	for i in stats.squad_size:
+		var offset := Vector3((i - (stats.squad_size - 1) * 0.5) * spacing, 0, 0)
+		squad.append(spawn_unit(stats, player, anchor_position + offset))
+	return squad
+
+
 ## Fraction of UnitStats.cost refunded by sell_unit() -- only meaningful
 ## while current_mode.uses_economy() is true.
 const SELL_REFUND_FRACTION := 0.5

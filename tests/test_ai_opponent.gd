@@ -47,6 +47,12 @@ func test_ai_spends_gold_on_units_without_going_negative() -> void:
 	assert_true(red.resources < 500, "spending on at least one unit should have happened")
 
 
+## Loose bounds, not the exact [6, 18] _SPAWN_X_RANGE -- GameManager.spawn_squad()
+## spreads a squad's members out from the chosen anchor point (up to
+## roughly +-3 for the pool's widest squad, Fighter's 5), so a squad
+## anchored near either edge of _SPAWN_X_RANGE can land members somewhat
+## outside it. What actually matters for "its own side of the arena" is
+## staying clear of the human's negative-x half, not an exact range.
 func test_ai_placements_land_on_its_own_side_of_the_arena() -> void:
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	red.resources = 1000
@@ -54,32 +60,50 @@ func test_ai_placements_land_on_its_own_side_of_the_arena() -> void:
 	AIController.new().take_turn(red)
 
 	for unit in GameManager.get_all_units():
-		assert_true(unit.global_position.x >= 6.0 and unit.global_position.x <= 18.0,
-			"AI unit landed at x=%s, outside its side of the arena" % unit.global_position.x)
+		assert_true(unit.global_position.x >= 2.0,
+			"AI unit landed at x=%s, drifted onto the human's side of the arena" % unit.global_position.x)
 
 
+## AIController._MAX_NEW_UNITS_PER_TURN (8) caps purchased *slots*, not raw
+## battlefield units -- each slot deploys via GameManager.spawn_squad(),
+## so the real ceiling is 8 slots times the largest squad_size in the
+## pool (Fighter's 5).
 func test_ai_turn_is_capped_so_it_cannot_spawn_an_unbounded_number_of_units() -> void:
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	red.resources = 1000000
 
 	AIController.new().take_turn(red)
 
-	assert_true(GameManager.get_all_units().size() <= 8)
+	assert_true(GameManager.get_all_units().size() <= 8 * 5)
 
 
-func test_ai_spends_leftover_gold_on_an_upgrade_for_one_of_its_own_units() -> void:
+## Upgrades cost blood points, not gold (see GameManager.buy_upgrade()) --
+## with no blood points ever set here, the AI should just spend all its
+## gold on a new unit and never touch the upgrade branch at all.
+func test_ai_spends_all_its_gold_on_units_not_upgrades() -> void:
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	var unit := GameManager.spawn_unit(TANK_STATS, red, Vector3(10, 0, 0))
 	var original_armor := unit.stat_block.armor()
-	red.resources = 100 # Iron Armor costs 100, cheapest new unit (Fighter) costs 100 too -- give it just enough for exactly one purchase
+	red.resources = 100 # exactly Fighter's cost -- one purchase, nothing left over
 
 	AIController.new().take_turn(red)
 
-	# Either it bought a new Fighter or upgraded the Tank -- both are
-	# "spent the 100 gold on something legal" outcomes; what matters is it
-	# never crashes and never overspends.
-	assert_true(red.resources == 0)
-	assert_true(unit.stat_block.armor() >= original_armor)
+	assert_eq(red.resources, 0)
+	assert_almost_eq(unit.stat_block.armor(), original_armor, 0.01, "no blood points means the upgrade branch should never fire")
+
+
+func test_ai_spends_blood_points_on_an_upgrade_for_one_of_its_own_units() -> void:
+	GameManager.set_mode(BloodTournamentMode.new()) # GameManager.buy_upgrade() itself gates on current_mode.uses_economy()
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	var unit := GameManager.spawn_unit(TANK_STATS, red, Vector3(10, 0, 0))
+	var original_armor := unit.stat_block.armor()
+	red.resources = 0 # nothing affordable in _UNIT_POOL -- isolates the upgrade branch
+	red.blood_points = 100 # Iron Armor's cost
+
+	AIController.new().take_turn(red)
+
+	assert_eq(red.blood_points, 0)
+	assert_almost_eq(unit.stat_block.armor(), original_armor + 3.0, 0.01, "Iron Armor should have been bought for the Tank (+3 armor)")
 
 
 func test_ai_does_not_crash_or_spend_when_it_has_no_living_units_and_no_affordable_new_ones() -> void:

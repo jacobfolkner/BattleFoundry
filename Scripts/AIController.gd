@@ -42,8 +42,11 @@ const _SPAWN_Z_RANGE := Vector2(-18.0, 18.0)
 
 ## Spends `player`'s gold on a random affordable archetype, repeatedly,
 ## until nothing left in _UNIT_POOL fits the remaining budget (or the
-## safety cap is hit), then spends whatever's left on one random
-## affordable upgrade for one of its own living units.
+## safety cap is hit), then spends whatever blood points it has on one
+## random affordable upgrade for one of its own living units. Each
+## purchase deploys via GameManager.spawn_squad() (honoring
+## UnitStats.squad_size), so _MAX_NEW_UNITS_PER_TURN caps purchased
+## slots, not raw battlefield unit count.
 func take_turn(player: Player) -> void:
 	var spawned := 0
 	var affordable := _affordable_units(player)
@@ -54,7 +57,7 @@ func take_turn(player: Player) -> void:
 			0.0,
 			randf_range(_SPAWN_Z_RANGE.x, _SPAWN_Z_RANGE.y)
 		)
-		GameManager.spawn_unit(stats, player, position)
+		GameManager.spawn_squad(stats, player, position)
 		player.spend(stats.cost)
 		spawned += 1
 		affordable = _affordable_units(player)
@@ -73,7 +76,7 @@ func _maybe_buy_an_upgrade(player: Player) -> void:
 	if own_living_units.is_empty():
 		return
 
-	var affordable_upgrades := _UPGRADE_POOL.filter(func(upgrade: UnitUpgrade) -> bool: return player.can_afford(upgrade.cost))
+	var affordable_upgrades := _UPGRADE_POOL.filter(func(upgrade: UnitUpgrade) -> bool: return player.can_afford_blood_points(upgrade.cost))
 	if affordable_upgrades.is_empty():
 		return
 

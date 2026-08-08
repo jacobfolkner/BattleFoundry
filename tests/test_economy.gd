@@ -103,7 +103,7 @@ func test_blood_tournament_placement_is_blocked_when_unaffordable_and_spends_whe
 
 	GameManager.get_player(GameManager.BLUE_TEAM_ID).resources = TANK_STATS.cost
 	_main._try_place_unit(screen_position)
-	assert_eq(GameManager.get_all_units().size(), 1, "exactly enough gold should place it")
+	assert_eq(GameManager.get_all_units().size(), TANK_STATS.squad_size, "exactly enough gold should place the whole squad")
 	assert_eq(GameManager.get_player(GameManager.BLUE_TEAM_ID).resources, 0, "the Tank's cost should be spent")
 
 
@@ -270,3 +270,75 @@ func test_round_income_is_flat_and_equal_regardless_of_who_won() -> void:
 	assert_eq(blue.resources, blue_gold_before + BloodTournamentMode.PARTICIPATION_INCOME)
 	assert_eq(red.resources, red_gold_before + BloodTournamentMode.PARTICIPATION_INCOME,
 		"the losing team should get exactly the same gold as the winner -- no win bonus")
+
+
+# ---------------------------------------------------------------------
+# Squad deployment (UnitStats.squad_size / GameManager.spawn_squad())
+# ---------------------------------------------------------------------
+
+func _squad_test_stats(squad_size: int) -> UnitStats:
+	var stats := UnitStats.new()
+	stats.unit_name = "SquadTestUnit"
+	stats.max_health = 50.0
+	stats.damage = 5.0
+	stats.attack_range = 1.0
+	stats.attack_interval = 1.0
+	stats.move_speed = 3.0
+	stats.collision_radius = 0.4
+	stats.squad_size = squad_size
+	return stats
+
+
+func test_spawn_squad_spawns_squad_size_units_at_distinct_positions() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var stats := _squad_test_stats(4)
+
+	var squad := GameManager.spawn_squad(stats, blue, Vector3.ZERO)
+
+	assert_eq(squad.size(), 4)
+	assert_eq(GameManager.get_all_units().size(), 4)
+	var distinct_positions := {}
+	for unit in squad:
+		distinct_positions[unit.global_position] = true
+	assert_eq(distinct_positions.size(), 4, "squad members should not spawn stacked on the same point")
+
+
+func test_spawn_squad_of_one_spawns_exactly_one_unit_at_the_anchor() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var stats := _squad_test_stats(1)
+
+	var squad := GameManager.spawn_squad(stats, blue, Vector3(3, 0, 3))
+
+	assert_eq(squad.size(), 1)
+	assert_eq(squad[0].global_position, Vector3(3, 0, 3))
+
+
+func test_buying_a_squad_unit_deploys_the_whole_squad_for_one_charge() -> void:
+	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	_main._selected_stats = FIGHTER_STATS # squad_size 5
+	var gold_before := blue.resources
+
+	_main._try_place_unit(_main.get_viewport().get_visible_rect().size / 2)
+
+	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size, "one purchase should deploy the full squad")
+	assert_eq(blue.resources, gold_before - FIGHTER_STATS.cost, "cost is charged once per purchase, not once per squad member")
+	assert_eq(blue.roster, [FIGHTER_STATS], "the roster should record one slot, not one entry per squad member")
+
+
+func test_classic_mode_placement_still_deploys_a_single_unit_regardless_of_squad_size() -> void:
+	_main._selected_stats = FIGHTER_STATS # squad_size 5, but classic mode shouldn't care
+
+	_main._try_place_unit(_main.get_viewport().get_visible_rect().size / 2)
+
+	assert_eq(GameManager.get_all_units().size(), 1, "classic mode should never deploy a squad, regardless of UnitStats.squad_size")
+
+
+func test_respawn_rosters_deploys_full_squads_for_each_roster_slot() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.roster = [FIGHTER_STATS] # squad_size 5
+
+	_main._respawn_rosters()
+
+	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size)

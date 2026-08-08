@@ -362,20 +362,22 @@ const _ROSTER_RESPAWN_ANCHORS := {
 	1: Vector3(8, 0, 0),  # GameManager.RED_TEAM_ID
 }
 
-## Spawns a fresh Unit for every entry in every (Blue/Red) player's
+## Spawns a fresh squad (GameManager.spawn_squad(), honoring
+## UnitStats.squad_size) for every entry in every (Blue/Red) player's
 ## roster -- called right after GameManager.reset_battle() at the start
 ## of every round after the first. No permadeath: a slot respawns
 ## regardless of whether last round's copy died, at full health, until
-## the player explicitly sells it (see _try_sell_unit_at()). Spread along
-## Z around the team's anchor so a roster of more than one unit doesn't
-## spawn stacked on the same point.
+## the player explicitly sells it (see _try_sell_unit_at()). Roster slots
+## are spread along Z around the team's anchor (wider than a single
+## unit's own spawn_squad() spread, which is along X) so one slot's squad
+## doesn't overlap the next slot's.
 func _respawn_rosters() -> void:
 	for team_id in _ROSTER_RESPAWN_ANCHORS:
 		var player := GameManager.get_player(team_id)
 		var anchor: Vector3 = _ROSTER_RESPAWN_ANCHORS[team_id]
 		for i in player.roster.size():
-			var offset := Vector3(0, 0, (i - (player.roster.size() - 1) * 0.5) * 1.5)
-			GameManager.spawn_unit(player.roster[i], player, anchor + offset)
+			var offset := Vector3(0, 0, (i - (player.roster.size() - 1) * 0.5) * 2.5)
+			GameManager.spawn_squad(player.roster[i], player, anchor + offset)
 
 
 ## Shows Blue/Red's current gold and blood points whenever
@@ -622,9 +624,12 @@ func _drag_unit_to(screen_position: Vector2) -> void:
 
 ## Cost-gated only while GameManager.current_mode.uses_economy() is true --
 ## a plain single-battle match stays exactly as free-to-place as it always
-## was (see GameMode.uses_economy()'s doc comment). Also appends to the
-## roster under economy, so this purchase respawns automatically next
-## round (see _respawn_rosters()) instead of needing to be re-bought.
+## was (see GameMode.uses_economy()'s doc comment), and deploys a single
+## unit, not a squad -- UnitStats.squad_size is a Blood Tournament economy
+## concept, not a change to classic mode's one-click-one-unit RTS feel.
+## Under economy, also appends to the roster so this purchase respawns
+## automatically next round (see _respawn_rosters()) instead of needing
+## to be re-bought.
 func _try_place_unit(screen_position: Vector2) -> void:
 	if _selected_stats == null:
 		return
@@ -638,11 +643,13 @@ func _try_place_unit(screen_position: Vector2) -> void:
 	if hit_position == null:
 		return
 
-	GameManager.spawn_unit(_selected_stats, _selected_player, hit_position)
 	if use_gold:
+		GameManager.spawn_squad(_selected_stats, _selected_player, hit_position)
 		_selected_player.spend(_selected_stats.cost)
 		_selected_player.roster.append(_selected_stats)
 		_refresh_gold_display()
+	else:
+		GameManager.spawn_unit(_selected_stats, _selected_player, hit_position)
 
 
 ## PLACEMENT-only: right-click on a unit _selected_player owns sells it
