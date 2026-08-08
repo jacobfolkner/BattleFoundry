@@ -91,6 +91,17 @@ extends Resource
 ## ATTACK damage can be evaded, matching WC3's own evasion convention
 ## (SPELL/PURE always land).
 @export_range(0.0, 1.0) var evasion: float = 0.0
+## Chance [0.0, 1.0] for this unit's own attack to deal crit_multiplier x
+## damage instead of its normal amount -- rolled once per swing in
+## Unit.resolve_hit(), before armor/the attack-armor table (WC3's own
+## ordering: crit multiplies the raw hit, mitigation happens after). If
+## this swing also splashes (UnitStats.splash_radius), the same crit (or
+## lack of one) applies to the splash damage too -- one roll per attack,
+## not a separate roll per target hit. 0.0 (default, every existing
+## archetype) never crits, exactly the pre-crit behavior.
+@export_range(0.0, 1.0) var crit_chance: float = 0.0
+## Only read when crit_chance > 0.0.
+@export var crit_multiplier: float = 2.0
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
 ## archetype has to opt in rather than opt out -- see

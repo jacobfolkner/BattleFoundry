@@ -1024,12 +1024,15 @@ func _fire_projectile_at(target: Unit) -> void:
 func resolve_hit(target: Unit, source_position: Vector3) -> void:
 	if not is_instance_valid(target) or target.current_health <= 0.0:
 		return
-	var hit_landed := target.take_damage(DamageInstance.new(stat_block.damage(), self))
+	var damage := stat_block.damage()
+	if stats.crit_chance > 0.0 and randf() < stats.crit_chance:
+		damage *= stats.crit_multiplier
+	var hit_landed := target.take_damage(DamageInstance.new(damage, self))
 	if not hit_landed:
 		return # evaded (see UnitStats.evasion) -- no splash, no on-hit ability, nothing else fires off a miss
 
 	if stats.splash_radius > 0.0:
-		_apply_splash_damage(target)
+		_apply_splash_damage(target, damage)
 	if stats.on_hit_ability != null:
 		stats.on_hit_ability.trigger_on_hit(self, target, source_position)
 
@@ -1038,13 +1041,17 @@ func resolve_hit(target: Unit, source_position: Vector3) -> void:
 ## living unit within splash_radius of `primary_target`'s position also
 ## takes damage, linearly falling off from full damage at the primary
 ## target's own position to UnitStats.splash_falloff at the radius's
-## edge. Goes through the normal take_damage() pipeline (so armor/the
-## attack-armor-type table still apply per splashed target), but
-## deliberately does NOT re-trigger on_hit_ability -- e.g. Giant's
+## edge. `primary_damage` is the primary target's own (possibly
+## crit-multiplied) hit amount, passed in rather than re-read from
+## stat_block.damage() so a critical hit's splash scales the same way --
+## one crit roll per swing (see resolve_hit()), not a separate roll per
+## splashed target. Goes through the normal take_damage() pipeline (so
+## armor/the attack-armor-type table still apply per splashed target),
+## but deliberately does NOT re-trigger on_hit_ability -- e.g. Giant's
 ## knockback firing once per splashed unit on every swing would be a
 ## very different (and much stronger) mechanic than "this attack also
 ## splashes," not what splash is meant to add.
-func _apply_splash_damage(primary_target: Unit) -> void:
+func _apply_splash_damage(primary_target: Unit, primary_damage: float) -> void:
 	for unit in GameManager.get_all_units():
 		if unit == primary_target or unit == self or unit.life_state != LifeState.ALIVE:
 			continue
@@ -1054,7 +1061,7 @@ func _apply_splash_damage(primary_target: Unit) -> void:
 		if distance > stats.splash_radius:
 			continue
 		var falloff := lerpf(1.0, stats.splash_falloff, distance / stats.splash_radius)
-		unit.take_damage(DamageInstance.new(stat_block.damage() * falloff, self))
+		unit.take_damage(DamageInstance.new(primary_damage * falloff, self))
 
 
 ## PURE damage skips armor entirely (see DamageInstance); ATTACK/SPELL are
