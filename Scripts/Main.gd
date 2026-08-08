@@ -75,6 +75,12 @@ var _ai := AIController.new()
 ## boss_round_finished fires.
 var _boss_round: GoblinBossRound = null
 
+## Non-null only while the final tournament bracket is actually running
+## (see _on_all_rounds_finished()/FinalTournamentBracket's own class doc
+## comment) -- one instance for the whole bracket (unlike _boss_round,
+## which is one per boss round), discarded once champion_decided fires.
+var _bracket: FinalTournamentBracket = null
+
 ## -1 means no ability is awaiting a target. Set only for a UNIT_TARGET
 ## ability slot (see _try_cast_or_target()) -- the next left-click resolves
 ## it (_resolve_pending_ability_target()); right-click or Escape cancels.
@@ -302,6 +308,7 @@ func _on_tournament_toggled(enabled: bool) -> void:
 		# is otherwise unused once total_rounds > 0, kept at its default.
 		_tournament_mode = BloodTournamentMode.new(2, 12)
 		_tournament_mode.round_ended.connect(_on_tournament_round_ended)
+		_tournament_mode.all_rounds_finished.connect(_on_all_rounds_finished)
 		GameManager.set_mode(_tournament_mode) # grants starting gold via BloodTournamentMode.on_activated()
 	else:
 		_tournament_mode = null
@@ -336,6 +343,24 @@ func _on_start_battle_pressed() -> void:
 func _on_boss_round_finished() -> void:
 	_boss_round = null
 	_tournament_mode.finish_boss_round()
+
+
+## All 12 rounds of the match are done (BloodTournamentMode.all_rounds_finished)
+## -- hands off to the bracket-style final tournament that decides an
+## overall champion (see FinalTournamentBracket's class doc comment).
+func _on_all_rounds_finished() -> void:
+	_bracket = FinalTournamentBracket.new()
+	_bracket.champion_decided.connect(_on_champion_decided)
+	_bracket.start(_tournament_mode)
+
+
+## Reuses the existing winner-banner UI (is_draw always false -- a
+## champion is always a specific team, byes included) rather than
+## building dedicated "tournament champion" UI for this stage; a real
+## presentation pass is future polish, not part of the mechanic itself.
+func _on_champion_decided(team_id: int) -> void:
+	_bracket = null
+	_hud.show_winner(team_id, false)
 
 
 ## Red's Player.is_human flips to match -- AIController.take_turn() (see
@@ -428,8 +453,11 @@ func _begin_staggered_deployment() -> void:
 	# every-registered-team staggered flow below would double-deploy that
 	# same roster a second time (and also try to deploy every OTHER
 	# team's roster, which shouldn't appear during a solo PvE turn at
-	# all) if it ran too.
-	if _tournament_mode != null and _tournament_mode.current_boss_team_id != -1:
+	# all) if it ran too. Same reasoning for a bracket matchup
+	# (FinalTournamentBracket) -- it deploys exactly the two paired teams
+	# itself; the hardcoded Blue/Red-only _DEPLOYMENT_ANCHORS below would
+	# be flatly wrong for a matchup between any other pair of teams anyway.
+	if _tournament_mode != null and (_tournament_mode.current_boss_team_id != -1 or _tournament_mode.in_bracket_match):
 		return
 
 	_pending_deployments.clear()

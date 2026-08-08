@@ -73,6 +73,17 @@ var total_rounds: int = 0
 ## doc comment for the full sequencing this supports.
 var current_boss_team_id: int = -1
 
+## False (default): not currently in a final-tournament bracket matchup.
+## Set by FinalTournamentBracket for the duration of exactly one 1v1
+## matchup -- while true, on_battle_ended() skips its normal round
+## scoring (income/round_number/round_ended), since a bracket matchup
+## isn't "the next round" of the 12-round match. check_victory() needs no
+## bracket-specific branch: its existing N-team logic already reduces
+## correctly to a 1v1 decision when only the two paired teams have
+## anything deployed. See FinalTournamentBracket's own class doc comment
+## for the full sequencing this supports.
+var in_bracket_match: bool = false
+
 
 func _init(p_rounds_to_win: int = 2, p_total_rounds: int = 0) -> void:
 	rounds_to_win = p_rounds_to_win
@@ -162,7 +173,7 @@ func check_victory() -> Dictionary:
 ## round_ended -- only happens once, for the boss round as a whole, via
 ## finish_boss_round() below, not once per team-turn.
 func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
-	if current_boss_team_id != -1:
+	if current_boss_team_id != -1 or in_bracket_match:
 		return
 
 	round_number += 1
