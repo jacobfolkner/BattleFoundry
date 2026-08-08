@@ -43,26 +43,23 @@ var _pending_ability_target: int:
 	get: return _input.pending_ability_target
 	set(value): _input.pending_ability_target = value
 
-## Non-null only while the HUD's Blood Tournament toggle is on -- see
-## _on_tournament_toggled(). Holding the reference here (not just reading
-## it back off GameManager.current_mode) is what lets _on_tournament_round_ended()
-## read BloodTournamentMode-specific state (get_wins(), is_match_over())
-## without every caller needing to cast/check GameManager.current_mode's type.
-var _tournament_mode: BloodTournamentMode = null
+## Constructed unconditionally in _ready(), like _input -- see
+## Scripts/BloodTournamentController.gd's own class doc comment for why
+## this exists regardless of whether Blood Tournament is actually active
+## (several tests poke its state directly without ever "activating" a
+## tournament at all).
+var _bt_controller: BloodTournamentController
 
-var _ai := AIController.new()
-
-## Non-null only while a goblin boss round's team-by-team sequence is
-## actually running (see _on_start_battle_pressed()/GoblinBossRound's own
-## class doc comment) -- a fresh instance every boss round, discarded once
-## boss_round_finished fires.
-var _boss_round: GoblinBossRound = null
-
-## Non-null only while the final tournament bracket is actually running
-## (see _on_all_rounds_finished()/FinalTournamentBracket's own class doc
-## comment) -- one instance for the whole bracket (unlike _boss_round,
-## which is one per boss round), discarded once champion_decided fires.
-var _bracket: FinalTournamentBracket = null
+## Forwarding properties to _bt_controller, same reasoning/pattern as
+## _selected_stats/etc. above -- _tournament_mode in particular is set
+## directly by several tests (bypassing _on_tournament_toggled() entirely),
+## and _round_spawn_points is read/written directly by a couple more.
+var _tournament_mode: BloodTournamentMode:
+	get: return _bt_controller.mode
+	set(value): _bt_controller.mode = value
+var _round_spawn_points: Dictionary:
+	get: return _bt_controller.round_spawn_points
+	set(value): _bt_controller.round_spawn_points = value
 
 
 func _ready() -> void:
@@ -70,6 +67,7 @@ func _ready() -> void:
 	GameManager.battle_ended.connect(_hud.show_winner)
 	GameManager.battle_started.connect(_begin_staggered_deployment)
 	_input = PlayerInputController.new(_camera, _hud, _refresh_gold_display)
+	_bt_controller = BloodTournamentController.new(_hud, _refresh_gold_display)
 	SelectionManager.local_player = _selected_player # keep in sync with the default team panel toggle
 	_build_arenas()
 
@@ -224,10 +222,10 @@ func _on_tournament_toggled(enabled: bool, active_team_ids: Array = []) -> void:
 		# is otherwise unused once total_rounds > 0, kept at its default.
 		_tournament_mode = BloodTournamentMode.new(2, 12)
 		_tournament_mode.active_team_ids = active_team_ids
-		_tournament_mode.round_ended.connect(_on_tournament_round_ended)
-		_tournament_mode.all_rounds_finished.connect(_on_all_rounds_finished)
+		_tournament_mode.round_ended.connect(_bt_controller.on_round_ended)
+		_tournament_mode.all_rounds_finished.connect(_bt_controller.on_all_rounds_finished)
 		GameManager.set_mode(_tournament_mode) # grants starting gold via BloodTournamentMode.on_activated()
-		_assign_random_spawn_points()
+		_bt_controller.assign_random_spawn_points()
 	else:
 		_tournament_mode = null
 		GameManager.set_mode(ClassicEliminationMode.new())
@@ -239,53 +237,23 @@ func _on_tournament_toggled(enabled: bool, active_team_ids: Array = []) -> void:
 
 
 ## Connected to HUD's Start Battle button instead of GameManager.start_battle()
-## directly, so a goblin boss round (BloodTournamentMode.is_boss_round())
-## can be intercepted here and handed off to GoblinBossRound's own
-## team-by-team sequencing instead of one normal simultaneous PvP battle.
-## Every other mode/round just calls GameManager.start_battle() exactly as
-## before.
+## directly, so BloodTournamentController can intercept a goblin boss
+## round and hand it to GoblinBossRound's own team-by-team sequencing
+## instead of one normal simultaneous PvP battle. Every other mode/round
+## just calls GameManager.start_battle() exactly as before -- see
+## BloodTournamentController.start_battle_pressed(), which this always
+## delegates to regardless of whether Blood Tournament is even active
+## (mode == null there is the classic-mode/no-tournament case).
 func _on_start_battle_pressed() -> void:
-	if _tournament_mode != null and _tournament_mode.is_boss_round():
-		_boss_round = GoblinBossRound.new()
-		_boss_round.boss_round_finished.connect(_on_boss_round_finished)
-		_boss_round.start(_tournament_mode)
-	else:
-		GameManager.start_battle()
-
-
-## GoblinBossRound itself never touches round scoring (see its class doc
-## comment) -- finish_boss_round() does that once, for the boss round as a
-## whole, which in turn emits round_ended and drives the exact same
-## _on_tournament_round_ended() -> _advance_to_next_round() path a normal
-## PvP round's win already does.
-func _on_boss_round_finished() -> void:
-	_boss_round = null
-	_tournament_mode.finish_boss_round()
-
-
-## All 12 rounds of the match are done (BloodTournamentMode.all_rounds_finished)
-## -- hands off to the bracket-style final tournament that decides an
-## overall champion (see FinalTournamentBracket's class doc comment).
-func _on_all_rounds_finished() -> void:
-	_bracket = FinalTournamentBracket.new()
-	_bracket.champion_decided.connect(_on_champion_decided)
-	_bracket.start(_tournament_mode)
-
-
-## Reuses the existing winner-banner UI (is_draw always false -- a
-## champion is always a specific team, byes included) rather than
-## building dedicated "tournament champion" UI for this stage; a real
-## presentation pass is future polish, not part of the mechanic itself.
-func _on_champion_decided(team_id: int) -> void:
-	_bracket = null
-	_hud.show_winner(team_id, false)
+	_bt_controller.start_battle_pressed()
 
 
 ## Red's Player.is_human flips to match -- AIController.take_turn() (see
-## _run_ai_turn_if_needed()) is the only other thing that ever checks it.
-## Forces the human back to Blue if they happened to be playing Red when
-## AI takes it over -- HUD._on_ai_toggled() already disabled that button,
-## this is the matching GameManager/SelectionManager-side half.
+## BloodTournamentController.run_ai_turn_if_needed()) is the only other
+## thing that ever checks it. Forces the human back to Blue if they
+## happened to be playing Red when AI takes it over -- HUD._on_ai_toggled()
+## already disabled that button, this is the matching GameManager/
+## SelectionManager-side half.
 func _on_ai_opponent_toggled(enabled: bool) -> void:
 	GameManager.get_player(GameManager.RED_TEAM_ID).is_human = not enabled
 	if enabled:
@@ -294,175 +262,29 @@ func _on_ai_opponent_toggled(enabled: bool) -> void:
 	_run_ai_turn_if_needed()
 
 
-## Called everywhere a fresh PLACEMENT phase begins with Blood Tournament
-## gold already settled (toggling the tournament on, toggling the AI on
-## mid-match, and every subsequent round) -- see each call site. A no-op
-## unless there's an is_human == false player under a mode that actually
-## uses_economy(), so calling this speculatively from several places is
-## always safe.
 func _run_ai_turn_if_needed() -> void:
-	if not GameManager.is_placement_phase() or not GameManager.current_mode.uses_economy():
-		return
-	var any_ai_took_a_turn := false
-	for team_id in GameManager.all_team_ids():
-		var player := GameManager.get_player(team_id)
-		if not player.is_human:
-			_ai.take_turn(player)
-			any_ai_took_a_turn = true
-	if any_ai_took_a_turn:
-		_refresh_gold_display()
+	_bt_controller.run_ai_turn_if_needed()
 
 
-## Connected to the *current* BloodTournamentMode instance's own signal,
-## not something GameManager forwards -- GameManager stays mode-agnostic
-## (see GameMode.gd), so mode-specific UI reactions like this one have to
-## come from Main.gd holding the mode reference directly.
-func _on_tournament_round_ended(round_number: int, _winning_team_id: int, _is_draw: bool) -> void:
-	_hud.show_tournament_score(round_number, _scoreboard_text())
-	_refresh_gold_display() # round income (BloodTournamentMode.on_battle_ended()) already landed by now
-	if not _tournament_mode.is_match_over():
-		# Deferred, not called straight from here: this handler runs
-		# *during* GameManager._end_battle(), before its own
-		# battle_ended.emit() -- resetting synchronously would flip
-		# battle_state back to PLACEMENT and hide the winner banner
-		# before that emit (and HUD.show_winner()) even runs, then have
-		# it clobbered back to visible right after. Deferring lets this
-		# round's result display first, uninterrupted.
-		call_deferred("_advance_to_next_round")
-
-
-## "TeamName wins : TeamName wins : ..." sorted by wins descending, only
-## for teams that have actually fielded a roster at some point (same
-## "who's really playing" filter GoblinBossRound/FinalTournamentBracket
-## use) -- BloodTournamentMode.wins_by_team only ever gets a key for a
-## team once it's WON a round, so a plain teams_with_units-style sort
-## would silently omit anyone still sitting on 0 wins.
 func _scoreboard_text() -> String:
-	var participants := GameManager.all_team_ids().filter(
-		func(team_id: int) -> bool: return not GameManager.get_player(team_id).roster.is_empty()
-	)
-	participants.sort_custom(func(a: int, b: int) -> bool: return _tournament_mode.get_wins(a) > _tournament_mode.get_wins(b))
-
-	var parts: Array[String] = []
-	for team_id in participants:
-		parts.append("%s %d" % [GameManager.get_team_display_name(team_id), _tournament_mode.get_wins(team_id)])
-	return " : ".join(parts)
+	return _bt_controller.scoreboard_text()
 
 
-func _advance_to_next_round() -> void:
-	GameManager.reset_battle() # no permadeath -- every unit is freed; roster entries stay data-only until the next battle's staggered deployment
-	_hud.reset_for_new_round()
-	_assign_random_spawn_points()
-	_run_ai_turn_if_needed()
-
-
-## Seconds between one roster slot's squad marching out and the next --
-## not a balance number, just enough to actually read as a staggered
-## arrival rather than everyone appearing on the same frame.
-const _DEPLOY_INTERVAL := 1.0
-
-## Player.id -> Array[UnitStats], the still-to-deploy remainder of that
-## player's roster, reversed (see _begin_staggered_deployment()) so it
-## pops right-to-left. Player.id -> float in _deploy_timers is seconds
-## remaining until that player's next entry deploys.
-var _pending_deployments: Dictionary = {}
-var _deploy_timers: Dictionary = {}
-
-## Team_id -> this round's cross-map arm anchor -- confirmed design:
-## spawn locations are randomized every round ("to give everyone a fair
-## chance"), not a fixed team_id -> arm mapping. Reassigned by
-## _assign_random_spawn_points(), called once when Blood Tournament
-## activates and again at the start of every subsequent round. Only ever
-## read by _deploy_next_pending_slot() below, in place of a direct
-## ARM_SPAWN_POINTS[player.team_id] lookup.
-var _round_spawn_points: Dictionary = {}
-
-
-## Shuffles the 8 cross-map arm anchors across GameManager.all_team_ids()
-## -- always all 8, regardless of how many teams are actually active
-## this match (BloodTournamentMode.active_team_ids); an inactive team's
-## assigned anchor is simply never read, since nothing ever deploys for
-## it (see _deploy_next_pending_slot()/GoblinBossRound's own separate
-## anchors, unaffected -- this only applies to normal PvP round
-## deployment).
 func _assign_random_spawn_points() -> void:
-	var arms := ARM_SPAWN_POINTS.duplicate()
-	arms.shuffle()
-	_round_spawn_points.clear()
-	var team_ids := GameManager.all_team_ids()
-	for i in team_ids.size():
-		_round_spawn_points[team_ids[i]] = arms[i]
+	_bt_controller.assign_random_spawn_points()
 
 
-## Literal separate staging area, not an instant respawn: Player.roster
-## entries are never spawned as live Units during PLACEMENT (see
-## _on_unit_type_selected()/_try_place_unit()) -- they only become real
-## Units once BATTLE actually starts, marching out from each player's pen
-## one slot at a time. "Rightmost deploys first, leftmost deploys last"
-## (per the reference genre) is expressed as *purchase order, reversed*:
-## buying appends to the end of Player.roster, so the most recently
-## bought slot -- the "rightmost" one in the line-up -- pops first here.
 func _begin_staggered_deployment() -> void:
-	# A goblin boss round's own controller (GoblinBossRound) deploys just
-	# the one team currently taking its turn directly -- the normal
-	# every-registered-team staggered flow below would double-deploy that
-	# same roster a second time (and also try to deploy every OTHER
-	# team's roster, which shouldn't appear during a solo PvE turn at
-	# all) if it ran too. Same reasoning for a bracket matchup
-	# (FinalTournamentBracket) -- it deploys exactly the two paired teams
-	# itself.
-	if _tournament_mode != null and (_tournament_mode.current_boss_team_id != -1 or _tournament_mode.in_bracket_match):
-		return
-
-	_pending_deployments.clear()
-	_deploy_timers.clear()
-	for team_id in GameManager.all_team_ids():
-		var player := GameManager.get_player(team_id)
-		if player.roster.is_empty():
-			continue
-		var queue := player.roster.duplicate()
-		queue.reverse()
-		_pending_deployments[player.id] = queue
-		_deploy_timers[player.id] = 0.0 # the first slot marches out immediately, not after a full interval's wait
+	_bt_controller.begin_staggered_deployment()
 
 
-## _physics_process(), not _process() -- matches every other piece of
-## game-logic timing in this codebase (HUD's own _process() is the one
-## exception, but that's a pure UI refresh, not gameplay timing) and
-## guarantees this actually advances during GUT's wait_physics_frames(),
-## which is specifically tied to physics frames. Only does anything while
-## there's an active staggered deployment queue for at least one player --
-## a no-op every other physics frame of the game's life, including all of
-## PLACEMENT and any battle with an empty roster (classic mode, always).
+## Matches every other piece of game-logic timing in this codebase (HUD's
+## own _process() is the one exception, but that's a pure UI refresh, not
+## gameplay timing) and guarantees BloodTournamentController.tick()'s
+## staggered-deployment queue actually advances during GUT's
+## wait_physics_frames(), which is specifically tied to physics frames.
 func _physics_process(delta: float) -> void:
-	if _pending_deployments.is_empty():
-		return
-	for player_id in _pending_deployments.keys().duplicate(): # duplicated: _deploy_next_pending_slot() below may erase from the dict mid-iteration
-		_deploy_timers[player_id] -= delta
-		if _deploy_timers[player_id] <= 0.0:
-			_deploy_next_pending_slot(player_id)
-
-
-## Applies every account-wide upgrade the player bought during PLACEMENT
-## (see GameManager.buy_roster_upgrade()) to every unit in the squad that
-## just deployed -- upgrades were recorded rather than applied at
-## purchase time specifically because nothing was alive yet to apply them
-## to, so this is where that deferred application actually happens.
-func _deploy_next_pending_slot(player_id: int) -> void:
-	var queue: Array = _pending_deployments[player_id]
-	var stats: UnitStats = queue.pop_front()
-	var player := GameManager.get_player(player_id)
-	var anchor: Vector3 = _round_spawn_points.get(player.team_id, ARM_SPAWN_POINTS[player.team_id])
-	var squad := GameManager.spawn_squad(stats, player, anchor)
-	for upgrade in player.roster_upgrades:
-		for unit in squad:
-			upgrade.ability.cast_unit_target(unit, unit)
-
-	if queue.is_empty():
-		_pending_deployments.erase(player_id)
-		_deploy_timers.erase(player_id)
-	else:
-		_deploy_timers[player_id] = _DEPLOY_INTERVAL
+	_bt_controller.tick(delta)
 
 
 ## Shows Blue/Red's current gold and blood points whenever
