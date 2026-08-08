@@ -27,8 +27,8 @@ func before_each() -> void:
 
 
 func test_lone_tank_beats_lone_fighter_and_battle_resolves() -> void:
-	GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, Vector3(-3, 0, 0))
-	GameManager.spawn_unit(FIGHTER_STATS, Team.Type.RED, Vector3(3, 0, 0))
+	GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(-3, 0, 0))
+	GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(3, 0, 0))
 
 	GameManager.start_battle()
 	assert_eq(GameManager.battle_state, GameManager.BattleState.BATTLE)
@@ -51,8 +51,8 @@ func test_crowded_units_all_make_progress_not_just_the_front_one() -> void:
 	var spawn := Vector3(-10, 0, 0)
 	var tanks: Array[Unit] = []
 	for i in range(4):
-		tanks.append(GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, spawn + Vector3(0, 0, i * 0.05)))
-	GameManager.spawn_unit(FIGHTER_STATS, Team.Type.RED, Vector3(10, 0, 0))
+		tanks.append(GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), spawn + Vector3(0, 0, i * 0.05)))
+	GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(10, 0, 0))
 
 	GameManager.start_battle()
 
@@ -68,7 +68,7 @@ func test_crowded_units_all_make_progress_not_just_the_front_one() -> void:
 
 
 func test_start_battle_noop_when_a_team_is_empty() -> void:
-	GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, Vector3(-3, 0, 0))
+	GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(-3, 0, 0))
 	GameManager.start_battle()
 	assert_eq(GameManager.battle_state, GameManager.BattleState.PLACEMENT,
 		"start_battle should no-op when Red has no units")
@@ -77,10 +77,10 @@ func test_start_battle_noop_when_a_team_is_empty() -> void:
 func test_can_start_battle_requires_both_teams_to_have_units() -> void:
 	assert_false(GameManager.can_start_battle(), "should be false with no units placed")
 
-	GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, Vector3(-3, 0, 0))
+	GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(-3, 0, 0))
 	assert_false(GameManager.can_start_battle(), "should still be false with only one team filled")
 
-	GameManager.spawn_unit(FIGHTER_STATS, Team.Type.RED, Vector3(3, 0, 0))
+	GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(3, 0, 0))
 	assert_true(GameManager.can_start_battle(), "should be true once both teams have a unit")
 
 	GameManager.start_battle()
@@ -88,8 +88,8 @@ func test_can_start_battle_requires_both_teams_to_have_units() -> void:
 
 
 func test_reset_battle_frees_units_and_returns_to_placement() -> void:
-	var blue_unit := GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, Vector3(-3, 0, 0))
-	GameManager.spawn_unit(FIGHTER_STATS, Team.Type.RED, Vector3(3, 0, 0))
+	var blue_unit := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(-3, 0, 0))
+	GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(3, 0, 0))
 	GameManager.start_battle()
 	assert_true(GameManager.is_battle_active())
 
@@ -98,6 +98,38 @@ func test_reset_battle_frees_units_and_returns_to_placement() -> void:
 	assert_true(GameManager.is_placement_phase())
 	assert_false(GameManager.can_start_battle(), "rosters should be cleared by reset_battle")
 	assert_true(blue_unit.is_queued_for_deletion(), "reset_battle should free units still in the arena")
+
+
+## Goes through Main._try_place_unit() itself, not a direct
+## GameManager.spawn_unit() call with an explicit Player like every other
+## test in this file -- this is what actually catches Main._selected_player
+## being null. That field used to be a class-level initializer reading
+## GameManager.get_player() at construction time, which is not guaranteed
+## to run after GameManager._ready() has populated its player registry;
+## it raced and crashed in a real project run despite every other test
+## here passing, because none of them exercise the click-to-place path.
+func test_default_click_to_place_uses_a_valid_player() -> void:
+	var viewport_center := _main.get_viewport().get_visible_rect().size / 2
+	_main._try_place_unit(viewport_center)
+
+	var units := GameManager.get_all_units()
+	assert_eq(units.size(), 1, "the default click-to-place flow should spawn exactly one unit")
+	if units.size() == 1:
+		assert_not_null(units[0].player, "the placed unit must have a valid Player")
+
+
+## The Blue/Red team panel toggle doubles as "which side am I playing
+## as" -- switching it must also switch SelectionManager.local_player,
+## not just which team newly-placed units belong to, or a player testing
+## as Red would never be able to select/command the units they place.
+func test_team_toggle_switches_which_side_you_can_command() -> void:
+	assert_eq(SelectionManager.local_player, GameManager.get_player(GameManager.BLUE_TEAM_ID),
+		"should default to Blue, matching HUD's default toggle")
+
+	_main._on_team_selected(GameManager.RED_TEAM_ID)
+
+	assert_eq(SelectionManager.local_player, GameManager.get_player(GameManager.RED_TEAM_ID),
+		"switching the team panel toggle should also switch which side SelectionManager lets you command")
 
 
 ## Polls `condition` once per physics frame (not a wall-clock timer, which

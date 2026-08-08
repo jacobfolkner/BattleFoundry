@@ -21,18 +21,46 @@ extends Resource
 ## of its attack_range, as Giant's is).
 @export var attack_range: float = 2.0
 @export var attack_interval: float = 1.0 ## Seconds between attacks.
-## Horizontal distance this attack knocks the target back, in meters.
-## 0 (default) means this attack never knocks anyone back.
-@export var knockback_distance: float = 0.0
-## Peak height the target rises to mid-knockback, in meters. Only
-## matters if knockback_distance is also nonzero.
-@export var knockback_height: float = 0.0
 ## Whether this unit can target a flying enemy at all. False by default
 ## (the classic "ground can't hit air" RTS convention) so a new
 ## archetype has to opt in rather than opt out -- see
 ## GameManager.find_nearest_enemy(). Irrelevant for a flying unit
 ## attacking a ground one; that's always allowed.
 @export var can_attack_flying: bool = false
+## Flat damage reduction applied to incoming ATTACK/SPELL damage (not
+## PURE -- see DamageInstance). Seeds StatBlock.base_armor; buffs/debuffs
+## modify the runtime copy, never this archetype value. This is a flat
+## reduction only -- no attack-type x armor-type multipliers yet.
+@export var armor: float = 0.0
+
+@export_group("Abilities")
+## Index 0/1/2 map to the Q/W/E hotkeys in Main.gd. NO_TARGET/UNIT_TARGET
+## abilities here are player-triggered via Unit.cast_ability(); a PASSIVE
+## one here is instead applied once, automatically, at spawn (see
+## Unit._apply_passive_abilities()) -- it still lives in this same array,
+## it just never responds to a hotkey since cast_ability() rejects
+## PASSIVE. ON_HIT abilities don't go here at all -- see on_hit_ability
+## below. An empty array is the common case: most archetypes have no
+## abilities at all.
+@export var abilities: Array[Ability] = []
+## Fires automatically from Unit.resolve_hit() every time this archetype
+## lands an attack -- e.g. Giant's knockback (Resources/GiantSlamAbility.tres).
+## null (default, most archetypes) means no on-hit effect at all.
+@export var on_hit_ability: Ability = null
+
+@export_group("Projectile")
+## 0 (default) means this attack deals damage the instant the cooldown
+## allows, exactly like every archetype before this system existed.
+## Above 0, Unit._attack() spawns a Projectile (Scripts/Projectile.gd)
+## instead, which delivers the hit -- damage and any knockback -- only
+## once it actually arrives, via Unit.resolve_hit().
+@export var projectile_speed: float = 0.0
+## Only read when projectile_speed > 0. True (default): the projectile
+## tracks its target's current position every frame (WC3 arrows/most
+## ranged autoattacks). False: aims once at the target's position at the
+## moment it's fired and travels a straight line from there, so it can
+## miss if the target moves out of the way before it arrives.
+@export var projectile_homing: bool = true
 
 @export_group("Movement")
 @export var move_speed: float = 3.0 ## Meters per second.

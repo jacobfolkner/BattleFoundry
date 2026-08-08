@@ -1,6 +1,7 @@
-[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="UnitStats" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/ToughnessAbility.tres" id="2"]
 
 [resource]
 script = ExtResource("1")
@@ -9,6 +10,7 @@ max_health = 120.0
 damage = 18.0
 attack_range = 1.0
 attack_interval = 0.6
+abilities = [ExtResource("2")]
 move_speed = 4.5
 collision_radius = 0.5
 mesh_shape = "Capsule"

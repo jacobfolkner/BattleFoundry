@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="Ability" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Ability.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ability_name = "Frost Bolt"
+cast_type = 1
+range = 6.0
+cooldown = 5.0
+effect_duration = 3.0
+effect_stat = "move_speed"
+effect_stat_op = 1
+effect_stat_value = 0.5
+damage = 10.0
+damage_type = 1

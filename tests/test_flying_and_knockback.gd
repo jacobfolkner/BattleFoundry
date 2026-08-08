@@ -23,7 +23,7 @@ func before_each() -> void:
 
 
 func test_bat_rider_rests_at_flight_height() -> void:
-	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, Team.Type.BLUE, Vector3.ZERO)
+	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
 	await wait_physics_frames(3)
 
 	assert_almost_eq(bat_rider.global_position.y, BAT_RIDER_STATS.flight_height, 0.05,
@@ -31,7 +31,7 @@ func test_bat_rider_rests_at_flight_height() -> void:
 
 
 func test_ground_unit_still_rests_at_zero() -> void:
-	var tank := GameManager.spawn_unit(TANK_STATS, Team.Type.BLUE, Vector3.ZERO)
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
 	await wait_physics_frames(3)
 
 	assert_almost_eq(tank.global_position.y, 0.0, 0.05,
@@ -44,8 +44,8 @@ func test_ground_unit_still_rests_at_zero() -> void:
 ## the height difference, i.e. the horizontal-distance range fix works,
 ## not just the can_attack_flying gate.
 func test_flying_unit_and_permitted_ground_unit_can_damage_each_other() -> void:
-	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, Team.Type.BLUE, Vector3(-1, 0, 0))
-	var archer := GameManager.spawn_unit(ARCHER_STATS, Team.Type.RED, Vector3(1, 0, 0))
+	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(-1, 0, 0))
+	var archer := GameManager.spawn_unit(ARCHER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(1, 0, 0))
 	GameManager.start_battle()
 
 	for i in range(120): # 2s -- plenty for both to land at least one hit at this range
@@ -62,8 +62,8 @@ func test_flying_unit_and_permitted_ground_unit_can_damage_each_other() -> void:
 ## the Bat Rider (unrestricted, flying units can always hit ground) can
 ## still damage the Tank.
 func test_ground_melee_cannot_target_flying_unit() -> void:
-	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, Team.Type.BLUE, Vector3(-1, 0, 0))
-	var tank := GameManager.spawn_unit(TANK_STATS, Team.Type.RED, Vector3(1, 0, 0))
+	var bat_rider := GameManager.spawn_unit(BAT_RIDER_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(-1, 0, 0))
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(1, 0, 0))
 	GameManager.start_battle()
 
 	for i in range(120): # 2s
@@ -77,8 +77,8 @@ func test_ground_melee_cannot_target_flying_unit() -> void:
 
 
 func test_giant_knockback_launches_target_up_and_back_and_lands() -> void:
-	GameManager.spawn_unit(GIANT_STATS, Team.Type.BLUE, Vector3.ZERO)
-	var target := GameManager.spawn_unit(FIGHTER_STATS, Team.Type.RED, Vector3(1, 0, 0))
+	GameManager.spawn_unit(GIANT_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	var target := GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(1, 0, 0))
 	GameManager.start_battle()
 
 	var max_height := 0.0

@@ -9,21 +9,108 @@
 class_name Unit
 extends CharacterBody3D
 
-signal died(unit: Unit)
+## killer is the DamageInstance.source of the killing blow; may be null
+## (environmental/scripted damage, or the unit was freed some other way).
+signal died(unit: Unit, killer: Unit)
+## Emitted after mitigation is applied, on every hit that connects --
+## GameManager listens for this to reset its stalemate timer, and it's
+## the natural hook point for future damage-meter/on-hit UI.
+signal damaged(unit: Unit, instance: DamageInstance, damage_dealt: float)
+
+enum LifeState { ALIVE, DEAD }
+
+## MOVE never fights (pure repositioning); ATTACK_MOVE/PATROL/FOLLOW all
+## fight anything that comes into range along the way. There's no NONE
+## entry -- current_order == null *is* "no order issued," meaning fall
+## back to the pre-Sprint-N default of autonomously seeking and attacking
+## the nearest enemy the instant BATTLE starts. That default is exactly
+## today's pre-orders behavior, so a unit nobody ever gives an order to
+## behaves identically to before this system existed.
+enum OrderType { MOVE, ATTACK_MOVE, STOP, HOLD, PATROL, FOLLOW }
+
+## One player-issued command. `target_position` drives MOVE/ATTACK_MOVE/
+## PATROL; `target_unit` drives FOLLOW (and is set for an attack order on
+## a specific enemy, so it can be chased instead of just its last known
+## position). `patrol_origin` is captured at issue time, not passed in --
+## see order_patrol().
+class Order:
+	var type: OrderType
+	var target_position: Vector3
+	var target_unit: Unit
+	var patrol_origin: Vector3
+
+	func _init(p_type: OrderType, p_target_position: Vector3 = Vector3.ZERO, p_target_unit: Unit = null, p_patrol_origin: Vector3 = Vector3.ZERO) -> void:
+		type = p_type
+		target_position = p_target_position
+		target_unit = p_target_unit
+		patrol_origin = p_patrol_origin
+
+const _PROJECTILE_SCENE: PackedScene = preload("res://Scenes/Projectile.tscn")
 
 const _AVOIDANCE_NEIGHBOR_DISTANCE := 6.0
+const _ARRIVAL_EPSILON := 0.3 ## Horizontal distance (m) within which a MOVE/ATTACK_MOVE/PATROL destination counts as "reached."
 const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
+## How long a unit is immune to a *new* stun after one wears off --
+## simplified stand-in for real diminishing returns (WC3 halves each
+## successive CC duration within a window; this just blocks the next one
+## outright for a bit instead). Same juggling problem PR #4's knockback
+## review flagged, but for Effect-based stun rather than positional
+## knockback (which already has its own, separate immunity -- see
+## apply_knockback()'s doc comment; the two don't share a mechanism
+## because one is positional and this one is Effect/CC-based).
+const _STUN_IMMUNITY_DURATION := 1.0
+## How long a corpse lingers -- collision disabled, no longer targetable,
+## but still visible -- before being freed. No respawn hook yet (no
+## heroes exist); this is purely the "corpse" half of "corpse/decay or
+## respawn," so a future hero revive can intercept before the free
+## without take_damage()/die() needing another signature change.
+const _CORPSE_DECAY_DURATION := 3.0
 
 @export var stats: UnitStats
 
-var team: Team.Type
+var player: Player
+var life_state: LifeState = LifeState.ALIVE
+## Per-instance runtime stats derived from `stats` -- see StatBlock. All
+## combat math reads this, never `stats` directly, so a future buff/debuff
+## never leaks across units sharing the same archetype Resource.
+var stat_block: StatBlock
 var current_health: float
 var target_enemy: Unit = null
-var desired_velocity: Vector3 = Vector3.ZERO ## Pre-avoidance seek velocity; read by DebugInspector.
+## Pre-avoidance seek velocity, toward the *next* NavigationMesh waypoint
+## on the way to wherever this unit is actually trying to go -- not
+## necessarily a straight line to the final destination. Read by
+## DebugInspector. See _seek_position()/_physics_process().
+var desired_velocity: Vector3 = Vector3.ZERO
+## This frame's real pathfinding destination and whether one was set at
+## all -- see _seek_position(). Reset every frame in _physics_process();
+## an untouched _is_seeking == false means "anchor target_position to my
+## own current position," not "path to Vector3.ZERO."
+var _seek_destination: Vector3 = Vector3.ZERO
+var _is_seeking: bool = false
+
+## null means "no order issued -- use the default autonomous AI." See
+## OrderType. Set via order_move()/order_attack_move()/etc, never
+## directly, so _order_queue and _patrol_forward always stay consistent
+## with it.
+var current_order: Order = null
 
 var _attack_cooldown: float = 0.0
 var _health_bar: HealthBar
 var _nav_agent: NavigationAgent3D
+var _order_queue: Array[Order] = []
+var _patrol_forward: bool = true
+
+## Timed/permanent Effects currently on this unit -- see Effect.gd and
+## apply_effect(). Anything with a stat modifier also has a matching
+## StatBlock.Modifier alive on stat_block for as long as it's in here.
+var _active_effects: Array[Effect] = []
+var _stun_immunity_remaining: float = 0.0
+
+## Ability slot index (0/1/2, matching stats.abilities) -> remaining
+## cooldown seconds. Absent/0 means ready.
+var _ability_cooldowns: Dictionary = {}
+
+var _decay_elapsed: float = 0.0
 
 var _is_airborne: bool = false
 var _knockback_elapsed: float = 0.0
@@ -37,12 +124,232 @@ var _knockback_peak_height: float
 
 
 ## Called by GameManager right after the unit is added to the scene tree.
-func setup(new_stats: UnitStats, new_team: Team.Type) -> void:
+func setup(new_stats: UnitStats, new_player: Player) -> void:
 	stats = new_stats
-	team = new_team
-	current_health = stats.max_health
+	player = new_player
+	stat_block = StatBlock.from_archetype(stats)
+	current_health = stat_block.max_health()
 	_build_appearance()
 	_build_avoidance()
+	_apply_passive_abilities()
+
+
+## Pure repositioning -- never attacks, even if an enemy comes into range
+## along the way. Clears current_order on arrival (see
+## _move_toward_and_clear_when_arrived()), so the unit falls back to
+## default autonomous behavior afterward rather than freezing in place.
+func order_move(target_position: Vector3, queue: bool = false) -> void:
+	_issue_order(Order.new(OrderType.MOVE, target_position), queue)
+
+
+## Moves toward target_position, but stops to fight anything that comes
+## into attack range along the way -- see _process_order().
+func order_attack_move(target_position: Vector3, queue: bool = false) -> void:
+	_issue_order(Order.new(OrderType.ATTACK_MOVE, target_position), queue)
+
+
+## Directly targets `enemy` (chasing it specifically, not just its
+## position at order time) rather than whatever _update_target() would
+## otherwise autonomously pick.
+func order_attack_unit(enemy: Unit, queue: bool = false) -> void:
+	_issue_order(Order.new(OrderType.ATTACK_MOVE, enemy.global_position, enemy), queue)
+
+
+## Cancels the order queue and goes fully idle: no movement, no
+## auto-acquiring a target. Distinct from order_hold() (see there).
+func order_stop() -> void:
+	_issue_order(Order.new(OrderType.STOP))
+
+
+## Like order_stop(), but still fights anything that comes into
+## attack_range on its own -- it just never moves to chase. The classic
+## RTS "Hold Position."
+func order_hold() -> void:
+	_issue_order(Order.new(OrderType.HOLD))
+
+
+## Bounces between target_position and wherever the unit is right now
+## (captured as patrol_origin), fighting anything encountered along the
+## way -- same engage behavior as ATTACK_MOVE, just looping between two
+## points instead of stopping at one.
+func order_patrol(target_position: Vector3, queue: bool = false) -> void:
+	_issue_order(Order.new(OrderType.PATROL, target_position, null, global_position), queue)
+
+
+## Keeps pace with target_unit, fighting anything that comes into
+## attack_range along the way. Ends on its own if target_unit stops
+## being valid (dies, is freed) -- see _process_order().
+func order_follow(target_unit: Unit, queue: bool = false) -> void:
+	_issue_order(Order.new(OrderType.FOLLOW, Vector3.ZERO, target_unit), queue)
+
+
+func _issue_order(order: Order, queue: bool = false) -> void:
+	if queue and current_order != null:
+		_order_queue.append(order)
+		return
+	_order_queue.clear()
+	current_order = order
+	_patrol_forward = true
+
+
+## Drops the current order (and any queued after it) and returns to the
+## default autonomous AI -- the same state a unit starts in before any
+## order is ever issued.
+func clear_order() -> void:
+	current_order = null
+	_order_queue.clear()
+
+
+func _advance_order_queue() -> void:
+	current_order = _order_queue.pop_front() if not _order_queue.is_empty() else null
+	_patrol_forward = true
+
+
+# ---------------------------------------------------------------------
+# Effects (see Effect.gd)
+# ---------------------------------------------------------------------
+
+## Applies `effect` to this unit, respecting its stack_rule against any
+## existing effect with the same id. A STUN effect is silently dropped
+## outright while stun immunity is active -- see _STUN_IMMUNITY_DURATION.
+func apply_effect(effect: Effect) -> void:
+	if effect.cc_flag == Effect.CCFlag.STUN and _stun_immunity_remaining > 0.0:
+		return
+
+	var existing := _find_effect_by_id(effect.id)
+	if existing != null:
+		match effect.stack_rule:
+			Effect.StackRule.REFRESH:
+				existing.elapsed = 0.0
+				return
+			Effect.StackRule.STRONGEST_WINS:
+				if effect.magnitude <= existing.magnitude:
+					return
+				_remove_effect(existing)
+			Effect.StackRule.STACK:
+				pass # multiple simultaneous instances with the same id are allowed
+
+	_active_effects.append(effect)
+	if effect.stat != "":
+		stat_block.add_modifier(effect, effect.stat, effect.stat_op, effect.stat_value)
+
+
+func remove_effects_from_source(source: Variant) -> void:
+	for effect in _active_effects.duplicate():
+		if effect.source == source:
+			_remove_effect(effect)
+
+
+func is_stunned() -> bool:
+	return _has_cc_flag(Effect.CCFlag.STUN)
+
+
+func is_rooted() -> bool:
+	return _has_cc_flag(Effect.CCFlag.ROOT)
+
+
+func is_silenced() -> bool:
+	return _has_cc_flag(Effect.CCFlag.SILENCE)
+
+
+func is_invulnerable() -> bool:
+	return _has_cc_flag(Effect.CCFlag.INVULNERABLE)
+
+
+func is_ethereal() -> bool:
+	return _has_cc_flag(Effect.CCFlag.ETHEREAL)
+
+
+func _has_cc_flag(flag: Effect.CCFlag) -> bool:
+	for effect in _active_effects:
+		if effect.cc_flag == flag:
+			return true
+	return false
+
+
+## Public read-only lookup -- used by DebugInspector-style tooling and
+## tests that need to inspect a specific active Effect's state (e.g.
+## elapsed time) directly, rather than inferring it indirectly through
+## timing.
+func get_effect(id: String) -> Effect:
+	return _find_effect_by_id(id)
+
+
+func _find_effect_by_id(id: String) -> Effect:
+	for effect in _active_effects:
+		if effect.id == id:
+			return effect
+	return null
+
+
+func _remove_effect(effect: Effect) -> void:
+	_active_effects.erase(effect)
+	if effect.stat != "":
+		stat_block.remove_modifiers_from_source(effect)
+
+
+func _tick_effects(delta: float) -> void:
+	_stun_immunity_remaining = maxf(_stun_immunity_remaining - delta, 0.0)
+
+	for effect in _active_effects.duplicate():
+		if effect.duration <= 0.0:
+			continue # permanent -- only removed by remove_effects_from_source() or clear_all_effects()
+		effect.elapsed += delta
+		if effect.elapsed >= effect.duration:
+			var was_stun: bool = effect.cc_flag == Effect.CCFlag.STUN
+			_remove_effect(effect)
+			if was_stun:
+				_stun_immunity_remaining = _STUN_IMMUNITY_DURATION
+
+
+func clear_all_effects() -> void:
+	for effect in _active_effects.duplicate():
+		_remove_effect(effect)
+
+
+# ---------------------------------------------------------------------
+# Abilities (see Ability.gd)
+# ---------------------------------------------------------------------
+
+func _apply_passive_abilities() -> void:
+	for ability in stats.abilities:
+		if ability != null and ability.cast_type == Ability.CastType.PASSIVE:
+			ability.cast_passive(self)
+
+
+func _tick_ability_cooldowns(delta: float) -> void:
+	for index in _ability_cooldowns.keys():
+		_ability_cooldowns[index] = maxf(_ability_cooldowns[index] - delta, 0.0)
+
+
+## Triggers stats.abilities[index] (Q/W/E in Main.gd's input wiring).
+## Returns false (and does nothing) if the slot is empty, on cooldown,
+## not a player-triggerable cast type, this unit can't currently act
+## (stunned/silenced), or -- for UNIT_TARGET -- target is missing/out of
+## range, so callers can tell a no-op from a successful cast.
+func cast_ability(index: int, target: Unit = null) -> bool:
+	if index < 0 or index >= stats.abilities.size():
+		return false
+	var ability: Ability = stats.abilities[index]
+	if ability == null or ability.cast_type == Ability.CastType.PASSIVE or ability.cast_type == Ability.CastType.ON_HIT:
+		return false
+	if life_state != LifeState.ALIVE or is_stunned() or is_silenced():
+		return false
+	if _ability_cooldowns.get(index, 0.0) > 0.0:
+		return false
+
+	match ability.cast_type:
+		Ability.CastType.NO_TARGET:
+			ability.cast_no_target(self)
+		Ability.CastType.UNIT_TARGET:
+			if target == null or not is_instance_valid(target) or target.life_state != LifeState.ALIVE:
+				return false
+			if _distance_to_target_edge(target) > ability.range:
+				return false
+			ability.cast_unit_target(self, target)
+
+	_ability_cooldowns[index] = ability.cooldown
+	return true
 
 
 func _build_appearance() -> void:
@@ -65,7 +372,7 @@ func _build_appearance() -> void:
 			mesh = box
 
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.25, 0.45, 1.0) if team == Team.Type.BLUE else Color(1.0, 0.25, 0.25)
+	material.albedo_color = player.color
 	mesh.surface_set_material(0, material)
 
 	_mesh_instance.mesh = mesh
@@ -97,37 +404,98 @@ func _build_health_bar() -> void:
 func _build_avoidance() -> void:
 	_nav_agent = NavigationAgent3D.new()
 	_nav_agent.radius = stats.collision_radius
-	_nav_agent.max_speed = stats.move_speed
+	_nav_agent.max_speed = stat_block.move_speed()
 	_nav_agent.neighbor_distance = _AVOIDANCE_NEIGHBOR_DISTANCE
 	_nav_agent.avoidance_enabled = true
+	# Godot's default (1.0m) is looser than this game's own tolerances --
+	# attack_range is as low as 0.9m and _ARRIVAL_EPSILON is 0.3m. Left
+	# at the default, NavigationAgent3D considers itself "close enough"
+	# well before either of those, and get_next_path_position() starts
+	# returning the agent's own current position (no further progress
+	# needed, as far as it's concerned) -- which reads as the unit
+	# getting permanently stuck just short of anything closer than 1m.
+	_nav_agent.target_desired_distance = 0.1
 	add_child(_nav_agent)
 	_nav_agent.velocity_computed.connect(_on_safe_velocity_computed)
 
 
 func _physics_process(delta: float) -> void:
+	if life_state == LifeState.DEAD:
+		_decay_elapsed += delta
+		if _decay_elapsed >= _CORPSE_DECAY_DURATION:
+			queue_free()
+		return
+
+	_tick_effects(delta)
+	_tick_ability_cooldowns(delta)
+
 	if _is_airborne:
 		_process_knockback(delta)
 		return
 
 	desired_velocity = Vector3.ZERO
+	_is_seeking = false
+	# Kept in sync every frame (not just at spawn) so a future move_speed
+	# buff/debuff actually changes how fast avoidance lets this unit go.
+	_nav_agent.max_speed = stat_block.move_speed()
 
-	var is_battling := GameManager.battle_state == GameManager.BattleState.BATTLE and current_health > 0.0
-	if is_battling:
-		_update_target()
-		if target_enemy != null:
-			if _distance_to_target_edge(target_enemy) > stats.attack_range:
-				_seek_target()
+	# Stunned: fully disabled -- no movement, no attacking, no orders
+	# processed at all (they just wait; an order issued while stunned
+	# still applies once it wears off, current_order is untouched).
+	if not is_stunned():
+		var is_battling := GameManager.battle_state == GameManager.BattleState.BATTLE and current_health > 0.0
+		if is_battling:
+			if current_order != null:
+				_process_order(delta)
 			else:
-				_attack(delta)
+				_update_target()
+				if target_enemy != null:
+					if _distance_to_target_edge(target_enemy) > stat_block.attack_range():
+						_seek_target()
+					else:
+						_attack(delta)
 
-	# target_position is required for avoidance to produce a non-zero
-	# safe_velocity at all, even with no navmesh/pathfinding involved --
-	# undocumented on the property itself, but avoidance silently no-ops
-	# without it. Requested every physics frame, even when desired_velocity
-	# is zero, so avoidance keeps resolving resting overlap (e.g. units
-	# placed too close together) the same way move_and_slide() used to
-	# unconditionally.
-	_nav_agent.target_position = global_position + desired_velocity
+		# Rooted: can still attack (handled above, attacking doesn't move
+		# anything) but never seeks/chases -- cancel the seek itself
+		# rather than the desired_velocity it would produce, since that's
+		# computed below from _is_seeking, not set directly by the
+		# branches above anymore (see _seek_position()'s doc comment).
+		if is_rooted():
+			_is_seeking = false
+
+	# target_position drives real pathfinding, against Main.tscn's
+	# NavigationRegion3D, whenever something upstream actually called
+	# _seek_position() this frame; anchored to the unit's own current
+	# position otherwise. Still requested every physics frame regardless
+	# of _is_seeking -- avoidance won't produce a non-zero safe_velocity
+	# at all without a target_position each frame (undocumented on the
+	# property itself), which is what keeps it resolving resting overlap
+	# (e.g. units placed too close together) for a unit that isn't
+	# seeking anything right now.
+	if _is_seeking:
+		if stats.is_flying:
+			# Flying units fly *over* ground obstacles by design (same
+			# reasoning as _resting_height()/horizontal_distance_to()
+			# elsewhere) -- they never query the ground NavigationMesh at
+			# all, just seek their destination directly. They also sit
+			# well above the mesh's own Y plane, which real path queries
+			# handle poorly: NavigationAgent3D reports no path from an
+			# agent that elevated, and get_next_path_position() falls
+			# back to returning the agent's own position -- a
+			# zero-length vector, i.e. permanently stuck.
+			var direction := _seek_destination - global_position
+			direction.y = 0.0
+			desired_velocity = direction.normalized() * stat_block.move_speed() if direction.length() > 0.01 else Vector3.ZERO
+			_nav_agent.target_position = global_position + desired_velocity
+		else:
+			_nav_agent.target_position = _seek_destination
+			var next_waypoint := _nav_agent.get_next_path_position()
+			var to_waypoint := next_waypoint - global_position
+			to_waypoint.y = 0.0
+			desired_velocity = to_waypoint.normalized() * stat_block.move_speed() if to_waypoint.length() > 0.01 else Vector3.ZERO
+	else:
+		_nav_agent.target_position = global_position
+
 	_nav_agent.set_velocity(desired_velocity)
 
 
@@ -147,6 +515,7 @@ func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
 		look_at(global_position + velocity, Vector3.UP)
 
 	move_and_slide()
+	_clamp_to_arena()
 
 	# move_and_slide() (MOTION_MODE_FLOATING) resolves penetration along
 	# whichever axis has the least overlap. Units spawned at or very near
@@ -160,6 +529,16 @@ func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
 	# vertical stacking, since two units can never end up on different Y
 	# layers long enough to stop colliding horizontally.
 	global_position.y = _resting_height()
+
+
+## Keeps every unit inside the arena plane, including mid-knockback --
+## nothing else stops move_and_slide() or a knockback arc from carrying a
+## unit past the 40x40 ground plane (Scenes/Main.tscn) and off into the
+## void permanently, since nothing simulates falling once it's off the
+## edge. Only clamps X/Z; Y is owned by _resting_height()/knockback.
+func _clamp_to_arena() -> void:
+	global_position.x = clampf(global_position.x, -GameManager.ARENA_HALF_EXTENT, GameManager.ARENA_HALF_EXTENT)
+	global_position.z = clampf(global_position.z, -GameManager.ARENA_HALF_EXTENT, GameManager.ARENA_HALF_EXTENT)
 
 
 ## 0.0 for every ground unit (unchanged Sprint 4 invariant); flight_height
@@ -201,7 +580,17 @@ func _distance_to_target_edge(target: Unit) -> float:
 ## disabled for the same reason: a unit landing exactly on a ground
 ## unit's position at low arc height (near launch/landing) could
 ## otherwise still get blocked right as this starts or ends.
+## No-ops if already airborne: without this, a second knockback landing
+## mid-arc resets _knockback_start/_knockback_elapsed to the unit's
+## current (mid-air) position, and since _physics_process() early-returns
+## for airborne units, the victim never gets a physics frame back to
+## fight or path -- two attackers can juggle it indefinitely. Simplest
+## fix per the PR #4 review: airborne units are immune to further
+## knockback until they land. Diminishing-returns-style partial immunity
+## can wait for a real CC-immunity framework, if one turns out to be needed.
 func apply_knockback(direction: Vector3, distance: float, height: float) -> void:
+	if _is_airborne:
+		return
 	_is_airborne = true
 	_knockback_elapsed = 0.0
 	_knockback_start = global_position
@@ -217,6 +606,7 @@ func _process_knockback(delta: float) -> void:
 
 	global_position = _knockback_start + _knockback_direction * _knockback_distance * t
 	global_position.y = _resting_height() + _knockback_peak_height * 4.0 * t * (1.0 - t)
+	_clamp_to_arena()
 
 	if t >= 1.0:
 		_is_airborne = false
@@ -230,34 +620,197 @@ func _update_target() -> void:
 
 
 func _seek_target() -> void:
-	var direction := target_enemy.global_position - global_position
-	direction.y = 0.0
-	desired_velocity = direction.normalized() * stats.move_speed
+	_seek_position(target_enemy.global_position)
+
+
+## Records `position` as this frame's movement destination -- the actual
+## desired_velocity (toward the *next* NavigationMesh waypoint on the way
+## there, not necessarily a straight line to `position`) is resolved once,
+## centrally, at the end of _physics_process(), for whichever seek call
+## happened (if any) this frame. Centralizing it there instead of setting
+## desired_velocity directly here is what makes real pathfinding possible:
+## NavigationAgent3D needs target_position set to the actual final
+## destination to path against Main.tscn's baked NavigationRegion3D, not
+## synthesized fresh each frame from whatever direction avoidance alone
+## happened to want (the old approach, before real navmesh pathfinding
+## existed -- see the roadmap's Phase 7).
+func _seek_position(position: Vector3) -> void:
+	_seek_destination = position
+	_is_seeking = true
+
+
+## Dispatches to the behavior for current_order.type. Every branch that
+## can fight reuses _update_target()/_attack() exactly as the default
+## autonomous AI does -- orders change *where* a unit goes when it's not
+## fighting, not how combat itself resolves once something's in range.
+func _process_order(delta: float) -> void:
+	match current_order.type:
+		OrderType.STOP:
+			pass # fully idle: no movement, no auto-acquire
+		OrderType.HOLD:
+			_update_target()
+			if target_enemy != null and _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
+				_attack(delta)
+			# else: stays put -- Hold Position never chases
+		OrderType.MOVE:
+			_move_toward_and_clear_when_arrived(current_order.target_position)
+		OrderType.ATTACK_MOVE:
+			var forced_target: Unit = current_order.target_unit
+			if forced_target != null and is_instance_valid(forced_target) and forced_target.current_health > 0.0:
+				# A direct attack-unit order (right-click on a specific
+				# enemy) always chases that one enemy, at any distance --
+				# unlike the plain-destination case below, this order
+				# doesn't have a "point" to fall back to.
+				target_enemy = forced_target
+				if _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
+					_attack(delta)
+				else:
+					_seek_target()
+				return
+
+			# Plain attack-move to a point: only fight something already
+			# within attack range right now. _update_target() (via
+			# GameManager.find_nearest_enemy()) has no distance cutoff --
+			# it always returns *some* enemy if one exists anywhere on the
+			# field, regardless of how far away. Chasing that unconditionally
+			# (the bug this replaced) meant attack-move degenerated into
+			# the default autonomous "seek nearest enemy" the instant any
+			# enemy existed at all, and the actual clicked destination was
+			# never reachable. Falling back to the destination instead of
+			# _seek_target() is what makes "move there, fighting anything
+			# actually in the way" the real behavior.
+			_update_target()
+			if target_enemy != null and _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
+				_attack(delta)
+			else:
+				_move_toward_and_clear_when_arrived(current_order.target_position)
+		OrderType.PATROL:
+			_update_target()
+			if target_enemy != null and _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
+				_attack(delta)
+			else:
+				_patrol_step()
+		OrderType.FOLLOW:
+			if current_order.target_unit == null or not is_instance_valid(current_order.target_unit) or current_order.target_unit.current_health <= 0.0:
+				clear_order()
+				return
+			_update_target()
+			if target_enemy != null and _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
+				_attack(delta)
+			else:
+				_seek_position(current_order.target_unit.global_position)
+
+
+## Shared by MOVE/ATTACK_MOVE's "nothing to fight, keep heading to the
+## destination" branch: advances to the next queued order (or falls back
+## to the default autonomous AI) once within _ARRIVAL_EPSILON.
+func _move_toward_and_clear_when_arrived(target_position: Vector3) -> void:
+	if horizontal_distance_to(global_position, target_position) <= _ARRIVAL_EPSILON:
+		_advance_order_queue()
+	else:
+		_seek_position(target_position)
+
+
+## Bounces between current_order.target_position and .patrol_origin,
+## flipping _patrol_forward at each end -- a PATROL order never
+## completes/clears on its own, only clear_order()/a new order ends it.
+func _patrol_step() -> void:
+	var waypoint := current_order.target_position if _patrol_forward else current_order.patrol_origin
+	if horizontal_distance_to(global_position, waypoint) <= _ARRIVAL_EPSILON:
+		_patrol_forward = not _patrol_forward
+	else:
+		_seek_position(waypoint)
 
 
 func _attack(delta: float) -> void:
 	_attack_cooldown -= delta
 	if _attack_cooldown > 0.0:
 		return
-	_attack_cooldown = stats.attack_interval
-	target_enemy.take_damage(stats.damage)
+	_attack_cooldown = stat_block.attack_interval()
 
-	if stats.knockback_distance > 0.0 and target_enemy.current_health > 0.0:
-		var direction := target_enemy.global_position - global_position
-		direction.y = 0.0
-		target_enemy.apply_knockback(direction.normalized(), stats.knockback_distance, stats.knockback_height)
+	if stats.projectile_speed > 0.0:
+		_fire_projectile_at(target_enemy)
+	else:
+		resolve_hit(target_enemy, global_position)
 
 
-func take_damage(amount: float) -> void:
-	current_health -= amount
-	_health_bar.set_fraction(current_health / stats.max_health)
+## Instantiates a Projectile (Scripts/Projectile.gd) aimed at `target`,
+## carrying this Unit's stats forward so the hit -- resolve_hit() below --
+## only lands once it actually arrives, instead of the instant the attack
+## cooldown allows.
+func _fire_projectile_at(target: Unit) -> void:
+	var projectile: Projectile = _PROJECTILE_SCENE.instantiate()
+	GameManager.units_container.add_child(projectile)
+	# Roughly chest height, not the ground -- purely cosmetic (Projectile
+	# does its own horizontal-only distance checks either way).
+	projectile.global_position = global_position + Vector3(0, stats.mesh_size.y * 0.5, 0)
+	var guidance := Projectile.GuidanceType.HOMING if stats.projectile_homing else Projectile.GuidanceType.BALLISTIC
+	projectile.setup(self, target, stats.projectile_speed, guidance)
+
+
+## Applies this attack's damage (and any on-hit ability -- e.g. Giant's
+## knockback, see UnitStats.on_hit_ability) to `target`, as if it landed
+## right now -- shared by the instant-melee path in _attack() and
+## Projectile._impact(), so a hit resolves identically regardless of
+## whether it was instant or delayed by travel time. `source_position` is
+## only used for on-hit knockback direction (target is knocked away from
+## wherever the hit effectively came from) -- for a projectile that's its
+## impact position, not necessarily where this Unit is standing by the
+## time a slow shot lands.
+func resolve_hit(target: Unit, source_position: Vector3) -> void:
+	if not is_instance_valid(target) or target.current_health <= 0.0:
+		return
+	target.take_damage(DamageInstance.new(stat_block.damage(), self))
+
+	if stats.on_hit_ability != null:
+		stats.on_hit_ability.trigger_on_hit(self, target, source_position)
+
+
+## PURE damage skips armor entirely (see DamageInstance); ATTACK/SPELL are
+## reduced flat by armor(), floored at 1 so armor can't fully negate a hit
+## outright -- a WC3-style minimum, not a full attack/armor-type table.
+## Mitigation happens here, not at the source, so it always applies
+## regardless of who/what dealt the DamageInstance. No-ops on a corpse --
+## without this, e.g. a lingering AoE tick could re-run die() during the
+## decay window and double-fire the died signal. INVULNERABLE blocks
+## every damage type outright, no exceptions; ETHEREAL (WC3's "spells
+## only" state) blocks ATTACK specifically but still takes SPELL/PURE.
+func take_damage(instance: DamageInstance) -> void:
+	if life_state == LifeState.DEAD:
+		return
+	if is_invulnerable():
+		return
+	if is_ethereal() and instance.damage_type == DamageInstance.DamageType.ATTACK:
+		return
+
+	var mitigated := instance.amount
+	if instance.damage_type != DamageInstance.DamageType.PURE:
+		mitigated = maxf(instance.amount - stat_block.armor(), 1.0)
+
+	current_health -= mitigated
+	_health_bar.set_fraction(current_health / stat_block.max_health())
+	damaged.emit(self, instance, mitigated)
+
 	if current_health <= 0.0:
-		die()
+		die(instance.source)
 
 
-func die() -> void:
-	died.emit(self)
-	queue_free()
+## Enters the DEAD state -- collision off (no longer blocks or gets
+## targeted), health bar hidden, died signal fired immediately (so
+## GameManager's roster/win-condition check happens at the moment of
+## death, not after decay) -- but does NOT free the node. The corpse
+## keeps existing, decaying in _physics_process, until
+## _CORPSE_DECAY_DURATION elapses. See LifeState. Also drops every active
+## Effect -- a corpse shouldn't keep ticking down a slow/stun, and
+## stat_block becomes irrelevant once dead anyway.
+func die(killer: Unit = null) -> void:
+	current_health = 0.0
+	life_state = LifeState.DEAD
+	_decay_elapsed = 0.0
+	_collision_shape.disabled = true
+	_health_bar.visible = false
+	clear_all_effects()
+	died.emit(self, killer)
 
 
 ## Read-only snapshot for Scripts/DebugInspector.gd / UI/DebugPanel.gd,
@@ -270,8 +823,8 @@ func die() -> void:
 func get_debug_info() -> Dictionary:
 	return {
 		"Name": stats.unit_name,
-		"Team": Team.get_display_name(team),
-		"Health": "%.0f / %.0f" % [current_health, stats.max_health],
+		"Team": player.display_name,
+		"Health": "%.0f / %.0f" % [current_health, stat_block.max_health()],
 		"AI State": _describe_state(),
 		"Target": target_enemy.stats.unit_name if target_enemy != null else "(none)",
 	}
@@ -284,20 +837,32 @@ func get_debug_info() -> Dictionary:
 func get_debug_info_detailed() -> Dictionary:
 	return {
 		"Distance to Target": _describe_distance_to_target(),
-		"Attack Range": "%.1f m" % stats.attack_range,
+		"Attack Range": "%.1f m" % stat_block.attack_range(),
 		"Attack Cooldown": "%.1fs" % maxf(_attack_cooldown, 0.0),
+		"Armor": "%.1f" % stat_block.armor(),
 		"Position": "(%.1f, %.1f, %.1f)" % [global_position.x, global_position.y, global_position.z],
 		"Avoidance": _describe_avoidance(),
 		"Flying": "Yes" if stats.is_flying else "No",
 		"Airborne": "Yes (knocked back)" if _is_airborne else "No",
+		"Effects": _describe_effects(),
 	}
+
+
+func _describe_effects() -> String:
+	if _active_effects.is_empty():
+		return "-"
+	var parts: Array[String] = []
+	for effect in _active_effects:
+		var remaining := "permanent" if effect.duration <= 0.0 else "%.1fs" % maxf(effect.duration - effect.elapsed, 0.0)
+		parts.append("%s (%s)" % [effect.id, remaining])
+	return ", ".join(parts)
 
 
 ## Mirrors the branches in _physics_process (without altering any of
 ## them) to describe, in words, which one is currently active.
 func _describe_state() -> String:
-	if current_health <= 0.0:
-		return "Dead"
+	if life_state == LifeState.DEAD:
+		return "Dead (decaying, %.1fs left)" % maxf(_CORPSE_DECAY_DURATION - _decay_elapsed, 0.0)
 	if _is_airborne:
 		return "Airborne (knocked back)"
 	match GameManager.battle_state:
@@ -305,9 +870,29 @@ func _describe_state() -> String:
 			return "Waiting (Placement)"
 		GameManager.BattleState.GAME_OVER:
 			return "Waiting (Game Over)"
+	if current_order != null:
+		return _describe_order_state()
 	if target_enemy == null:
 		return "Searching for Target"
-	return "Moving" if _distance_to_target_edge(target_enemy) > stats.attack_range else "Attacking"
+	return "Moving" if _distance_to_target_edge(target_enemy) > stat_block.attack_range() else "Attacking"
+
+
+func _describe_order_state() -> String:
+	var is_attacking := target_enemy != null and _distance_to_target_edge(target_enemy) <= stat_block.attack_range()
+	match current_order.type:
+		OrderType.STOP:
+			return "Stopped"
+		OrderType.HOLD:
+			return "Attacking (Hold)" if is_attacking else "Holding Position"
+		OrderType.MOVE:
+			return "Moving to Order"
+		OrderType.ATTACK_MOVE:
+			return "Attacking (Order)" if is_attacking else "Attack-Moving"
+		OrderType.PATROL:
+			return "Attacking (Patrol)" if is_attacking else "Patrolling"
+		OrderType.FOLLOW:
+			return "Attacking (Follow)" if is_attacking else "Following"
+	return "Following Order"
 
 
 func _describe_distance_to_target() -> String:

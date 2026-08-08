@@ -36,10 +36,6 @@ const UNIT_STATS := {
 	"Giant": preload("res://Resources/GiantStats.tres"),
 }
 
-const TEAMS := {
-	"BLUE": Team.Type.BLUE,
-	"RED": Team.Type.RED,
-}
 
 const SCREENSHOT_DIR := "res://screenshots"
 const DEFAULT_OUT := "screenshot.png"
@@ -76,6 +72,10 @@ func _run() -> void:
 		var index := int(args["select"])
 		if index >= 0 and index < placed.size():
 			DebugInspector.select(placed[index])
+			# Also drives SelectionManager's own (green) ring, not just the
+			# debug (yellow) one -- only takes if the unit belongs to
+			# SelectionManager.local_player, same ownership rule real input goes through.
+			SelectionManager.select_single(placed[index])
 		else:
 			push_warning("--select=%d out of range (%d units placed)" % [index, placed.size()])
 
@@ -95,15 +95,22 @@ func _place_unit(spec: String) -> Unit:
 		return null
 
 	var stats: UnitStats = UNIT_STATS.get(parts[0])
-	var team: Variant = TEAMS.get(parts[1].to_upper())
+	var player: Player = _player_from_team_name(parts[1])
 	var coords := parts[2].split(",")
 
-	if stats == null or team == null or coords.size() != 3:
+	if stats == null or player == null or coords.size() != 3:
 		push_warning("Skipping malformed --place entry (expected unit:team:x,y,z): " + spec)
 		return null
 
 	var position := Vector3(float(coords[0]), float(coords[1]), float(coords[2]))
-	return GameManager.spawn_unit(stats, team, position)
+	return GameManager.spawn_unit(stats, player, position)
+
+
+func _player_from_team_name(team_name: String) -> Player:
+	match team_name.to_upper():
+		"BLUE": return GameManager.get_player(GameManager.BLUE_TEAM_ID)
+		"RED": return GameManager.get_player(GameManager.RED_TEAM_ID)
+		_: return null
 
 
 func _save_screenshot(filename: String) -> void:
