@@ -470,6 +470,8 @@ func _on_unit_died(unit: Unit, killer: Unit) -> void:
 		killer.gain_xp(Unit.XP_PER_KILL)
 		current_mode.on_unit_killed(killer)
 
+	_spawn_death_escalation(unit)
+
 	if not is_battle_active():
 		return
 
@@ -479,6 +481,21 @@ func _on_unit_died(unit: Unit, killer: Unit) -> void:
 			_end_battle(victory["winning_team_id"])
 		GameMode.VictoryResult.DRAW:
 			_declare_draw()
+
+
+## See UnitStats.revive_as_on_death/split_into_on_death's doc comments --
+## both null for every normal archetype, so this is a no-op for the rest
+## of the game. Runs unconditionally (not gated on is_battle_active())
+## since it's replacing this specific death, not deciding the battle's
+## outcome.
+func _spawn_death_escalation(unit: Unit) -> void:
+	if unit.stats.revive_as_on_death != null:
+		spawn_unit(unit.stats.revive_as_on_death, unit.player, unit.global_position)
+	elif unit.stats.split_into_on_death != null:
+		var spacing := unit.stats.split_into_on_death.collision_radius * 2.5 + 0.3
+		for i in unit.stats.split_count:
+			var offset := Vector3((i - (unit.stats.split_count - 1) * 0.5) * spacing, 0, 0)
+			spawn_unit(unit.stats.split_into_on_death, unit.player, unit.global_position + offset)
 
 
 func _on_unit_damaged(_unit: Unit, _instance: DamageInstance, _damage_dealt: float) -> void:

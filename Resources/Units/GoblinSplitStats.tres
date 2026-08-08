@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+unit_name = "Goblin Runt"
+max_health = 70.0
+damage = 7.0
+attack_range = 0.8
+attack_interval = 0.8
+move_speed = 4.0
+collision_radius = 0.35
+mesh_shape = "Cone"
+mesh_size = Vector3(0.4, 0.9, 0.4)

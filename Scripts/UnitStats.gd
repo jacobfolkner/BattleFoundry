@@ -126,6 +126,26 @@ extends Resource
 ## behavior change from before Heroes existed.
 @export var ability_unlock_levels: Array[int] = []
 
+@export_group("Death Escalation")
+## Goblin-boss-round mechanic (see BattleFoundry-Roadmap.md's goblin boss
+## round item): if set, killing this unit doesn't end it -- GameManager._on_unit_died()
+## spawns one fresh unit of this archetype at the same position instead
+## of a normal corpse/decay, owned by the same Player (so team/hostility
+## carries over unchanged). Mutually exclusive with split_into_on_death
+## below -- a unit either revives bigger or splits smaller on death, not
+## both; if both are somehow set, revive wins. null (default, every
+## normal archetype) means a completely ordinary death, unaffected.
+@export var revive_as_on_death: UnitStats = null
+## Goblin-boss-round mechanic: if set (and revive_as_on_death is null),
+## killing this unit spawns split_count fresh units of this archetype,
+## fanned out around the same position, instead of a normal corpse/decay.
+## The terminal generation's own UnitStats (this project's smallest
+## goblin tier) leaves this null, so its death is a normal, final one --
+## the escalation doesn't recurse unless a resource explicitly chains
+## split_into_on_death to another split_into_on_death.
+@export var split_into_on_death: UnitStats = null
+@export var split_count: int = 2
+
 @export_group("Appearance")
 ## Which primitive mesh represents this unit. Team color is applied
 ## separately at spawn time, so archetypes are told apart by shape/size.

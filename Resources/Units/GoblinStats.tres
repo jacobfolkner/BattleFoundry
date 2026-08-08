@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Units/GoblinRevivedStats.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+unit_name = "Goblin"
+max_health = 150.0
+damage = 12.0
+attack_range = 1.0
+attack_interval = 1.0
+move_speed = 3.5
+collision_radius = 0.55
+revive_as_on_death = ExtResource("2")
+mesh_shape = "Cone"
+mesh_size = Vector3(0.6, 1.4, 0.6)

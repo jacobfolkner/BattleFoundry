@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Units/GoblinSplitStats.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+unit_name = "Enraged Goblin"
+max_health = 300.0
+damage = 24.0
+attack_range = 1.2
+attack_interval = 1.0
+move_speed = 3.5
+collision_radius = 0.9
+split_into_on_death = ExtResource("2")
+split_count = 2
+mesh_shape = "Cone"
+mesh_size = Vector3(1.0, 2.2, 1.0)
