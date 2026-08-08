@@ -183,6 +183,66 @@ func test_stun_immunity_blocks_a_new_stun_right_after_one_expires() -> void:
 		"a new stun landing right after one just expired should be blocked by the immunity window")
 
 
+## Same diminishing-returns window as stun, generalized to every hard-CC
+## flag in Unit._DR_ELIGIBLE_CC_FLAGS -- ROOT here, SILENCE in the test
+## right after this one.
+func test_cc_immunity_window_also_applies_to_root() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	tank.apply_effect(Effect.new("root_a", 0.1).with_cc(Effect.CCFlag.ROOT))
+
+	for i in range(15): # ~0.25s -- past the first root's expiry
+		await wait_physics_frames(1)
+	assert_false(tank.is_rooted(), "sanity check: the first root should have expired by now")
+
+	tank.apply_effect(Effect.new("root_b", 5.0).with_cc(Effect.CCFlag.ROOT))
+	assert_false(tank.is_rooted(),
+		"a new root landing right after one just expired should be blocked by the immunity window")
+
+
+func test_cc_immunity_window_also_applies_to_silence() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	tank.apply_effect(Effect.new("silence_a", 0.1).with_cc(Effect.CCFlag.SILENCE))
+
+	for i in range(15): # ~0.25s -- past the first silence's expiry
+		await wait_physics_frames(1)
+	assert_false(tank.is_silenced(), "sanity check: the first silence should have expired by now")
+
+	tank.apply_effect(Effect.new("silence_b", 5.0).with_cc(Effect.CCFlag.SILENCE))
+	assert_false(tank.is_silenced(),
+		"a new silence landing right after one just expired should be blocked by the immunity window")
+
+
+## A stun's immunity window should never block a DIFFERENT CC flag from
+## landing -- each flag in _DR_ELIGIBLE_CC_FLAGS tracks its own
+## independent immunity, not one shared cooldown across all of them.
+func test_cc_immunity_is_tracked_independently_per_flag() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	tank.apply_effect(Effect.new("stun_a", 0.1).with_cc(Effect.CCFlag.STUN))
+
+	for i in range(15):
+		await wait_physics_frames(1)
+
+	tank.apply_effect(Effect.new("root_a", 5.0).with_cc(Effect.CCFlag.ROOT))
+	assert_true(tank.is_rooted(),
+		"stun's own immunity window should not block an unrelated CC flag like root")
+
+
+## INVULNERABLE/ETHEREAL are self-buffs, not enemy-applied CC -- they're
+## deliberately excluded from _DR_ELIGIBLE_CC_FLAGS, so re-applying one
+## right after it expires should never be blocked.
+func test_non_dr_eligible_cc_flags_are_never_blocked_by_an_immunity_window() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	tank.apply_effect(Effect.new("invuln_a", 0.1).with_cc(Effect.CCFlag.INVULNERABLE))
+
+	for i in range(15):
+		await wait_physics_frames(1)
+	assert_false(tank.is_invulnerable(), "sanity check: the first INVULNERABLE should have expired by now")
+
+	tank.apply_effect(Effect.new("invuln_b", 5.0).with_cc(Effect.CCFlag.INVULNERABLE))
+	assert_true(tank.is_invulnerable(),
+		"INVULNERABLE should never be subject to the CC diminishing-returns window")
+
+
 # ---------------------------------------------------------------------
 # Ability casting
 # ---------------------------------------------------------------------

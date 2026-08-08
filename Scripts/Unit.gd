@@ -50,15 +50,24 @@ const _PROJECTILE_SCENE: PackedScene = preload("res://Scenes/Projectile.tscn")
 const _AVOIDANCE_NEIGHBOR_DISTANCE := 6.0
 const _ARRIVAL_EPSILON := 0.3 ## Horizontal distance (m) within which a MOVE/ATTACK_MOVE/PATROL destination counts as "reached."
 const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
-## How long a unit is immune to a *new* stun after one wears off --
-## simplified stand-in for real diminishing returns (WC3 halves each
-## successive CC duration within a window; this just blocks the next one
-## outright for a bit instead). Same juggling problem PR #4's knockback
-## review flagged, but for Effect-based stun rather than positional
-## knockback (which already has its own, separate immunity -- see
-## apply_knockback()'s doc comment; the two don't share a mechanism
+## How long a unit is immune to a *new* application of the same hard-CC
+## flag after one wears off -- simplified stand-in for real diminishing
+## returns (WC3 halves each successive CC duration within a window; this
+## just blocks the next one outright for a bit instead, same simplified
+## approach the original stun-only version used, now generalized to
+## every flag in _DR_ELIGIBLE_CC_FLAGS below). Same juggling problem PR #4's
+## knockback review flagged, but for Effect-based CC rather than
+## positional knockback (which already has its own, separate immunity --
+## see apply_knockback()'s doc comment; the two don't share a mechanism
 ## because one is positional and this one is Effect/CC-based).
-const _STUN_IMMUNITY_DURATION := 1.0
+const _CC_IMMUNITY_DURATION := 1.0
+## Which CC flags this diminishing-returns window applies to -- the
+## "hard CC, loses you control of your unit" flags a real player would
+## feel juggled by. INVULNERABLE/ETHEREAL are deliberately excluded:
+## both are self-buffs an ability grants its own caster (see Ability.gd),
+## never something an enemy repeatedly lands on you, so there's nothing
+## to juggle and no reason to ever block a unit from re-buffing itself.
+const _DR_ELIGIBLE_CC_FLAGS: Array[Effect.CCFlag] = [Effect.CCFlag.STUN, Effect.CCFlag.ROOT, Effect.CCFlag.SILENCE]
 ## How long a corpse lingers -- collision disabled, no longer targetable,
 ## but still visible -- before being freed. No respawn hook yet (no
 ## heroes exist); this is purely the "corpse" half of "corpse/decay or
@@ -117,7 +126,11 @@ var _patrol_forward: bool = true
 ## apply_effect(). Anything with a stat modifier also has a matching
 ## StatBlock.Modifier alive on stat_block for as long as it's in here.
 var _active_effects: Array[Effect] = []
-var _stun_immunity_remaining: float = 0.0
+## CCFlag -> seconds remaining before that flag can land on this unit
+## again -- see _DR_ELIGIBLE_CC_FLAGS/apply_effect()/_tick_effects(). A
+## missing/absent key (the common case) means no immunity active for
+## that flag at all.
+var _cc_immunity_remaining: Dictionary = {}
 
 ## Ability slot index (0/1/2, matching stats.abilities) -> remaining
 ## cooldown seconds. Absent/0 means ready.
@@ -239,10 +252,11 @@ func _advance_order_queue() -> void:
 # ---------------------------------------------------------------------
 
 ## Applies `effect` to this unit, respecting its stack_rule against any
-## existing effect with the same id. A STUN effect is silently dropped
-## outright while stun immunity is active -- see _STUN_IMMUNITY_DURATION.
+## existing effect with the same id. An effect whose cc_flag is in
+## _DR_ELIGIBLE_CC_FLAGS is silently dropped outright while that flag's
+## own diminishing-returns immunity is active -- see _CC_IMMUNITY_DURATION.
 func apply_effect(effect: Effect) -> void:
-	if effect.cc_flag == Effect.CCFlag.STUN and _stun_immunity_remaining > 0.0:
+	if effect.cc_flag in _DR_ELIGIBLE_CC_FLAGS and _cc_immunity_remaining.get(effect.cc_flag, 0.0) > 0.0:
 		return
 
 	var existing := _find_effect_by_id(effect.id)
@@ -325,17 +339,18 @@ func _remove_effect(effect: Effect) -> void:
 
 
 func _tick_effects(delta: float) -> void:
-	_stun_immunity_remaining = maxf(_stun_immunity_remaining - delta, 0.0)
+	for flag in _cc_immunity_remaining.keys():
+		_cc_immunity_remaining[flag] = maxf(_cc_immunity_remaining[flag] - delta, 0.0)
 
 	for effect in _active_effects.duplicate():
 		if effect.duration <= 0.0:
 			continue # permanent -- only removed by remove_effects_from_source() or clear_all_effects()
 		effect.elapsed += delta
 		if effect.elapsed >= effect.duration:
-			var was_stun: bool = effect.cc_flag == Effect.CCFlag.STUN
+			var expiring_cc_flag: Effect.CCFlag = effect.cc_flag
 			_remove_effect(effect)
-			if was_stun:
-				_stun_immunity_remaining = _STUN_IMMUNITY_DURATION
+			if expiring_cc_flag in _DR_ELIGIBLE_CC_FLAGS:
+				_cc_immunity_remaining[expiring_cc_flag] = _CC_IMMUNITY_DURATION
 
 	_refresh_status_indicator()
 
