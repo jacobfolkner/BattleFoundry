@@ -4,9 +4,9 @@
 ## ranged damage.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres")
 const PROJECTILE_SCENE: PackedScene = preload("res://Scenes/Projectile.tscn")
 
 var _main: Node3D

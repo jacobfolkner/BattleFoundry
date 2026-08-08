@@ -15,15 +15,15 @@ class_name AIController
 extends RefCounted
 
 const _UNIT_POOL: Array[UnitStats] = [
-	preload("res://Resources/TankStats.tres"),
-	preload("res://Resources/FighterStats.tres"),
-	preload("res://Resources/ArcherStats.tres"),
-	preload("res://Resources/BatRiderStats.tres"),
-	preload("res://Resources/GiantStats.tres"),
+	preload("res://Resources/Units/TankStats.tres"),
+	preload("res://Resources/Units/FighterStats.tres"),
+	preload("res://Resources/Units/ArcherStats.tres"),
+	preload("res://Resources/Units/BatRiderStats.tres"),
+	preload("res://Resources/Units/GiantStats.tres"),
 ]
 const _UPGRADE_POOL: Array[UnitUpgrade] = [
-	preload("res://Resources/IronArmorUpgrade.tres"),
-	preload("res://Resources/WhetstoneUpgrade.tres"),
+	preload("res://Resources/Upgrades/IronArmorUpgrade.tres"),
+	preload("res://Resources/Upgrades/WhetstoneUpgrade.tres"),
 ]
 ## Safety cap on a single turn's new-unit spawns -- not a balance number,
 ## just a guard against an unbounded loop if a future archetype ever had

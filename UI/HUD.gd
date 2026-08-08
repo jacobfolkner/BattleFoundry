@@ -23,12 +23,12 @@ signal ai_opponent_toggled(enabled: bool)
 ## Q/W/E hotkeys use, so clicking and pressing the key are equivalent.
 signal ability_slot_pressed(index: int)
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
-const BAT_RIDER_STATS: UnitStats = preload("res://Resources/BatRiderStats.tres")
-const GIANT_STATS: UnitStats = preload("res://Resources/GiantStats.tres")
-const HERO_STATS: UnitStats = preload("res://Resources/HeroStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres")
+const BAT_RIDER_STATS: UnitStats = preload("res://Resources/Units/BatRiderStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/Units/GiantStats.tres")
+const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
 
 var _start_button: Button
 var _winner_label: Label

@@ -7,9 +7,9 @@
 ## BloodTournamentMode.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const IRON_ARMOR_UPGRADE: UnitUpgrade = preload("res://Resources/IronArmorUpgrade.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const IRON_ARMOR_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/IronArmorUpgrade.tres")
 
 var _main: Node3D
 

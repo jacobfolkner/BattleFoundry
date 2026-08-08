@@ -26,13 +26,13 @@ const _DRAG_THRESHOLD := 6.0
 ## _selected_player's comment for the identical bug this one shipped
 ## alongside, caught by a user hitting it directly rather than by any
 ## automated test, since none exercised the real click-to-place path.
-const _DEFAULT_UNIT_STATS: UnitStats = preload("res://Resources/TankStats.tres")
+const _DEFAULT_UNIT_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 ## Index 0/1 map to the U/I hotkeys (see _handle_placement_key()) --
 ## deliberately just two, "prove the shop-side flow" per the roadmap, not
 ## a real shop UI/browse list.
 const _UPGRADES: Array[UnitUpgrade] = [
-	preload("res://Resources/IronArmorUpgrade.tres"),
-	preload("res://Resources/WhetstoneUpgrade.tres"),
+	preload("res://Resources/Upgrades/IronArmorUpgrade.tres"),
+	preload("res://Resources/Upgrades/WhetstoneUpgrade.tres"),
 ]
 
 @onready var _camera: Camera3D = $Camera3D

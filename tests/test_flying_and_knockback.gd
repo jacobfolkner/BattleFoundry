@@ -6,11 +6,11 @@
 ## and back.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
-const BAT_RIDER_STATS: UnitStats = preload("res://Resources/BatRiderStats.tres")
-const GIANT_STATS: UnitStats = preload("res://Resources/GiantStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres")
+const BAT_RIDER_STATS: UnitStats = preload("res://Resources/Units/BatRiderStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/Units/GiantStats.tres")
 
 var _main: Node3D
 

@@ -4,9 +4,9 @@
 ## lifecycle.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const GIANT_STATS: UnitStats = preload("res://Resources/GiantStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/Units/GiantStats.tres")
 
 var _main: Node3D
 var _original_stalemate_timeout: float

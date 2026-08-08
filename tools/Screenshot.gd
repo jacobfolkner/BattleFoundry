@@ -29,11 +29,11 @@
 extends Node3D
 
 const UNIT_STATS := {
-	"Tank": preload("res://Resources/TankStats.tres"),
-	"Fighter": preload("res://Resources/FighterStats.tres"),
-	"Archer": preload("res://Resources/ArcherStats.tres"),
-	"BatRider": preload("res://Resources/BatRiderStats.tres"),
-	"Giant": preload("res://Resources/GiantStats.tres"),
+	"Tank": preload("res://Resources/Units/TankStats.tres"),
+	"Fighter": preload("res://Resources/Units/FighterStats.tres"),
+	"Archer": preload("res://Resources/Units/ArcherStats.tres"),
+	"BatRider": preload("res://Resources/Units/BatRiderStats.tres"),
+	"Giant": preload("res://Resources/Units/GiantStats.tres"),
 }
 
 

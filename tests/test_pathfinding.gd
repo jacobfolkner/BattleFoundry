@@ -14,7 +14,7 @@
 ## other tests that spawn/path units anywhere in the open 40x40 plane.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 
 ## Half the wall's width -- spans x=[-_WALL_HALF_WIDTH, _WALL_HALF_WIDTH]
 ## at z=0. Kept small (not the whole 40m arena) so the routed-around trip

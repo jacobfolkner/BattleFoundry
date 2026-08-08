@@ -4,7 +4,7 @@
 ## Player.is_human and triggers a turn at every PLACEMENT entry point).
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 
 var _main: Node3D
 

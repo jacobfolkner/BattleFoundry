@@ -8,9 +8,9 @@
 ## random ability draft/choice UI.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const HERO_STATS: UnitStats = preload("res://Resources/HeroStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
 
 var _main: Node3D
 

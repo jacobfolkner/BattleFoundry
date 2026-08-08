@@ -4,7 +4,7 @@
 ## neutral team, and GameManager's default two-player prototype roster.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 
 var _main: Node3D
 

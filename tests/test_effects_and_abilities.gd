@@ -7,9 +7,9 @@
 ## knockback test for proof that port didn't change its behavior.
 extends GutTest
 
-const TANK_STATS: UnitStats = preload("res://Resources/TankStats.tres")
-const FIGHTER_STATS: UnitStats = preload("res://Resources/FighterStats.tres")
-const ARCHER_STATS: UnitStats = preload("res://Resources/ArcherStats.tres")
+const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres")
 
 var _main: Node3D
 
@@ -385,7 +385,7 @@ func test_status_indicator_hides_on_death() -> void:
 
 
 func test_on_hit_ability_is_not_player_triggerable() -> void:
-	var giant := GameManager.spawn_unit(preload("res://Resources/GiantStats.tres"), GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	var giant := GameManager.spawn_unit(preload("res://Resources/Units/GiantStats.tres"), GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
 	# Giant Slam lives on stats.on_hit_ability, not stats.abilities -- slot
 	# 0 should be empty, so casting it should just fail cleanly.
 	assert_false(giant.cast_ability(0), "an ON_HIT ability should never be reachable via cast_ability()")
