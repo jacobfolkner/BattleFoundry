@@ -60,6 +60,7 @@ var _ability_slot_buttons: Array[Button] = []
 var _buff_row: HBoxContainer
 var _targeting_label: Label
 var _hero_level_label: Label
+var _minimap: MiniMap
 ## Whichever unit SelectionManager last reported as selected (see
 ## track_unit()) -- the hotbar/buff row always reflect this one unit, not
 ## the whole selection, same simplification a WC3-style command card makes
@@ -91,6 +92,7 @@ func _ready() -> void:
 	_build_buff_row()
 	_build_targeting_prompt()
 	_build_hero_level_label()
+	_build_minimap()
 
 	# Sensible defaults so a click places a unit immediately.
 	unit_type_selected.emit(TANK_STATS)
@@ -564,6 +566,11 @@ func _refresh_hero_level_label() -> void:
 	var viewport_size := get_viewport_rect().size
 	_hero_level_label.position = Vector2((viewport_size.x - _hero_level_label.size.x) * 0.5, viewport_size.y - 128)
 	_hero_level_label.visible = true
+
+
+func _build_minimap() -> void:
+	_minimap = MiniMap.new()
+	add_child(_minimap)
 
 
 ## Called by Main.gd right before starting the next round of a Blood
