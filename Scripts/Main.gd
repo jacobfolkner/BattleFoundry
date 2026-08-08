@@ -295,7 +295,12 @@ func _sync_arena_shape() -> void:
 ## resyncs the HUD (winner banner/Start button) to match.
 func _on_tournament_toggled(enabled: bool) -> void:
 	if enabled:
-		_tournament_mode = BloodTournamentMode.new()
+		# 12 -- the genre-accurate fixed match length (see
+		# BloodTournamentMode.total_rounds' own doc comment): every round
+		# is played through regardless of standings, boss rounds included
+		# (is_boss_round() lands on 3/6/9/12 either way). rounds_to_win (2)
+		# is otherwise unused once total_rounds > 0, kept at its default.
+		_tournament_mode = BloodTournamentMode.new(2, 12)
 		_tournament_mode.round_ended.connect(_on_tournament_round_ended)
 		GameManager.set_mode(_tournament_mode) # grants starting gold via BloodTournamentMode.on_activated()
 	else:

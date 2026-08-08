@@ -20,8 +20,16 @@ extends GameMode
 ## design (see class doc comment) -- only query methods like team_is_empty().
 signal round_ended(round_number: int, winning_team_id: int, is_draw: bool)
 ## Emitted alongside round_ended, only on the round that actually decides
-## the match (a team reaches rounds_to_win).
+## the match (a team reaches rounds_to_win). Only used when total_rounds
+## is 0 (unset) -- see total_rounds' own doc comment.
 signal match_ended(winning_team_id: int)
+## Emitted alongside round_ended, only once, on the round that reaches
+## total_rounds (only used when total_rounds > 0 -- see its own doc
+## comment). Deciding an actual champion from the 12 rounds' standings is
+## the not-yet-built bracket-style final tournament's job (Stage D, see
+## BattleFoundry-Roadmap.md §1); this class's responsibility stops at "all
+## the rounds are done."
+signal all_rounds_finished
 
 ## Real gold, granted once at match start and again as round income, spent
 ## through Main._try_place_unit()/GameManager.sell_unit(). Walks
@@ -44,6 +52,16 @@ var rounds_to_win: int
 var round_number: int = 0
 var wins_by_team: Dictionary = {} ## team_id -> rounds won so far
 
+## 0 (default): no fixed length -- the original first-to-rounds_to_win-wins
+## behavior every existing best-of-N/2-team test already relies on.
+## > 0 (Main._on_tournament_toggled() sets 12, the genre-accurate full
+## match): is_match_over()/all_rounds_finished replace the win-threshold
+## check/match_ended -- every one of the 12 rounds is always played
+## through regardless of standings (boss rounds included, see
+## is_boss_round()), rather than the match potentially ending early the
+## instant one team reaches rounds_to_win.
+var total_rounds: int = 0
+
 ## -1 (default): not currently in a goblin boss round's team-turn, every
 ## method below behaves normally (N-team PvP). Set by GoblinBossRound for
 ## the duration of exactly one team's solo turn against the goblin --
@@ -56,8 +74,9 @@ var wins_by_team: Dictionary = {} ## team_id -> rounds won so far
 var current_boss_team_id: int = -1
 
 
-func _init(p_rounds_to_win: int = 2) -> void:
+func _init(p_rounds_to_win: int = 2, p_total_rounds: int = 0) -> void:
 	rounds_to_win = p_rounds_to_win
+	total_rounds = p_total_rounds
 
 
 func uses_economy() -> bool:
@@ -155,7 +174,10 @@ func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
 
 	round_ended.emit(round_number, winning_team_id, is_draw)
 
-	if not is_draw and wins_by_team[winning_team_id] >= rounds_to_win:
+	if total_rounds > 0:
+		if round_number >= total_rounds:
+			all_rounds_finished.emit()
+	elif not is_draw and wins_by_team[winning_team_id] >= rounds_to_win:
 		match_ended.emit(winning_team_id)
 
 
@@ -179,9 +201,13 @@ func finish_boss_round() -> void:
 	for team_id in GameManager.all_team_ids():
 		GameManager.get_player(team_id).add_gold(PARTICIPATION_INCOME)
 	round_ended.emit(round_number, -1, true)
+	if total_rounds > 0 and round_number >= total_rounds:
+		all_rounds_finished.emit()
 
 
 func is_match_over() -> bool:
+	if total_rounds > 0:
+		return round_number >= total_rounds
 	for wins in wins_by_team.values():
 		if wins >= rounds_to_win:
 			return true
