@@ -33,15 +33,25 @@ var resources: int = 0
 var blood_points: int = 0
 ## Ordered list of purchased archetypes (UnitStats), one entry per
 ## purchased "slot" -- what actually persists between Blood Tournament
-## rounds (see GameManager.reset_battle()/Main._respawn_rosters()).
-## Blood Tournament has no permadeath: a slot stays on the roster
-## (respawning fresh every round) until the player explicitly sells it
-## (GameManager.sell_unit() removes the matching entry), regardless of
-## whether that round's copy died in battle. Buying appends to the end;
-## order will matter once staggered right-to-left deployment exists, but
-## nothing reads the order yet. Unused (stays empty) for a plain
+## rounds (see GameManager.reset_battle()). Blood Tournament has no
+## permadeath: a slot stays on the roster until the player explicitly
+## sells it (GameManager.sell_roster_slot()), regardless of whether that
+## round's copy died in battle. Nothing spawns live during PLACEMENT --
+## roster stays data-only until BATTLE starts, then deploys as a
+## staggered queue, most-recently-bought slot first (see
+## Main._begin_staggered_deployment()). Unused (stays empty) for a plain
 ## single-battle match, same as `resources`.
 var roster: Array[UnitStats] = []
+## Blood-point-cost upgrades bought during PLACEMENT (see
+## GameManager.buy_roster_upgrade()) -- account-wide, not tied to one
+## roster slot: nothing is alive to target during PLACEMENT under the
+## staging-area model, so an upgrade is recorded here and applied to
+## every unit in every squad this player deploys from then on (see
+## Main._deploy_next_pending_slot()), not just whatever was purchased
+## most recently. Persists the same way `roster` does -- reset_battle()
+## never clears it, only an explicit sell would (no sell exists for this
+## yet, matching the "buy an upgrade" shop having no refund path either).
+var roster_upgrades: Array[UnitUpgrade] = []
 
 
 func _init(p_id: int, p_slot: int, p_team_id: int, p_display_name: String, p_color: Color, p_is_human: bool = true) -> void:

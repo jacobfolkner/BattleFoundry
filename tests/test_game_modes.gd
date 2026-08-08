@@ -29,6 +29,8 @@ func before_each() -> void:
 	red.blood_points = 0
 	blue.roster.clear()
 	red.roster.clear()
+	blue.roster_upgrades.clear()
+	red.roster_upgrades.clear()
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)

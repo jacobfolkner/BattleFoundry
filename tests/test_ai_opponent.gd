@@ -23,6 +23,8 @@ func before_each() -> void:
 	red.blood_points = 0
 	blue.roster.clear()
 	red.roster.clear()
+	blue.roster_upgrades.clear()
+	red.roster_upgrades.clear()
 	blue.is_human = true
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()
@@ -79,18 +81,19 @@ func test_ai_spends_all_its_gold_on_units_not_upgrades() -> void:
 	assert_almost_eq(unit.stat_block.armor(), original_armor, 0.01, "no blood points means the upgrade branch should never fire")
 
 
-func test_ai_spends_blood_points_on_an_upgrade_for_one_of_its_own_units() -> void:
-	GameManager.set_mode(BloodTournamentMode.new()) # GameManager.buy_upgrade() itself gates on current_mode.uses_economy()
+## AIController's upgrade purchase is account-wide now (GameManager.buy_roster_upgrade()),
+## not targeted at a living unit -- no unit needs to exist at all for the
+## AI to buy one, unlike the old model this replaced.
+func test_ai_spends_blood_points_on_an_account_wide_upgrade() -> void:
+	GameManager.set_mode(BloodTournamentMode.new()) # buy_roster_upgrade() itself gates on current_mode.uses_economy()
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	var unit := GameManager.spawn_unit(TANK_STATS, red, Vector3(10, 0, 0))
-	var original_armor := unit.stat_block.armor()
 	red.resources = 0 # nothing affordable in _UNIT_POOL -- isolates the upgrade branch
 	red.blood_points = 100 # Iron Armor's cost
 
 	AIController.new().take_turn(red)
 
 	assert_eq(red.blood_points, 0)
-	assert_almost_eq(unit.stat_block.armor(), original_armor + 3.0, 0.01, "Iron Armor should have been bought for the Tank (+3 armor)")
+	assert_eq(red.roster_upgrades.size(), 1, "Iron Armor should have been bought for Red's account")
 
 
 func test_ai_does_not_crash_or_spend_when_it_has_no_living_units_and_no_affordable_new_ones() -> void:

@@ -416,11 +416,19 @@ func _physics_process(delta: float) -> void:
 			_deploy_next_pending_slot(player_id)
 
 
+## Applies every account-wide upgrade the player bought during PLACEMENT
+## (see GameManager.buy_roster_upgrade()) to every unit in the squad that
+## just deployed -- upgrades were recorded rather than applied at
+## purchase time specifically because nothing was alive yet to apply them
+## to, so this is where that deferred application actually happens.
 func _deploy_next_pending_slot(player_id: int) -> void:
 	var queue: Array = _pending_deployments[player_id]
 	var stats: UnitStats = queue.pop_front()
 	var player := GameManager.get_player(player_id)
-	GameManager.spawn_squad(stats, player, _DEPLOYMENT_ANCHORS[player.team_id])
+	var squad := GameManager.spawn_squad(stats, player, _DEPLOYMENT_ANCHORS[player.team_id])
+	for upgrade in player.roster_upgrades:
+		for unit in squad:
+			upgrade.ability.cast_unit_target(unit, unit)
 
 	if queue.is_empty():
 		_pending_deployments.erase(player_id)
@@ -641,23 +649,18 @@ func _cancel_pending_ability_target() -> void:
 
 
 ## PLACEMENT-only: U/I buy a Blood Tournament shop upgrade (see
-## Resources/*Upgrade.tres) for whichever unit DebugInspector currently has
-## selected -- deliberately no click-to-target flow of its own (unlike Q/W/E
-## in BATTLE, see _try_cast_or_target()) since there's only ever one legal
-## target, your own already-selected unit. GameManager.buy_upgrade() itself
-## already no-ops outside Blood Tournament and for an unaffordable
-## purchase, so this only needs to check which unit is selected and who
-## owns it.
+## Resources/*Upgrade.tres) for _selected_player's account, applied to
+## every unit in every squad they deploy from now on (see
+## GameManager.buy_roster_upgrade()/Main._deploy_next_pending_slot()).
+## No unit-targeting/selection needed anymore -- nothing is alive to
+## target during PLACEMENT under the staging-area deployment model, so
+## unlike the old per-unit flow this replaced, there's no legal target to
+## check ownership of at purchase time at all.
 func _handle_placement_key(event: InputEventKey) -> void:
 	if event.keycode != KEY_U and event.keycode != KEY_I:
 		return
-	if not DebugInspector.has_valid_selection():
-		return
-	var unit := DebugInspector.selected_unit
-	if unit.player != _selected_player:
-		return
 	var index := 0 if event.keycode == KEY_U else 1
-	if index < _UPGRADES.size() and GameManager.buy_upgrade(unit, _UPGRADES[index]):
+	if index < _UPGRADES.size() and GameManager.buy_roster_upgrade(_selected_player, _UPGRADES[index]):
 		_refresh_gold_display()
 
 

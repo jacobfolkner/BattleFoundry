@@ -384,6 +384,26 @@ func buy_upgrade(unit: Unit, upgrade: UnitUpgrade) -> bool:
 	return true
 
 
+## The actual PLACEMENT-time shop purchase path under the staging-area
+## deployment model (see Main._begin_staggered_deployment()) -- nothing
+## is a living Unit during PLACEMENT for buy_upgrade() above to target
+## anymore, so this spends blood points against the player's account and
+## records the upgrade on Player.roster_upgrades instead of applying it
+## immediately. Main._deploy_next_pending_slot() applies every recorded
+## upgrade to every unit in every squad this player deploys from then on
+## -- account-wide, not scoped to whichever roster slot was selected when
+## it was bought, since nothing exists yet to scope it to.
+func buy_roster_upgrade(player: Player, upgrade: UnitUpgrade) -> bool:
+	if not is_placement_phase() or not current_mode.uses_economy():
+		return false
+	if not player.can_afford_blood_points(upgrade.cost):
+		return false
+
+	player.spend_blood_points(upgrade.cost)
+	player.roster_upgrades.append(upgrade)
+	return true
+
+
 ## Every currently-valid unit spawned this battle, alive or (briefly)
 ## decaying corpses -- SelectionManager's drag-box selection needs to
 ## test every unit on the field against a screen rect, not just one

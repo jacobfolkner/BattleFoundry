@@ -1,12 +1,16 @@
 ## Tests for Blood Tournament's economy: starting gold, flat round income
 ## (equal for everyone, no win bonus), blood points from kills, unit cost,
 ## sell, and the no-permadeath roster (what actually persists between
-## rounds now -- see Scripts/Player.gd's `roster` field and
-## Main._respawn_rosters(); round-transition integration for that lives
-## in test_game_modes.gd) -- plus its shop upgrades (a blood-point-cost
-## permanent Effect applied to an owned unit, reusing
+## rounds now -- see Scripts/Player.gd's `roster` field; round-transition
+## integration for that lives in test_game_modes.gd) -- plus its shop
+## upgrades (a blood-point-cost permanent Effect, reusing
 ## Ability.cast_unit_target() rather than a new framework -- see
-## Scripts/UnitUpgrade.gd/GameManager.buy_upgrade()).
+## Scripts/UnitUpgrade.gd). GameManager.buy_upgrade() applies one
+## immediately to a living unit; GameManager.buy_roster_upgrade() is the
+## real PLACEMENT-time shop path under the staging-area model -- it
+## records the purchase account-wide on Player.roster_upgrades and
+## Main._deploy_next_pending_slot() applies it to every unit in every
+## squad deployed afterward.
 extends GutTest
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
@@ -32,6 +36,8 @@ func before_each() -> void:
 	red.blood_points = 0
 	blue.roster.clear()
 	red.roster.clear()
+	blue.roster_upgrades.clear()
+	red.roster_upgrades.clear()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
@@ -180,20 +186,57 @@ func test_buy_upgrade_fails_outside_blood_tournament_and_without_enough_blood_po
 	assert_eq(blue.blood_points, IRON_ARMOR_UPGRADE.cost - 1, "a failed purchase must not spend anything")
 
 
-func test_upgrade_hotkey_buys_for_the_debug_inspected_owned_unit() -> void:
+## The U/I hotkeys buy an account-wide upgrade (GameManager.buy_roster_upgrade())
+## now, not a per-unit one -- nothing is alive to select/target during
+## PLACEMENT under the staging-area deployment model, so this no longer
+## needs a DebugInspector selection at all (see Main._handle_placement_key()).
+func test_upgrade_hotkey_buys_an_account_wide_upgrade() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	blue.blood_points = IRON_ARMOR_UPGRADE.cost
-	var unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
-	DebugInspector.select(unit) # stands in for the click that would normally select it
-	var original_armor := unit.stat_block.armor()
 
 	var key_event := InputEventKey.new()
 	key_event.keycode = KEY_U
 	key_event.pressed = true
 	_main._handle_placement_key(key_event)
 
-	assert_almost_eq(unit.stat_block.armor(), original_armor + IRON_ARMOR_UPGRADE.ability.effect_stat_value, 0.01)
+	assert_eq(blue.roster_upgrades, [IRON_ARMOR_UPGRADE])
+	assert_eq(blue.blood_points, 0)
+
+
+func test_buy_roster_upgrade_fails_outside_blood_tournament_and_without_enough_blood_points() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+
+	assert_false(GameManager.buy_roster_upgrade(blue, IRON_ARMOR_UPGRADE), "classic mode doesn't use economy at all")
+
+	GameManager.set_mode(BloodTournamentMode.new())
+	blue.blood_points = IRON_ARMOR_UPGRADE.cost - 1
+
+	assert_false(GameManager.buy_roster_upgrade(blue, IRON_ARMOR_UPGRADE), "one blood point short should fail the purchase")
+	assert_eq(blue.blood_points, IRON_ARMOR_UPGRADE.cost - 1, "a failed purchase must not spend anything")
+	assert_true(blue.roster_upgrades.is_empty())
+
+
+## The deferred-application half of the account-wide upgrade model: an
+## upgrade bought during PLACEMENT (when nothing is alive to apply it to)
+## gets applied to every member of every squad deployed afterward, not
+## just one unit -- see Main._deploy_next_pending_slot().
+func test_staggered_deployment_applies_roster_upgrades_to_every_squad_member() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	blue.roster = [TANK_STATS] # squad_size 3
+	blue.roster_upgrades = [IRON_ARMOR_UPGRADE]
+	red.roster = [TANK_STATS] # can_start_battle() needs a second team's roster non-empty
+
+	GameManager.start_battle()
+	await wait_physics_frames(2)
+
+	var blue_units := GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)
+	assert_eq(blue_units.size(), TANK_STATS.squad_size)
+	for unit in blue_units:
+		assert_almost_eq(unit.stat_block.armor(), TANK_STATS.armor + IRON_ARMOR_UPGRADE.ability.effect_stat_value, 0.01,
+			"every squad member should get the account-wide upgrade, not just one")
 
 
 # ---------------------------------------------------------------------
