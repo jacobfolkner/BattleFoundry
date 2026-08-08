@@ -13,6 +13,7 @@ damage = 8.0
 attack_range = 0.9
 attack_interval = 1.2
 abilities = [ExtResource("2")]
+armor_type = 3
 move_speed = 2.0
 collision_radius = 0.85
 mesh_shape = "Box"
