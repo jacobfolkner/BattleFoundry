@@ -15,6 +15,17 @@ extends RefCounted
 enum VictoryResult { NONE, TEAM_WON, DRAW }
 
 
+## True only when a battle could actually be started right now, given
+## GameManager's current rosters -- default: both BLUE_TEAM_ID/RED_TEAM_ID
+## have a unit (the original two-team prototype check, unchanged for
+## ClassicEliminationMode, which doesn't override this). BloodTournamentMode
+## overrides it to "at least 2 of GameManager.all_team_ids() have a unit,"
+## since an N-team free-for-all shouldn't require every single one of the
+## 8 registered slots to be filled before anyone can fight.
+func can_start_battle() -> bool:
+	return not GameManager.team_is_empty(GameManager.BLUE_TEAM_ID) and not GameManager.team_is_empty(GameManager.RED_TEAM_ID)
+
+
 ## Called by GameManager every time a unit dies during BATTLE, after
 ## roster bookkeeping (so team_is_empty() reflects the death that just
 ## happened). Returns {"result": VictoryResult.NONE} to keep the battle
@@ -57,8 +68,9 @@ func on_battle_ended(_winning_team_id: int, _is_draw: bool) -> void:
 ## things, so a plain single-battle match stays exactly as free-to-place
 ## as it always was. BloodTournamentMode overrides this to true; a mode
 ## that wants gold is expected to also grant starting/round income itself
-## (see BloodTournamentMode._init()/on_battle_ended()) -- GameMode has no
-## way to do that generically without knowing what "a player" even means
-## for N-team modes that don't exist yet.
+## (see BloodTournamentMode.on_activated()/on_battle_ended(), which walk
+## GameManager.all_team_ids()) -- GameMode has no generic way to do that
+## itself, since not every mode necessarily wants every registered team
+## to receive gold.
 func uses_economy() -> bool:
 	return false

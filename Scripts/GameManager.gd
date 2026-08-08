@@ -65,16 +65,24 @@ const ARENA_HALF_EXTENT := 20.0
 ## running real time out to 20s of simulated physics frames.
 var STALEMATE_TIMEOUT := 20.0
 
-## team_id for the default prototype roster's two slots -- what HUD's
-## "Blue Team"/"Red Team" buttons and Main.gd's default selection target.
-## Hostile to each other by AllianceMatrix's FFA-by-default rule, with no
-## ally() call needed to reproduce the old always-hostile Team.Type
-## behavior.
+## team_id for the original two-slot prototype roster -- what
+## ClassicEliminationMode's win condition and Main.gd's default selection
+## target still use. Hostile to each other by AllianceMatrix's
+## FFA-by-default rule, with no ally() call needed. Both are also just
+## the first two entries of the full TEAM_COUNT roster below -- kept as
+## named constants since so much pre-N-team code (tests included)
+## addresses them by name rather than index 0/1.
 const BLUE_TEAM_ID := 0
 const RED_TEAM_ID := 1
 
-## player_id (int) -> Player. Seeded once at startup with the two-player
-## prototype roster -- see _register_default_players().
+## Every player slot is registered up front regardless of how many a
+## given match actually uses -- see _register_default_players(). Matches
+## the cross-shaped Blood Tournament map's 4 arms x 2 spawn points each;
+## ClassicEliminationMode simply never looks past BLUE_TEAM_ID/RED_TEAM_ID.
+const TEAM_COUNT := 8
+
+## player_id (int) -> Player. Seeded once at startup with the full
+## TEAM_COUNT roster -- see _register_default_players().
 var players: Dictionary = {}
 var alliances := AllianceMatrix.new()
 
@@ -119,18 +127,14 @@ func is_game_over() -> bool:
 
 
 ## True only when a battle could actually be started right now: still in
-## PLACEMENT, and both teams have at least one unit. Split out from
-## start_battle() so callers (a Start Battle button, tests, a future
-## Countdown state) can check eligibility without attempting a
-## transition that might silently no-op.
-##
-## Hardcodes the two-team BLUE_TEAM_ID/RED_TEAM_ID elimination check --
-## same scope as the pre-refactor version, just expressed through
-## team_id instead of Team.Type. A real N-team victory condition is a
-## GameMode concern (win conditions vary per mode: elimination, rounds,
-## throne HP), not something this prototype-scale check should grow into.
+## PLACEMENT, and current_mode.can_start_battle() (default: both
+## BLUE_TEAM_ID/RED_TEAM_ID have a unit; BloodTournamentMode overrides
+## this to "at least 2 of the N registered teams have a unit" -- see
+## GameMode.can_start_battle()). Split out from start_battle() so callers
+## (a Start Battle button, tests, a future Countdown state) can check
+## eligibility without attempting a transition that might silently no-op.
 func can_start_battle() -> bool:
-	return is_placement_phase() and not team_is_empty(BLUE_TEAM_ID) and not team_is_empty(RED_TEAM_ID)
+	return is_placement_phase() and current_mode.can_start_battle()
 
 
 ## PLACEMENT -> BATTLE. No-ops if can_start_battle() is false.
@@ -226,19 +230,42 @@ func _transition_to(new_state: BattleState) -> void:
 # Player Registry
 # ---------------------------------------------------------------------
 
-## Seeds the two-player prototype roster HUD's Blue/Red buttons and
-## Main.gd's default selection target. player.id == player.team_id == slot
-## for both, since this prototype is strictly one player per team; a real
-## lobby replaces this method, not the Player/team_id split it produces.
+const _TEAM_NAMES: Array[String] = ["Blue", "Red", "Green", "Yellow", "Purple", "Orange", "Cyan", "Magenta"]
+const _TEAM_COLORS: Array[Color] = [
+	Color(0.25, 0.45, 1.0),
+	Color(1.0, 0.25, 0.25),
+	Color(0.25, 0.85, 0.35),
+	Color(0.95, 0.85, 0.2),
+	Color(0.65, 0.3, 0.9),
+	Color(1.0, 0.55, 0.15),
+	Color(0.2, 0.85, 0.85),
+	Color(0.95, 0.35, 0.75),
+]
+
+## Seeds the full TEAM_COUNT roster -- player.id == player.team_id == slot
+## for every one, since this prototype is strictly one player per team; a
+## real lobby replaces this method, not the Player/team_id split it
+## produces. Index 0/1 are named Blue/Red for backward compatibility with
+## everything (ClassicEliminationMode included) that only ever knew about
+## two teams; indices 2-7 exist so BloodTournamentMode's 8-team cross map
+## has a full roster to draw from without this method needing to change
+## again depending on how many teams a given match actually uses.
 func _register_default_players() -> void:
-	var blue := Player.new(BLUE_TEAM_ID, BLUE_TEAM_ID, BLUE_TEAM_ID, "Blue", Color(0.25, 0.45, 1.0))
-	var red := Player.new(RED_TEAM_ID, RED_TEAM_ID, RED_TEAM_ID, "Red", Color(1.0, 0.25, 0.25))
-	players[blue.id] = blue
-	players[red.id] = red
+	for team_id in range(TEAM_COUNT):
+		var player := Player.new(team_id, team_id, team_id, _TEAM_NAMES[team_id], _TEAM_COLORS[team_id])
+		players[player.id] = player
 
 
 func get_player(player_id: int) -> Player:
 	return players.get(player_id)
+
+
+## Every registered team_id (always 0..TEAM_COUNT-1 in this prototype's
+## one-player-per-team model) -- BloodTournamentMode's N-team win
+## condition/income loops walk this instead of hardcoding which teams
+## exist.
+func all_team_ids() -> Array[int]:
+	return range(TEAM_COUNT)
 
 
 ## Display name for battle_ended's winning_team_id -- looks up any

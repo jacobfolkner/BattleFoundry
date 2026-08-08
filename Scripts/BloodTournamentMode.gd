@@ -1,14 +1,14 @@
-## Best-of-N rounds: same per-round win condition as
-## ClassicEliminationMode (a team losing every unit loses that round),
-## but the match itself doesn't end until one team has won enough rounds.
-## The "crude" mode the roadmap asks for as the first real proof of the
-## GameMode layer -- deliberately just rounds + scoring, nothing else:
-## no shop phase (Phase 5 economy doesn't exist yet), no hero select
-## (Phase 4 doesn't exist yet). Arena reset between rounds is the
-## caller's job (see round_ended's doc comment) -- this class only
-## tracks the score and decides when the match itself is over, it
-## doesn't touch GameManager.reset_battle() itself, to keep GameMode
-## implementations from needing lifecycle authority over GameManager.
+## Best-of-N rounds, now genuinely N-team (up to GameManager.TEAM_COUNT,
+## the 8-team cross map): the round ends the instant only one of the
+## registered teams still has a unit, and the match itself doesn't end
+## until one team has won enough rounds. Started as the roadmap's
+## "crude, prove the GameMode layer" mode (rounds + scoring, nothing
+## else); persistence/economy/upgrades/heroes/AI have all landed on top
+## of it since. Arena reset between rounds is the caller's job (see
+## round_ended's doc comment) -- this class only tracks the score and
+## decides when the match itself is over, it doesn't touch
+## GameManager.reset_battle() itself, to keep GameMode implementations
+## from needing lifecycle authority over GameManager.
 class_name BloodTournamentMode
 extends GameMode
 
@@ -26,10 +26,9 @@ signal match_ended(winning_team_id: int)
 ## Slice 2 of the roadmap's persistence+economy work (slice 1 was
 ## GameManager.reset_battle(true)'s survivor carryover): real gold, granted
 ## once at match start and again as round income, spent through
-## Main._try_place_unit()/GameManager.sell_unit()/buy_upgrade(). Hardcoded
-## to BLUE_TEAM_ID/RED_TEAM_ID throughout, same scope as check_victory()
-## above -- N-team economy is a GameMode/D3 concern this class doesn't
-## attempt.
+## Main._try_place_unit()/GameManager.sell_unit()/buy_upgrade(). Walks
+## GameManager.all_team_ids() rather than two hardcoded team_ids, for the
+## 8-team cross map.
 const STARTING_GOLD := 300
 ## Both teams get this every round, win or lose or draw -- a losing team
 ## that got nothing would spiral (fewer survivors AND no gold to rebuild
@@ -52,20 +51,41 @@ func uses_economy() -> bool:
 	return true
 
 
+## At least 2 of the 8 registered teams need a unit -- an 8-way
+## free-for-all shouldn't require every single spawn slot on the cross
+## map to be filled before anyone can fight.
+func can_start_battle() -> bool:
+	var teams_with_units := 0
+	for team_id in GameManager.all_team_ids():
+		if not GameManager.team_is_empty(team_id):
+			teams_with_units += 1
+	return teams_with_units >= 2
+
+
 ## See GameMode.on_activated()'s doc comment for why starting gold is
 ## granted here and not from _init() or on_battle_started().
 func on_activated() -> void:
-	GameManager.get_player(GameManager.BLUE_TEAM_ID).add_gold(STARTING_GOLD)
-	GameManager.get_player(GameManager.RED_TEAM_ID).add_gold(STARTING_GOLD)
+	for team_id in GameManager.all_team_ids():
+		GameManager.get_player(team_id).add_gold(STARTING_GOLD)
 
 
-## Same elimination rule as ClassicEliminationMode -- Blood Tournament
-## doesn't change *when* a round ends, only what happens after.
+## N-team elimination: whichever of the 8 registered teams still have a
+## unit are "remaining." Exactly one left -> that team wins the round;
+## zero left (the last two remaining teams' units happened to wipe each
+## other out on the same death) -> draw. This also correctly subsumes the
+## old 2-team-only version of this check (only 2 of the 8 ever fielding a
+## unit reduces to exactly the same behavior), so a plain Blue-vs-Red
+## Blood Tournament match still works identically.
 func check_victory() -> Dictionary:
-	if GameManager.team_is_empty(GameManager.BLUE_TEAM_ID):
-		return {"result": VictoryResult.TEAM_WON, "winning_team_id": GameManager.RED_TEAM_ID}
-	if GameManager.team_is_empty(GameManager.RED_TEAM_ID):
-		return {"result": VictoryResult.TEAM_WON, "winning_team_id": GameManager.BLUE_TEAM_ID}
+	var remaining: Array[int] = []
+	for team_id in GameManager.all_team_ids():
+		if not GameManager.team_is_empty(team_id):
+			remaining.append(team_id)
+
+	if remaining.size() == 1:
+		return {"result": VictoryResult.TEAM_WON, "winning_team_id": remaining[0]}
+	if remaining.is_empty():
+		return {"result": VictoryResult.DRAW}
 	return {"result": VictoryResult.NONE}
 
 
@@ -74,8 +94,8 @@ func on_battle_ended(winning_team_id: int, is_draw: bool) -> void:
 	if not is_draw:
 		wins_by_team[winning_team_id] = wins_by_team.get(winning_team_id, 0) + 1
 
-	GameManager.get_player(GameManager.BLUE_TEAM_ID).add_gold(PARTICIPATION_INCOME)
-	GameManager.get_player(GameManager.RED_TEAM_ID).add_gold(PARTICIPATION_INCOME)
+	for team_id in GameManager.all_team_ids():
+		GameManager.get_player(team_id).add_gold(PARTICIPATION_INCOME)
 	if not is_draw:
 		GameManager.get_player(winning_team_id).add_gold(WIN_BONUS)
 
