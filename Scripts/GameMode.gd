@@ -96,3 +96,17 @@ func on_unit_killed(_killer: Unit) -> void:
 ## might want gold without the cross map (or vice versa).
 func uses_cross_map() -> bool:
 	return false
+
+
+## False (default) means BATTLE stays full manual RTS control -- every
+## existing mode/test assumes this. BloodTournamentMode overrides this to
+## true: units fight entirely on their own (Unit._maybe_auto_cast_abilities(),
+## an auto-move ATTACK_MOVE-toward-center order issued at spawn -- see
+## GameManager.spawn_unit()) and Main.gd's order/ability-cast input
+## (right-click, S/H, Q/W/E) becomes a no-op during BATTLE. Selection
+## itself is untouched -- inspecting a unit's health/cooldowns/status via
+## the existing hotbar/buff-row UI still works, only *commanding* is
+## blocked. Independent of uses_economy()/uses_cross_map(), same reasoning
+## as those: a future mode might want one without the others.
+func is_auto_battle() -> bool:
+	return false

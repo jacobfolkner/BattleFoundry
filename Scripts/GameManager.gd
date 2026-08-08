@@ -297,7 +297,18 @@ func get_team_display_name(team_id: int) -> String:
 # Unit Registry
 # ---------------------------------------------------------------------
 
-## Instantiates a Unit at the given position, registers it, and returns it.
+## Instantiates a Unit at the given position, registers it, and returns
+## it. Under an auto-battle mode (GameMode.is_auto_battle()), a unit
+## spawned mid-BATTLE (staggered deployment, a goblin boss round, a
+## bracket matchup -- every Blood Tournament spawn happens this way, see
+## Main._begin_staggered_deployment()) gets an immediate ATTACK_MOVE order
+## toward the arena center: with no player able to issue manual orders
+## during auto-battle (see Main._try_cast_or_target()/_on_right_click()),
+## nothing would otherwise make it converge on/engage the enemy at all --
+## default autonomous AI only reacts to what's already within
+## acquisition_range, it doesn't march toward a distant fight on its own.
+## ATTACK_MOVE (not plain MOVE) so it still fights anything encountered
+## along the way, not just once it arrives.
 func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Unit:
 	var unit: Unit = UNIT_SCENE.instantiate()
 	units_container.add_child(unit)
@@ -309,6 +320,8 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 		_units_by_team[player.team_id] = []
 	_units_by_team[player.team_id].append(unit)
 	_all_units.append(unit)
+	if is_battle_active() and current_mode.is_auto_battle():
+		unit.order_attack_move(Vector3.ZERO)
 	return unit
 
 

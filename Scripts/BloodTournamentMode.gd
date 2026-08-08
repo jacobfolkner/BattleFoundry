@@ -98,6 +98,10 @@ func uses_cross_map() -> bool:
 	return true
 
 
+func is_auto_battle() -> bool:
+	return true
+
+
 func on_unit_killed(killer: Unit) -> void:
 	killer.player.add_blood_points(KILL_BLOOD_POINTS)
 

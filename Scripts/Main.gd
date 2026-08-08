@@ -648,6 +648,8 @@ func _on_left_release(event: InputEventMouseButton) -> void:
 func _on_right_click(event: InputEventMouseButton) -> void:
 	if GameManager.battle_state != GameManager.BattleState.BATTLE or SelectionManager.selected_units.is_empty():
 		return
+	if GameManager.current_mode.is_auto_battle():
+		return
 	var queue := Input.is_key_pressed(KEY_SHIFT)
 
 	var space_state := _camera.get_world_3d().direct_space_state
@@ -687,9 +689,10 @@ func _handle_key(event: InputEventKey) -> void:
 		return
 	if GameManager.battle_state != GameManager.BattleState.BATTLE:
 		return
-	if event.keycode == KEY_S:
+	var can_command := not GameManager.current_mode.is_auto_battle()
+	if event.keycode == KEY_S and can_command:
 		SelectionManager.order_stop()
-	elif event.keycode == KEY_H:
+	elif event.keycode == KEY_H and can_command:
 		SelectionManager.order_hold()
 	elif event.keycode == KEY_Q:
 		_try_cast_or_target(0)
@@ -717,6 +720,8 @@ func _handle_key(event: InputEventKey) -> void:
 ## needs to solve first. Also the target for HUD's clickable hotbar
 ## buttons (see ability_slot_pressed), not just the Q/W/E hotkeys.
 func _try_cast_or_target(index: int) -> void:
+	if GameManager.is_battle_active() and GameManager.current_mode.is_auto_battle():
+		return
 	var ability := _first_selected_ability(index)
 	if ability != null and ability.cast_type == Ability.CastType.UNIT_TARGET:
 		_pending_ability_target = index

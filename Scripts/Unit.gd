@@ -471,6 +471,22 @@ func cast_ability(index: int, target: Unit = null) -> bool:
 	return true
 
 
+## Auto-battle only (see GameMode.is_auto_battle()) -- Blood Tournament
+## units have no player pressing Q/W/E, so ability use has to happen on
+## its own. Deliberately simple, matching this project's "prove the
+## mechanic, not a smart AI" scope elsewhere: tries every equipped
+## ability slot in order whenever this unit has an enemy actively
+## engaged (target_enemy != null) -- cast_ability() itself already
+## rejects anything not actually castable right now (on cooldown, wrong
+## cast type, out of range, hero level-gated, stunned/silenced), so this
+## needs no separate "is this a good time" heuristic beyond that.
+func _maybe_auto_cast_abilities() -> void:
+	if target_enemy == null:
+		return
+	for index in stats.abilities.size():
+		cast_ability(index, target_enemy)
+
+
 func _build_appearance() -> void:
 	var mesh: Mesh
 	match stats.mesh_shape:
@@ -582,6 +598,8 @@ func _physics_process(delta: float) -> void:
 						_seek_target()
 					else:
 						_attack(delta)
+				if GameManager.current_mode.is_auto_battle():
+					_maybe_auto_cast_abilities()
 
 		# Rooted: can still attack (handled above, attacking doesn't move
 		# anything) but never seeks/chases -- cancel the seek itself

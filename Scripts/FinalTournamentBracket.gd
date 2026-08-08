@@ -96,6 +96,12 @@ func _play_next_match() -> void:
 		return
 
 	_mode.in_bracket_match = true
+	# start_battle() before spawning, not after: GameManager.spawn_unit()
+	# only issues the auto-battle convergence order (see its own doc
+	# comment) while is_battle_active() is already true, and the two
+	# anchors sit well beyond acquisition_range on their own, so spawning
+	# first would leave both sides just standing there forever.
+	GameManager.start_battle()
 	for team_id in pair:
 		var player := GameManager.get_player(team_id)
 		var anchor := _TEAM_A_ANCHOR if team_id == pair[0] else _TEAM_B_ANCHOR
@@ -104,8 +110,6 @@ func _play_next_match() -> void:
 			for upgrade in player.roster_upgrades:
 				for unit in squad:
 					upgrade.ability.cast_unit_target(unit, unit)
-
-	GameManager.start_battle()
 
 
 ## A draw (both sides' last units die on the same tick) has no natural

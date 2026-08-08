@@ -63,14 +63,19 @@ func _next_team_turn() -> void:
 	var player := GameManager.get_player(team_id)
 	_mode.current_boss_team_id = team_id
 
+	# start_battle() before spawning, not after: GameManager.spawn_unit()
+	# only issues the auto-battle convergence order (see its own doc
+	# comment) while is_battle_active() is already true, and the team/
+	# goblin anchors sit well beyond acquisition_range on their own, so
+	# spawning first would leave both sides just standing there forever.
+	GameManager.start_battle()
+
 	for stats in player.roster:
 		var squad := GameManager.spawn_squad(stats, player, _TEAM_SPAWN_ANCHOR)
 		for upgrade in player.roster_upgrades:
 			for unit in squad:
 				upgrade.ability.cast_unit_target(unit, unit)
 	GameManager.spawn_unit(GOBLIN_STATS, GameManager.get_player(GameManager.GOBLIN_TEAM_ID), _GOBLIN_SPAWN_ANCHOR)
-
-	GameManager.start_battle()
 
 
 ## Fires once per team-turn (BloodTournamentMode.check_victory() reports
