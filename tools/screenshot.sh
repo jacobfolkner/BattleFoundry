@@ -43,4 +43,4 @@ for arg in "$@"; do
 	fi
 done
 
-xvfb-run -a godot --rendering-driver "${RENDERER}" --resolution 1280x800 res://tools/Screenshot.tscn -- "${SCENE_ARGS[@]}"
+xvfb-run -a godot --rendering-driver "${RENDERER}" --resolution 1920x1080 res://tools/Screenshot.tscn -- "${SCENE_ARGS[@]}"

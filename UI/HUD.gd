@@ -61,6 +61,11 @@ var _roster_row: HBoxContainer
 var _roster_slot_buttons: Array[Button] = []
 
 var _hero_draft_panel: VBoxContainer
+## The PanelContainer _hero_draft_panel lives inside -- toggled by
+## refresh_hero_draft_panel() itself, since a VBoxContainer with no
+## children takes no layout space but still leaves its OWN card
+## background/header visible as an empty box. See _wrap_in_card().
+var _hero_draft_card: PanelContainer
 
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
@@ -79,22 +84,27 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	# One outer VBoxContainer stacks the unit panel above the team panel,
-	# so the team panel's position is never a hand-computed pixel offset
-	# that silently goes stale (and overlaps the row above) every time a
-	# unit-type button is added -- it just follows whatever height the
-	# panel above it ends up with.
+	# One outer VBoxContainer stacks the cards below, so each card's
+	# position is never a hand-computed pixel offset that silently goes
+	# stale (and overlaps the row above) every time a button is added --
+	# it just follows whatever height the card above it ends up with.
 	var root := VBoxContainer.new()
-	root.position = Vector2(16, 16)
+	root.position = Vector2(24, 24)
+	root.add_theme_constant_override("separation", 16)
 	add_child(root)
 
-	_build_unit_panel(root)
-	_add_spacer(root, 12)
-	_build_roster_row(root)
-	_add_spacer(root, 12)
-	_build_hero_draft_panel(root)
-	_add_spacer(root, 12)
-	_build_team_panel(root)
+	var shop_card := _wrap_in_card(root, "Shop")
+	_build_unit_panel(shop_card)
+	_add_spacer(shop_card, 8)
+	_build_roster_row(shop_card)
+
+	var hero_draft_content := _wrap_in_card(root, "Hero Ability Draft")
+	_hero_draft_card = hero_draft_content.get_parent() as PanelContainer
+	_build_hero_draft_panel(hero_draft_content)
+
+	var match_card := _wrap_in_card(root, "Match")
+	_build_team_panel(match_card)
+
 	_build_winner_label()
 	_build_drag_box()
 	_build_ability_hotbar()
@@ -117,8 +127,41 @@ func _process(_delta: float) -> void:
 	_refresh_hero_level_label()
 
 
+## Wraps a titled group of controls in a background PanelContainer, so
+## the placement screen reads as distinct sections instead of one flat
+## column of buttons with nothing but spacers between unrelated
+## controls -- the "cluttered" feedback this whole card system exists to
+## fix. Returns the inner VBoxContainer callers actually add their own
+## content to; `parent` is returned separately as the card's own
+## PanelContainer node only where a caller needs to toggle the whole
+## card's visibility (see _hero_draft_card).
+func _wrap_in_card(parent: Control, title: String) -> VBoxContainer:
+	var card := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.08, 0.1, 0.75)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(12)
+	card.add_theme_stylebox_override("panel", style)
+	parent.add_child(card)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	card.add_child(content)
+
+	if title != "":
+		var header := Label.new()
+		header.text = title
+		header.add_theme_font_size_override("font_size", 16)
+		content.add_child(header)
+
+	return content
+
+
 func _build_unit_panel(parent: Control) -> void:
-	var panel := VBoxContainer.new()
+	var panel := GridContainer.new()
+	panel.columns = 2
+	panel.add_theme_constant_override("h_separation", 8)
+	panel.add_theme_constant_override("v_separation", 8)
 	parent.add_child(panel)
 
 	var group := ButtonGroup.new()
@@ -449,6 +492,12 @@ func refresh_hero_draft_panel(player: Player) -> void:
 	for child in _hero_draft_panel.get_children():
 		child.queue_free()
 
+	# Tracked locally, not read back via _hero_draft_panel.get_child_count()
+	# after the queue_free() loop above -- a queue_free()'d child is still
+	# present in the tree (and so still counted) until end-of-frame idle
+	# cleanup, the same trap _refresh_buff_row()'s own doc comment already
+	# documents for this exact reason.
+	var built_any_row := false
 	for stats in player.roster:
 		if not stats.is_hero:
 			continue
@@ -458,6 +507,13 @@ func refresh_hero_draft_panel(player: Player) -> void:
 			if choice_set == null or choice_set.candidates.size() < 2:
 				continue
 			_build_ability_draft_row(stats, slot_index, choice_set, picks.get(slot_index, 0))
+			built_any_row = true
+
+	# _hero_draft_panel itself (a VBoxContainer) already takes no layout
+	# space with no children, but the CARD's own background/header would
+	# still show as an empty box without this -- toggle the whole card,
+	# not just the row container.
+	_hero_draft_card.visible = built_any_row
 
 
 func _build_ability_draft_row(stats: UnitStats, slot_index: int, choice_set: AbilityChoiceSet, chosen_index: int) -> void:
