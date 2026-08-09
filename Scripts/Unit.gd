@@ -87,6 +87,13 @@ const _DR_ELIGIBLE_CC_FLAGS: Array[Effect.CCFlag] = [Effect.CCFlag.STUN, Effect.
 ## respawn," so a future hero revive can intercept before the free
 ## without take_damage()/die() needing another signature change.
 const _CORPSE_DECAY_DURATION := 3.0
+## Roadmap Phase 9's "hit flash" -- how long a landed hit tints
+## _body_material toward _HIT_FLASH_COLOR before easing back to
+## player.color. Purely cosmetic, ticked in _physics_process() (not
+## _process()) for the same reason every other delta-driven timer in this
+## project is -- see _tick_hit_flash()'s own doc comment.
+const _HIT_FLASH_DURATION := 0.15
+const _HIT_FLASH_COLOR := Color(1.0, 1.0, 1.0)
 
 @export var stats: UnitStats
 
@@ -163,6 +170,10 @@ const _AURA_TICK_INTERVAL := 0.25
 var _aura_tick_elapsed: float = 0.0
 
 var _decay_elapsed: float = 0.0
+## Seconds remaining on the current hit flash -- 0.0 (the common case,
+## most physics frames) means _body_material is just player.color, and
+## _tick_hit_flash() does nothing.
+var _hit_flash_remaining: float = 0.0
 
 var _is_airborne: bool = false
 var _knockback_elapsed: float = 0.0
@@ -585,6 +596,32 @@ func _maybe_auto_cast_abilities() -> void:
 		cast_ability(index, target_enemy)
 
 
+## Eases _body_material back toward player.color over _HIT_FLASH_DURATION
+## -- take_damage() is what actually starts a flash (sets
+## _hit_flash_remaining), this just ticks it down every physics frame.
+## Never runs while DEAD (see _physics_process()'s early return above) --
+## die()'s own corpse-decay tick owns _body_material.albedo_color
+## exclusively from that point on, so the two never fight over it.
+func _tick_hit_flash(delta: float) -> void:
+	if _hit_flash_remaining <= 0.0:
+		return
+	_hit_flash_remaining = maxf(_hit_flash_remaining - delta, 0.0)
+	_body_material.albedo_color = player.color.lerp(_HIT_FLASH_COLOR, _hit_flash_remaining / _HIT_FLASH_DURATION)
+
+
+## Roadmap Phase 9's "floating combat text" -- one Scripts/DamagePopup.gd
+## instance per landed hit, parented into GameManager.units_container
+## (same parent Projectile.gd uses) rather than as this Unit's own child,
+## since it needs to keep rising/fading and free itself on its own
+## schedule, independent of whatever happens to this Unit afterward
+## (including this Unit dying in the same hit that spawned it).
+func _spawn_damage_popup(amount: float, damage_type: DamageInstance.DamageType) -> void:
+	var popup := DamagePopup.new()
+	GameManager.units_container.add_child(popup)
+	popup.global_position = global_position + Vector3(0, stats.mesh_size.y + 0.9, 0)
+	popup.setup(amount, damage_type)
+
+
 func _build_appearance() -> void:
 	var mesh: Mesh
 	match stats.mesh_shape:
@@ -670,6 +707,7 @@ func _physics_process(delta: float) -> void:
 	_tick_effects(delta)
 	_tick_ability_cooldowns(delta)
 	_tick_aura(delta)
+	_tick_hit_flash(delta)
 	_reacquisition_cooldown = maxf(_reacquisition_cooldown - delta, 0.0)
 
 	if _is_airborne:
@@ -1207,6 +1245,8 @@ func take_damage(instance: DamageInstance) -> bool:
 
 	current_health -= mitigated
 	_health_bar.set_fraction(current_health / stat_block.max_health())
+	_hit_flash_remaining = _HIT_FLASH_DURATION
+	_spawn_damage_popup(mitigated, instance.damage_type)
 	damaged.emit(self, instance, mitigated)
 
 	if current_health <= 0.0:
