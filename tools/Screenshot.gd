@@ -14,18 +14,50 @@
 ##   --out=<filename>            Output filename, always saved inside the
 ##                                gitignored screenshots/ dir. Default: screenshot.png
 ##   --place=<unit>:<team>:<x>,<y>,<z>[;<unit>:<team>:<x>,<y>,<z>...]
-##                                unit: Tank/Fighter/Archer/BatRider/Giant
-##                                team: BLUE/RED
-##   --battle                    Call GameManager.start_battle() after placing.
+##                                Instant classic-mode placement (bypasses
+##                                the economy entirely) -- unit:
+##                                Tank/Fighter/Archer/BatRider/Giant/Hero.
+##                                team: BLUE/RED.
+##   --tournament                Activate Blood Tournament mode
+##                                (GameManager.set_mode(BloodTournamentMode),
+##                                cross map, starting gold) before
+##                                --place/--buy/--battle run. Needed for
+##                                anything economy/roster-shaped: gold
+##                                display, roster row, hero ability draft
+##                                panel, staggered deployment.
+##   --buy=<unit>:<team>[;<unit>:<team>...]
+##                                The real PLACEMENT-time roster purchase
+##                                path (spends gold, appends to
+##                                Player.roster) instead of instant
+##                                placement -- only meaningful with
+##                                --tournament first. Use this (not
+##                                --place) to see the roster row/hero
+##                                draft panel/staggered deployment.
+##   --battle                    Call GameManager.start_battle() after
+##                                placing/buying. Under --tournament,
+##                                needs at least 2 teams with a non-empty
+##                                roster (--buy, not --place, populates
+##                                that) -- fires the same staggered
+##                                deployment a real match uses.
 ##   --select=<index>            Select the Nth --place'd unit (0-based)
 ##                                via DebugInspector, opening the stats panel.
+##                                Only applies to --place, not --buy
+##                                (nothing is a live Unit to select until
+##                                staggered deployment actually spawns it).
 ##   --debug=<flag>[,<flag>...]  Enable DebugSettings flags by name
 ##                                (e.g. pathfinding,detailed_stats).
 ##   --wait=<frames>             Physics frames to simulate before
-##                                capturing. Default: 30.
+##                                capturing. Default: 30. Staggered
+##                                deployment's first roster slot deploys
+##                                the instant battle starts (0s timer),
+##                                but each slot after that waits another
+##                                1s (60 frames) -- bump --wait accordingly
+##                                to see more than one --buy'd slot deployed.
 ##
-## Example (see tools/screenshot.sh for the full command):
+## Examples (see tools/screenshot.sh for the full command):
 ##   --place="Giant:BLUE:0,0,0;Fighter:RED:1,0,0" --battle --select=1 --debug=pathfinding --wait=20
+##   --tournament --buy="Hero:BLUE;Tank:RED" --wait=10   (PLACEMENT screen: gold, roster row, hero draft panel)
+##   --tournament --buy="Hero:BLUE;Tank:RED" --battle --wait=90   (mid-battle, staggered deployment settled)
 extends Node3D
 
 const UNIT_STATS := {
@@ -34,6 +66,7 @@ const UNIT_STATS := {
 	"Archer": preload("res://Resources/Units/ArcherStats.tres"),
 	"BatRider": preload("res://Resources/Units/BatRiderStats.tres"),
 	"Giant": preload("res://Resources/Units/GiantStats.tres"),
+	"Hero": preload("res://Resources/Units/HeroStats.tres"),
 }
 
 
@@ -53,6 +86,13 @@ func _run() -> void:
 	add_child(main)
 	await get_tree().physics_frame
 
+	if args.has("tournament"):
+		# The real activation path (same one HUD's own toggle button
+		# drives) -- grants starting gold, syncs the cross map, sets up
+		# BloodTournamentMode, not a hand-rolled partial equivalent.
+		main._on_tournament_toggled(true)
+		await get_tree().physics_frame
+
 	var placed: Array[Unit] = []
 	var place_spec: String = args.get("place", "")
 	if place_spec != "":
@@ -60,6 +100,12 @@ func _run() -> void:
 			var unit := _place_unit(spec)
 			if unit != null:
 				placed.append(unit)
+
+	var buy_spec: String = args.get("buy", "")
+	if buy_spec != "":
+		for spec in buy_spec.split(";", false):
+			_buy_for_roster(spec)
+		main._refresh_gold_display() # pushes the purchase(s) onto the gold/roster-row/hero-draft-panel display -- nothing polls Player.roster on its own
 
 	if args.has("battle"):
 		GameManager.start_battle()
@@ -104,6 +150,30 @@ func _place_unit(spec: String) -> Unit:
 
 	var position := Vector3(float(coords[0]), float(coords[1]), float(coords[2]))
 	return GameManager.spawn_unit(stats, player, position)
+
+
+## Same effect as PlayerInputController.try_buy_for_roster() (spend
+## gold, append to Player.roster) via only Player's public API -- not a
+## reimplementation of the affordability rule, just its two calls
+## inlined, since that method lives on PlayerInputController and isn't
+## reachable from here without a real click/HUD signal.
+func _buy_for_roster(spec: String) -> void:
+	var parts := spec.split(":")
+	if parts.size() != 2:
+		push_warning("Skipping malformed --buy entry (expected unit:team): " + spec)
+		return
+
+	var stats: UnitStats = UNIT_STATS.get(parts[0])
+	var player: Player = _player_from_team_name(parts[1])
+	if stats == null or player == null:
+		push_warning("Skipping malformed --buy entry (expected unit:team): " + spec)
+		return
+
+	if not player.can_afford(stats.cost):
+		push_warning("Skipping --buy=%s: %s can't afford %s (%dg, has %dg) -- pass --tournament first for starting gold" % [spec, parts[1], parts[0], stats.cost, player.resources])
+		return
+	player.spend(stats.cost)
+	player.roster.append(stats)
 
 
 func _player_from_team_name(team_name: String) -> Player:
