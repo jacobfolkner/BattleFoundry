@@ -125,6 +125,7 @@ func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
+	_refresh_match_toggles_visibility()
 
 
 ## Wraps a titled group of controls in a background PanelContainer, so
@@ -262,6 +263,22 @@ func _build_ai_toggle(parent: Control) -> void:
 	_ai_toggle.toggle_mode = true
 	_ai_toggle.toggled.connect(_on_ai_toggled)
 	parent.add_child(_ai_toggle)
+
+
+## Both toggles only make sense before a Blood Tournament match has
+## actually gotten underway -- flipping "Blood Tournament: Off" or
+## "AI Opponent" mid-match (round 2+, or mid-battle) doesn't correspond
+## to anything sensible GameManager/BloodTournamentMode does with a
+## mode/AI switch that late, so they're just hidden rather than left
+## clickable-but-confusing. "Match underway" is round_number > 0 (at
+## least one round has already finished) OR currently outside PLACEMENT
+## (round 1's own battle, before round_number has incremented yet) --
+## either alone would miss one of the two windows.
+func _refresh_match_toggles_visibility() -> void:
+	var mode := GameManager.current_mode
+	var match_underway: bool = mode is BloodTournamentMode and (mode.round_number > 0 or not GameManager.is_placement_phase())
+	_tournament_toggle.visible = not match_underway
+	_ai_toggle.visible = not match_underway
 
 
 ## Called by Main.gd to apply UI/MainMenu.gd's pre-match selection --
@@ -460,7 +477,8 @@ func refresh_roster_row(roster: Array[UnitStats]) -> void:
 	for i in _roster_slot_buttons.size():
 		var button := _roster_slot_buttons[i]
 		if i < roster.size():
-			button.text = roster[i].unit_name
+			var stats := roster[i]
+			button.text = "%s x%d" % [stats.unit_name, stats.squad_size] if stats.squad_size > 1 else stats.unit_name
 			button.visible = true
 		else:
 			button.visible = false
