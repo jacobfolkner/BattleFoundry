@@ -247,7 +247,12 @@ func tick(delta: float) -> void:
 ## (see GameManager.buy_roster_upgrade()) to every unit in the squad that
 ## just deployed -- upgrades were recorded rather than applied at
 ## purchase time specifically because nothing was alive yet to apply them
-## to, so this is where that deferred application actually happens.
+## to, so this is where that deferred application actually happens. Also
+## restores a hero's level/XP from a previous round, if this archetype
+## has any recorded (see Player.hero_progress/Unit.restore_hero_progress()) --
+## "heroes spawn alongside units," not via a separate mid-battle respawn
+## timer, so this is the one place a fresh hero Unit and its carried-over
+## progress actually meet.
 func deploy_next_pending_slot(player_id: int) -> void:
 	var queue: Array = _pending_deployments[player_id]
 	var stats: UnitStats = queue.pop_front()
@@ -257,6 +262,10 @@ func deploy_next_pending_slot(player_id: int) -> void:
 	for upgrade in player.roster_upgrades:
 		for unit in squad:
 			upgrade.ability.cast_unit_target(unit, unit)
+	if stats.is_hero and player.hero_progress.has(stats):
+		var saved: Dictionary = player.hero_progress[stats]
+		for unit in squad:
+			unit.restore_hero_progress(saved.level, saved.xp)
 
 	if queue.is_empty():
 		_pending_deployments.erase(player_id)

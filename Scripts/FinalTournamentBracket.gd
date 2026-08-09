@@ -110,6 +110,14 @@ func _play_next_match() -> void:
 			for upgrade in player.roster_upgrades:
 				for unit in squad:
 					upgrade.ability.cast_unit_target(unit, unit)
+			# See BloodTournamentController.deploy_next_pending_slot()'s own
+			# comment -- a bracket matchup deploys the whole roster
+			# directly rather than through the normal staggered-deployment
+			# path, so a hero needs this same restoration here too.
+			if stats.is_hero and player.hero_progress.has(stats):
+				var saved: Dictionary = player.hero_progress[stats]
+				for unit in squad:
+					unit.restore_hero_progress(saved.level, saved.xp)
 
 
 ## A draw (both sides' last units die on the same tick) has no natural

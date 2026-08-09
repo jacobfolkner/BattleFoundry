@@ -452,7 +452,11 @@ func get_ability_cooldown_remaining(index: int) -> float:
 ## No-op for a non-hero unit -- XP/leveling only exists when
 ## stats.is_hero is true (see GameManager._on_unit_died(), the only
 ## caller). A while loop, not a single if, so one big grant can carry a
-## hero through more than one level at once.
+## hero through more than one level at once. Persists the result to
+## player.hero_progress every call (not just on an actual level-up) so
+## partial XP toward the next level survives a Blood Tournament round
+## boundary too, not just whole levels -- see restore_hero_progress()
+## and Player.hero_progress's own doc comment.
 func gain_xp(amount: float) -> void:
 	if not stats.is_hero:
 		return
@@ -461,6 +465,26 @@ func gain_xp(amount: float) -> void:
 		xp -= get_xp_to_next_level()
 		level += 1
 		_on_level_up()
+	player.hero_progress[stats] = {"level": level, "xp": xp}
+
+
+## Called once, right after a fresh hero Unit spawns (see
+## BloodTournamentController.deploy_next_pending_slot()), to fast-forward
+## it to a level/xp a previous round's copy of this same hero archetype
+## already earned -- see Player.hero_progress's own doc comment for why
+## this exists at all. Re-runs _on_level_up()'s stat growth once per
+## level rather than jumping stat_block straight to its final values, so
+## this always matches whatever gain_xp()'s own level-up loop would have
+## produced, with no separate "compute stats for level N" formula to
+## keep in sync. No-op for a non-hero unit, or if saved_level isn't
+## actually higher than the level this Unit already spawned at (1).
+func restore_hero_progress(saved_level: int, saved_xp: float) -> void:
+	if not stats.is_hero:
+		return
+	while level < saved_level:
+		level += 1
+		_on_level_up()
+	xp = saved_xp
 
 
 func get_xp_to_next_level() -> float:

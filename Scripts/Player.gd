@@ -52,6 +52,28 @@ var roster: Array[UnitStats] = []
 ## never clears it, only an explicit sell would (no sell exists for this
 ## yet, matching the "buy an upgrade" shop having no refund path either).
 var roster_upgrades: Array[UnitUpgrade] = []
+## UnitStats (a hero archetype, e.g. HeroStats.tres) -> {"level": int,
+## "xp": float} -- persists a hero's level/XP across Blood Tournament
+## rounds the same way `roster` itself persists which archetypes are
+## owned. Without this, every round's staggered deployment
+## (Unit.restore_hero_progress()) would spawn a brand-new level-1 Unit
+## instance from the archetype template regardless of what a hero
+## earned in a previous round, since reset_battle() frees every Unit
+## node between rounds and roster only remembers *which* archetypes are
+## owned, not any individual instance's runtime state. Written by
+## Unit.gain_xp() every time a hero's level/XP actually changes, read by
+## BloodTournamentController.deploy_next_pending_slot() right after a
+## fresh hero Unit spawns. Keyed by the archetype resource itself, not a
+## roster index (which would shift under a sell) or a per-instance id
+## (which wouldn't survive the instance's own death/free) -- the
+## practical implication (spelled out here rather than solved, since
+## nothing in the UI stops it and it's a real edge case): if a player
+## buys the SAME hero archetype twice, both roster slots share one
+## combined progress record rather than leveling independently. Not
+## worth a per-slot tracking structure for a case the economy already
+## discourages (a hero's cost + squad_size == 1 means buying a second
+## copy is a large, deliberate spend) and nothing has asked for.
+var hero_progress: Dictionary = {}
 
 
 func _init(p_id: int, p_slot: int, p_team_id: int, p_display_name: String, p_color: Color, p_is_human: bool = true) -> void:

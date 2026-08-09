@@ -75,6 +75,15 @@ func _next_team_turn() -> void:
 		for upgrade in player.roster_upgrades:
 			for unit in squad:
 				upgrade.ability.cast_unit_target(unit, unit)
+		# See BloodTournamentController.deploy_next_pending_slot()'s own
+		# comment -- a boss round deploys the whole roster directly rather
+		# than through the normal staggered-deployment path, so a hero
+		# needs this same restoration here too or it would revert to
+		# level 1 for the round.
+		if stats.is_hero and player.hero_progress.has(stats):
+			var saved: Dictionary = player.hero_progress[stats]
+			for unit in squad:
+				unit.restore_hero_progress(saved.level, saved.xp)
 	GameManager.spawn_unit(GOBLIN_STATS, GameManager.get_player(GameManager.GOBLIN_TEAM_ID), _GOBLIN_SPAWN_ANCHOR)
 
 

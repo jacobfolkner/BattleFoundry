@@ -1,11 +1,12 @@
-## Tests for roadmap Phase 4, v1 scope: Unit.gain_xp()/leveling
-## (UnitStats.is_hero) and ability_unlock_levels gating cast_ability() --
-## deliberately just XP-on-kill, flat per-level stat growth, and
-## level-gated abilities reusing the existing Ability/Effect framework, no
-## more. Explicitly out of scope for this slice (same "prove the
+## Tests for roadmap Phase 4: Unit.gain_xp()/leveling (UnitStats.is_hero),
+## ability_unlock_levels gating cast_ability(), and Player.hero_progress/
+## Unit.restore_hero_progress() (a hero's level/XP surviving a Blood
+## Tournament round boundary -- "heroes spawn alongside units," not a
+## separate mid-battle respawn timer; see Player.hero_progress's own doc
+## comment for why). Explicitly still out of scope (same "prove the
 ## mechanic" framing every other v1 system in this project has shipped
-## with): respawn, buyback, attributes as a separate currency, and a
-## random ability draft/choice UI.
+## with): buyback, attributes as a separate currency, and a random
+## ability draft/choice UI.
 extends GutTest
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
@@ -18,6 +19,13 @@ var _main: Node3D
 func before_each() -> void:
 	GameManager.reset_battle()
 	GameManager.current_mode = ClassicEliminationMode.new()
+	# Player is a persistent autoload-owned object, never recreated
+	# between tests -- hero_progress left by an earlier test in this file
+	# (or any other) would otherwise leak into whichever test runs next,
+	# same cross-test-pollution category current_mode/resources/roster
+	# already needed this treatment for elsewhere in this project.
+	GameManager.get_player(GameManager.BLUE_TEAM_ID).hero_progress.clear()
+	GameManager.get_player(GameManager.RED_TEAM_ID).hero_progress.clear()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
@@ -123,3 +131,77 @@ func test_hero_aura_is_active_from_spawn_regardless_of_level() -> void:
 		await wait_physics_frames(1)
 
 	assert_almost_eq(ally.stat_block.armor(), TANK_STATS.armor + 1.0, 0.01, "Aura of Vigor should already be buffing allies at level 1")
+
+
+# ---------------------------------------------------------------------
+# Hero progress persistence (Player.hero_progress) -- "heroes spawn
+# alongside units," across a Blood Tournament round boundary
+# ---------------------------------------------------------------------
+
+func test_gain_xp_persists_progress_to_the_owning_players_hero_progress() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var hero := GameManager.spawn_unit(HERO_STATS, blue, Vector3.ZERO)
+
+	hero.gain_xp(150.0) # 100 to hit level 2, 50 left over toward level 3
+
+	assert_true(blue.hero_progress.has(HERO_STATS))
+	assert_eq(blue.hero_progress[HERO_STATS].level, 2)
+	assert_almost_eq(blue.hero_progress[HERO_STATS].xp, 50.0, 0.01)
+
+
+func test_restore_hero_progress_fast_forwards_a_fresh_units_level_stats_and_xp() -> void:
+	var hero := GameManager.spawn_unit(HERO_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+	var base_max_health := hero.stat_block.max_health()
+	var base_damage := hero.stat_block.damage()
+	var base_armor := hero.stat_block.armor()
+
+	hero.restore_hero_progress(3, 50.0) # as if this hero had already reached level 3 with 50 XP banked
+
+	assert_eq(hero.level, 3)
+	assert_almost_eq(hero.xp, 50.0, 0.01)
+	assert_almost_eq(hero.stat_block.max_health(), base_max_health + 40.0, 0.01, "two levels' worth of growth (1->2, 2->3) should have applied")
+	assert_almost_eq(hero.stat_block.damage(), base_damage + 6.0, 0.01)
+	assert_almost_eq(hero.stat_block.armor(), base_armor + 2.0, 0.01)
+	assert_almost_eq(hero.current_health, hero.stat_block.max_health(), 0.01, "restoring progress should leave the hero at full health, same as a normal level-up")
+
+
+func test_restore_hero_progress_is_a_no_op_for_a_non_hero_unit() -> void:
+	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3.ZERO)
+
+	tank.restore_hero_progress(5, 999.0)
+
+	assert_eq(tank.level, 1)
+	assert_eq(tank.xp, 0.0)
+
+
+## End-to-end through the real Blood Tournament staggered-deployment
+## flow, not a direct restore_hero_progress() call -- proves
+## BloodTournamentController.deploy_next_pending_slot() actually wires
+## Player.hero_progress into a freshly-deployed hero, across a real
+## round boundary (GameManager.reset_battle() frees the old hero Unit
+## entirely, same as it would between any two Blood Tournament rounds).
+## Drives BloodTournamentController.deploy_next_pending_slot() directly
+## rather than GameManager.start_battle() -- Blood Tournament is
+## is_auto_battle(), so a real battle would have the hero autonomously
+## fight and possibly land a kill (Unit.XP_PER_KILL), making the exact
+## XP numbers this test asserts on non-deterministic for a reason
+## entirely unrelated to what's actually being tested here.
+func test_a_hero_that_leveled_up_keeps_its_level_after_the_next_rounds_redeployment() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.roster = [HERO_STATS]
+	var bt_controller: BloodTournamentController = _main._bt_controller
+
+	bt_controller._pending_deployments[blue.id] = [HERO_STATS]
+	bt_controller.deploy_next_pending_slot(blue.id)
+	var round_one_hero: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+	round_one_hero.gain_xp(250.0) # level 1 -> 2, 150 XP left over
+
+	GameManager.reset_battle() # frees round_one_hero entirely, same as a real round boundary
+	bt_controller._pending_deployments[blue.id] = [HERO_STATS]
+	bt_controller.deploy_next_pending_slot(blue.id)
+	var round_two_hero: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+
+	assert_ne(round_two_hero, round_one_hero, "sanity check: this really is a fresh Unit instance, not the same one surviving")
+	assert_eq(round_two_hero.level, 2, "the hero's level should carry over into the next round's redeployment")
+	assert_almost_eq(round_two_hero.xp, 150.0, 0.01)
