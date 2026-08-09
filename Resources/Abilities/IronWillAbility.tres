@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="Ability" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Ability.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ability_name = "Iron Will"
+cast_type = 2
+effect_stat = "armor"
+effect_stat_op = 0
+effect_stat_value = 4.0

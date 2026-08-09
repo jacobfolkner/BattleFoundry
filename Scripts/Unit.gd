@@ -183,6 +183,16 @@ var xp: float = 0.0
 ## v1 system in this project ships crude-but-real rather than fully tuned.
 const XP_PER_KILL := 50.0
 
+## Per-instance override of stats.abilities -- every ability-reading call
+## site (cast_ability(), HUD's hotbar, PlayerInputController's
+## first_selected_ability()) reads THIS instead of stats.abilities
+## directly, so a drafted pick (see Player.hero_ability_picks) reflects
+## on this one Unit instance without ever mutating the shared archetype
+## Resource every other copy of the same hero also references. Populated
+## once in setup() -- see _resolve_abilities(). Identical to
+## stats.abilities for every non-hero/non-drafting archetype.
+var resolved_abilities: Array[Ability] = []
+
 
 ## Called by GameManager right after the unit is added to the scene tree.
 func setup(new_stats: UnitStats, new_player: Player) -> void:
@@ -190,6 +200,7 @@ func setup(new_stats: UnitStats, new_player: Player) -> void:
 	player = new_player
 	stat_block = StatBlock.from_archetype(stats)
 	current_health = stat_block.max_health()
+	_resolve_abilities()
 	_build_appearance()
 	_build_avoidance()
 	_apply_passive_abilities()
@@ -432,9 +443,28 @@ func _tick_aura(delta: float) -> void:
 
 
 func _apply_passive_abilities() -> void:
-	for ability in stats.abilities:
+	for ability in resolved_abilities:
 		if ability != null and ability.cast_type == Ability.CastType.PASSIVE:
 			ability.cast_passive(self)
+
+
+## Populates resolved_abilities: starts as a duplicate of stats.abilities,
+## then any drafted slot (UnitStats.ability_draft_choices) with a
+## recorded player pick (Player.hero_ability_picks) overwrites that
+## index with the chosen candidate. A no-op beyond the plain duplicate
+## for every non-hero/non-drafting archetype, since ability_draft_choices
+## is empty for all of them.
+func _resolve_abilities() -> void:
+	resolved_abilities = stats.abilities.duplicate()
+	if not stats.is_hero:
+		return
+	var picks: Dictionary = player.hero_ability_picks.get(stats, {})
+	for i in stats.ability_draft_choices.size():
+		var choice_set: AbilityChoiceSet = stats.ability_draft_choices[i]
+		if choice_set == null or choice_set.candidates.is_empty():
+			continue
+		var chosen_index: int = picks.get(i, 0)
+		resolved_abilities[i] = choice_set.candidates[chosen_index]
 
 
 func _tick_ability_cooldowns(delta: float) -> void:
@@ -503,16 +533,19 @@ func _on_level_up() -> void:
 	_health_bar.set_fraction(1.0)
 
 
-## Triggers stats.abilities[index] (Q/W/E in Main.gd's input wiring).
-## Returns false (and does nothing) if the slot is empty, on cooldown,
-## not yet unlocked (stats.is_hero only -- see stats.ability_unlock_levels),
-## not a player-triggerable cast type, this unit can't currently act
-## (stunned/silenced), or -- for UNIT_TARGET -- target is missing/out of
-## range, so callers can tell a no-op from a successful cast.
+## Triggers resolved_abilities[index] (Q/W/E in Main.gd's input wiring) --
+## a hero's own drafted pick if it has one for this slot (see
+## Player.hero_ability_picks/_resolve_abilities()), otherwise identical
+## to stats.abilities[index]. Returns false (and does nothing) if the
+## slot is empty, on cooldown, not yet unlocked (stats.is_hero only --
+## see stats.ability_unlock_levels), not a player-triggerable cast type,
+## this unit can't currently act (stunned/silenced), or -- for
+## UNIT_TARGET -- target is missing/out of range, so callers can tell a
+## no-op from a successful cast.
 func cast_ability(index: int, target: Unit = null) -> bool:
-	if index < 0 or index >= stats.abilities.size():
+	if index < 0 or index >= resolved_abilities.size():
 		return false
-	var ability: Ability = stats.abilities[index]
+	var ability: Ability = resolved_abilities[index]
 	if ability == null or ability.cast_type == Ability.CastType.PASSIVE or ability.cast_type == Ability.CastType.ON_HIT or ability.cast_type == Ability.CastType.AURA:
 		return false
 	if stats.is_hero and index < stats.ability_unlock_levels.size() and level < stats.ability_unlock_levels[index]:

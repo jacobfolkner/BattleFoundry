@@ -26,6 +26,11 @@ signal ability_slot_pressed(index: int)
 ## -- Main.gd routes this to GameManager.sell_roster_slot(), the
 ## staging-area equivalent of the old click-a-live-unit-to-sell flow.
 signal roster_slot_sold(index: int)
+## Emitted when the player toggles a candidate in the hero ability draft
+## panel (see _build_hero_draft_panel()) -- Main.gd routes this to
+## GameManager.pick_hero_ability(). `stats` is the hero archetype (e.g.
+## HeroStats.tres) the drafted slot belongs to.
+signal hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int)
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
@@ -54,6 +59,8 @@ var _roster_row: HBoxContainer
 ## Grow-only pool, same pattern as the ability hotbar/buff row -- see
 ## refresh_roster_row().
 var _roster_slot_buttons: Array[Button] = []
+
+var _hero_draft_panel: VBoxContainer
 
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
@@ -84,6 +91,8 @@ func _ready() -> void:
 	_build_unit_panel(root)
 	_add_spacer(root, 12)
 	_build_roster_row(root)
+	_add_spacer(root, 12)
+	_build_hero_draft_panel(root)
 	_add_spacer(root, 12)
 	_build_team_panel(root)
 	_build_winner_label()
@@ -414,6 +423,59 @@ func refresh_roster_row(roster: Array[UnitStats]) -> void:
 			button.visible = false
 
 
+func _build_hero_draft_panel(parent: Control) -> void:
+	_hero_draft_panel = VBoxContainer.new()
+	parent.add_child(_hero_draft_panel)
+
+
+## Rebuilt from scratch every call (free every child, then re-add) rather
+## than a grow-only pool -- unlike the ability hotbar/buff row, this is
+## only ever called from a discrete PLACEMENT-state-change event (see
+## Main._refresh_gold_display()), never every frame, so there's no
+## same-frame double-measurement risk from a freed-but-not-yet-cleaned-up
+## child (the reason the buff row/ability hotbar use a pool instead). The
+## shape here (variable rows, variable candidates per row) also doesn't
+## fit a simple index-aligned pool the way a flat button row does.
+##
+## One row per undrafted-or-already-drafted-but-still-visible slot across
+## every hero UnitStats in player.roster -- a slot with fewer than 2
+## candidates has nothing to choose between, so it's skipped entirely
+## (identical to today's plain fixed-unlock behavior). Whole panel stays
+## empty (and so effectively invisible -- a VBoxContainer with no
+## children takes no space) when the player owns no hero with any
+## drafted slot at all, same self-hiding convention show_gold()/
+## hide_tournament_score() already use.
+func refresh_hero_draft_panel(player: Player) -> void:
+	for child in _hero_draft_panel.get_children():
+		child.queue_free()
+
+	for stats in player.roster:
+		if not stats.is_hero:
+			continue
+		var picks: Dictionary = player.hero_ability_picks.get(stats, {})
+		for slot_index in stats.ability_draft_choices.size():
+			var choice_set: AbilityChoiceSet = stats.ability_draft_choices[slot_index]
+			if choice_set == null or choice_set.candidates.size() < 2:
+				continue
+			_build_ability_draft_row(stats, slot_index, choice_set, picks.get(slot_index, 0))
+
+
+func _build_ability_draft_row(stats: UnitStats, slot_index: int, choice_set: AbilityChoiceSet, chosen_index: int) -> void:
+	var row := HBoxContainer.new()
+	_hero_draft_panel.add_child(row)
+
+	var unlock_level := stats.ability_unlock_levels[slot_index] if slot_index < stats.ability_unlock_levels.size() else 1
+	var label := Label.new()
+	label.text = "Lv.%d:" % unlock_level
+	row.add_child(label)
+
+	var group := ButtonGroup.new()
+	for candidate_index in choice_set.candidates.size():
+		var candidate := choice_set.candidates[candidate_index]
+		_add_toggle_button(row, candidate.ability_name, group, candidate_index == chosen_index,
+			func(): hero_ability_picked.emit(stats, slot_index, candidate_index))
+
+
 ## Bottom-center, one button per ability slot (Q/W/E). Fixed at 3 buttons
 ## always present (never added/removed) -- _refresh_ability_hotbar() just
 ## updates each one's text/disabled state in place every frame, so there's
@@ -455,12 +517,12 @@ func _refresh_ability_hotbar() -> void:
 
 	for i in _ability_slot_buttons.size():
 		var button := _ability_slot_buttons[i]
-		if not alive or i >= unit.stats.abilities.size() or unit.stats.abilities[i] == null:
+		if not alive or i >= unit.resolved_abilities.size() or unit.resolved_abilities[i] == null:
 			button.text = "-"
 			button.disabled = true
 			continue
 
-		var ability: Ability = unit.stats.abilities[i]
+		var ability: Ability = unit.resolved_abilities[i]
 		var locked := unit.stats.is_hero and i < unit.stats.ability_unlock_levels.size() and unit.level < unit.stats.ability_unlock_levels[i]
 		if locked:
 			button.text = "%s\n(Lv.%d)" % [ability.ability_name, unit.stats.ability_unlock_levels[i]]

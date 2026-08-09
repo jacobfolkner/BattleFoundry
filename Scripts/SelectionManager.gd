@@ -215,9 +215,9 @@ func order_follow(target_unit: Unit, queue: bool = false) -> void:
 ## target flow UNIT_TARGET abilities actually use now.
 func cast_ability(index: int) -> void:
 	for unit in _owned_selection():
-		if index < 0 or index >= unit.stats.abilities.size():
+		if index < 0 or index >= unit.resolved_abilities.size():
 			continue
-		var ability: Ability = unit.stats.abilities[index]
+		var ability: Ability = unit.resolved_abilities[index]
 		if ability == null:
 			continue
 		if ability.cast_type == Ability.CastType.UNIT_TARGET:
@@ -235,9 +235,9 @@ func cast_ability(index: int) -> void:
 ## for UNIT_TARGET.
 func cast_ability_at_target(index: int, target: Unit) -> void:
 	for unit in _owned_selection():
-		if index < 0 or index >= unit.stats.abilities.size():
+		if index < 0 or index >= unit.resolved_abilities.size():
 			continue
-		var ability: Ability = unit.stats.abilities[index]
+		var ability: Ability = unit.resolved_abilities[index]
 		if ability == null:
 			continue
 		if ability.cast_type == Ability.CastType.UNIT_TARGET:

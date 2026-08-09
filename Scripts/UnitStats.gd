@@ -136,6 +136,16 @@ enum ArmorType { UNARMORED, LIGHT, MEDIUM, HEAVY, FORTIFIED, HERO }
 ## below. An empty array is the common case: most archetypes have no
 ## abilities at all.
 @export var abilities: Array[Ability] = []
+## Only meaningful when is_hero is true. ability_draft_choices[i], if
+## non-empty, is the set of candidate Abilities the player picks ONE of
+## for slot i (see Player.hero_ability_picks/Unit.resolved_abilities) --
+## abilities[i] itself stays the DEFAULT (candidates[0]) applied
+## automatically if the player never makes an explicit pick before this
+## hero reaches ability_unlock_levels[i]. Empty (default, every
+## non-drafting archetype) means slot i has no choice at all, identical
+## to the plain fixed-unlock behavior abilities/ability_unlock_levels
+## always had before this field existed.
+@export var ability_draft_choices: Array[AbilityChoiceSet] = []
 ## Fires automatically from Unit.resolve_hit() every time this archetype
 ## lands an attack -- e.g. Giant's knockback (Resources/GiantSlamAbility.tres).
 ## null (default, most archetypes) means no on-hit effect at all.

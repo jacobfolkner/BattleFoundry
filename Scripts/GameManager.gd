@@ -441,6 +441,23 @@ func buy_roster_upgrade(player: Player, upgrade: UnitUpgrade) -> bool:
 	return true
 
 
+## Records which candidate `player` picked for one of `stats`' drafted
+## ability slots (UnitStats.ability_draft_choices) -- see
+## Player.hero_ability_picks/Unit._resolve_abilities(). PLACEMENT-only,
+## same as every other roster-configuration action (buy_roster_upgrade()
+## above) -- a drafted pick only takes effect the next time this
+## archetype is (re)spawned, so there's nothing meaningful to change
+## mid-battle anyway. Free (no cost) -- drafting isn't a purchase, just a
+## choice among what the hero already has.
+func pick_hero_ability(player: Player, stats: UnitStats, slot_index: int, chosen_index: int) -> bool:
+	if not is_placement_phase():
+		return false
+	if not player.hero_ability_picks.has(stats):
+		player.hero_ability_picks[stats] = {}
+	player.hero_ability_picks[stats][slot_index] = chosen_index
+	return true
+
+
 ## Every currently-valid unit spawned this battle, alive or (briefly)
 ## decaying corpses -- SelectionManager's drag-box selection needs to
 ## test every unit on the field against a screen rect, not just one

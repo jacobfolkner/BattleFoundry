@@ -78,6 +78,7 @@ func _ready() -> void:
 	_hud.ai_opponent_toggled.connect(_on_ai_opponent_toggled)
 	_hud.ability_slot_pressed.connect(_try_cast_or_target)
 	_hud.roster_slot_sold.connect(_on_roster_slot_sold)
+	_hud.hero_ability_picked.connect(_on_hero_ability_picked)
 	# HUD only ever displays whichever unit SelectionManager reports as
 	# selected -- it never reads SelectionManager itself (see HUD.gd's own
 	# doc comment on staying decoupled from selection/battle-lifecycle
@@ -309,6 +310,7 @@ func _refresh_gold_display() -> void:
 		# need this -- it's already a real typed-array value, not a literal).
 		var empty_roster: Array[UnitStats] = []
 		_hud.refresh_roster_row(empty_roster)
+	_hud.refresh_hero_draft_panel(_selected_player) # self-hides (empty panel) when the roster has no hero with a drafted slot -- roster is always empty outside Blood Tournament anyway
 	_hud.refresh_affordability(_selected_player)
 
 
@@ -319,6 +321,11 @@ func _refresh_gold_display() -> void:
 ## model.
 func _on_roster_slot_sold(index: int) -> void:
 	if GameManager.sell_roster_slot(_selected_player, index):
+		_refresh_gold_display()
+
+
+func _on_hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int) -> void:
+	if GameManager.pick_hero_ability(_selected_player, stats, slot_index, chosen_index):
 		_refresh_gold_display()
 
 

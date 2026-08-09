@@ -74,6 +74,17 @@ var roster_upgrades: Array[UnitUpgrade] = []
 ## discourages (a hero's cost + squad_size == 1 means buying a second
 ## copy is a large, deliberate spend) and nothing has asked for.
 var hero_progress: Dictionary = {}
+## UnitStats (a hero archetype) -> {slot_index: int -> chosen candidate
+## index}. Which candidate (see UnitStats.ability_draft_choices) this
+## player picked for each of a hero archetype's drafted ability slots --
+## set via GameManager.pick_hero_ability(), read by
+## Unit._resolve_abilities(). A slot index missing here (including the
+## common case: an archetype with no drafted slots at all) means "use
+## candidates[0], the default." Same per-archetype-not-per-instance
+## simplification hero_progress above already uses, for the same reason:
+## buying the same hero archetype twice shares one combined draft rather
+## than choosing independently per copy.
+var hero_ability_picks: Dictionary = {}
 
 
 func _init(p_id: int, p_slot: int, p_team_id: int, p_display_name: String, p_color: Color, p_is_human: bool = true) -> void:

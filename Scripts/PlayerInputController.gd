@@ -252,8 +252,8 @@ func try_cast_or_target(index: int) -> void:
 
 func first_selected_ability(index: int) -> Ability:
 	for unit in SelectionManager.selected_units:
-		if index >= 0 and index < unit.stats.abilities.size() and unit.stats.abilities[index] != null:
-			return unit.stats.abilities[index]
+		if index >= 0 and index < unit.resolved_abilities.size() and unit.resolved_abilities[index] != null:
+			return unit.resolved_abilities[index]
 	return null
 
 
