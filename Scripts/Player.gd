@@ -31,6 +31,13 @@ var resources: int = 0
 ## kept separate so a losing round's flat gold share can't buy the same
 ## power spike a kill-heavy round earns.
 var blood_points: int = 0
+## Raw kill count, tracked alongside blood_points (both incremented
+## together in BloodTournamentMode.on_unit_killed()) -- blood_points is
+## the spendable currency a kill earns, this is just the count itself,
+## for display (see BloodTournamentController.scoreboard_text()). Never
+## reset between rounds, same "persists for the whole match" lifetime
+## roster/roster_upgrades already have.
+var kills: int = 0
 ## Ordered list of purchased archetypes (UnitStats), one entry per
 ## purchased "slot" -- what actually persists between Blood Tournament
 ## rounds (see GameManager.reset_battle()). Blood Tournament has no

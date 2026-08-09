@@ -181,6 +181,11 @@ func advance_to_next_round() -> void:
 ## use) -- BloodTournamentMode.wins_by_team only ever gets a key for a
 ## team once it's WON a round, so a plain teams_with_units-style sort
 ## would silently omit anyone still sitting on 0 wins.
+## "TeamName Wg (Xg, YK, Zbp)" per participating team, sorted by wins
+## descending -- wins decide ranking (the actual point of a leaderboard),
+## gold/kills/blood points ride along per team as the things a player
+## actually wants to compare mid-match (who's ahead economically, who's
+## racking up kills) without opening each team's own panel.
 func scoreboard_text() -> String:
 	var participants := GameManager.all_team_ids().filter(
 		func(team_id: int) -> bool: return not GameManager.get_player(team_id).roster.is_empty()
@@ -189,7 +194,11 @@ func scoreboard_text() -> String:
 
 	var parts: Array[String] = []
 	for team_id in participants:
-		parts.append("%s %d" % [GameManager.get_team_display_name(team_id), mode.get_wins(team_id)])
+		var player := GameManager.get_player(team_id)
+		parts.append("%s %dW (%dg, %dK, %dbp)" % [
+			GameManager.get_team_display_name(team_id), mode.get_wins(team_id),
+			player.resources, player.kills, player.blood_points,
+		])
 	return " : ".join(parts)
 
 

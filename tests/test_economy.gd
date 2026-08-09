@@ -34,6 +34,8 @@ func before_each() -> void:
 	red.resources = 0
 	blue.blood_points = 0
 	red.blood_points = 0
+	blue.kills = 0
+	red.kills = 0
 	blue.roster.clear()
 	red.roster.clear()
 	blue.roster_upgrades.clear()
@@ -284,6 +286,20 @@ func test_kill_grants_blood_points_to_the_killers_player_not_gold() -> void:
 
 	assert_eq(blue.blood_points, blood_points_before + BloodTournamentMode.KILL_BLOOD_POINTS)
 	assert_eq(blue.resources, gold_before, "a kill should never grant gold -- gold stays flat/equal for everyone, only blood points reward kills")
+
+
+func test_kill_increments_the_killers_player_kill_count() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	var killer := GameManager.spawn_unit(TANK_STATS, blue, Vector3.ZERO)
+	var victim := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(1, 0, 0))
+	GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(-5, 0, 0)) # keeps Red's roster non-empty after victim dies
+	GameManager.start_battle()
+
+	victim.take_damage(DamageInstance.new(victim.stat_block.max_health() + 100.0, killer))
+
+	assert_eq(blue.kills, 1)
 
 
 func test_kills_do_not_grant_blood_points_outside_blood_tournament() -> void:

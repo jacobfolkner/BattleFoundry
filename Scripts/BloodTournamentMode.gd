@@ -134,6 +134,7 @@ func is_auto_battle() -> bool:
 
 func on_unit_killed(killer: Unit) -> void:
 	killer.player.add_blood_points(KILL_BLOOD_POINTS)
+	killer.player.kills += 1
 
 
 ## At least 2 of the 8 registered teams need a roster slot bought -- an

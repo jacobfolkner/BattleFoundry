@@ -18,6 +18,7 @@ func before_each() -> void:
 		var player := GameManager.get_player(team_id)
 		player.resources = 0
 		player.blood_points = 0
+		player.kills = 0
 		player.roster.clear()
 		player.roster_upgrades.clear()
 		player.is_human = true
@@ -85,7 +86,7 @@ func test_scoreboard_lists_every_participating_team_sorted_by_wins() -> void:
 	green.roster = [TANK_STATS]
 	mode.wins_by_team = {blue.team_id: 1, red.team_id: 3, green.team_id: 0}
 
-	assert_eq(_main._scoreboard_text(), "Red 3 : Blue 1 : Green 0")
+	assert_eq(_main._scoreboard_text(), "Red 3W (300g, 0K, 0bp) : Blue 1W (300g, 0K, 0bp) : Green 0W (300g, 0K, 0bp)")
 
 
 func test_scoreboard_omits_teams_that_never_fielded_a_roster() -> void:
@@ -96,7 +97,7 @@ func test_scoreboard_omits_teams_that_never_fielded_a_roster() -> void:
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	blue.roster = [TANK_STATS] # Red never buys anything this test
 
-	assert_eq(_main._scoreboard_text(), "Blue 0", "only teams with an actual roster should appear")
+	assert_eq(_main._scoreboard_text(), "Blue 0W (300g, 0K, 0bp)", "only teams with an actual roster should appear")
 
 
 ## Confirmed design: spawn locations are randomized every round, not a
