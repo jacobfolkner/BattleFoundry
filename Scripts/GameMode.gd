@@ -136,3 +136,19 @@ func get_arena_map() -> ArenaMap:
 ## as those: a future mode might want one without the others.
 func is_auto_battle() -> bool:
 	return false
+
+
+## Called every physics frame, unconditionally, from Main._physics_process()
+## regardless of which mode is active (see BloodTournamentController.tick(),
+## called right alongside this) -- a hook for continuous match logic that
+## doesn't fit any of the discrete lifecycle callbacks above (on_battle_started/
+## on_battle_ended/on_unit_killed all fire once, at a specific transition).
+## HeroFootiesMode uses this for its wave-spawner timer. Default no-op, so
+## every existing mode (ClassicEliminationMode, BloodTournamentMode, which
+## does its own equivalent orchestration through the separate
+## BloodTournamentController instead) costs nothing extra. Not gated on
+## GameManager.is_battle_active() here -- a mode that only wants to act
+## mid-battle checks that itself, same as it already would for any other
+## state it cares about.
+func tick(_delta: float) -> void:
+	pass

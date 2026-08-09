@@ -18,6 +18,7 @@ signal team_selected(team_id: int)
 signal start_battle_pressed
 signal tournament_mode_toggled(enabled: bool)
 signal ai_opponent_toggled(enabled: bool)
+signal hero_footies_mode_toggled(enabled: bool)
 ## Emitted when a hotbar slot button is clicked (see _build_ability_hotbar()) --
 ## Main.gd routes this through the exact same _try_cast_or_target() the
 ## Q/W/E hotkeys use, so clicking and pressing the key are equivalent.
@@ -46,6 +47,7 @@ var _tournament_toggle: Button
 var _tournament_score_label: Label
 var _gold_label: Label
 var _ai_toggle: Button
+var _hero_footies_toggle: Button
 var _blue_team_button: Button
 var _red_team_button: Button
 ## Parallel to each other, built once in _build_unit_panel() -- lets
@@ -195,6 +197,7 @@ func _build_team_panel(parent: Control) -> void:
 	_add_spacer(panel, 12)
 	_build_tournament_toggle(panel)
 	_build_ai_toggle(panel)
+	_build_hero_footies_toggle(panel)
 	_add_spacer(panel, 12)
 	_build_start_button(panel)
 
@@ -265,20 +268,49 @@ func _build_ai_toggle(parent: Control) -> void:
 	parent.add_child(_ai_toggle)
 
 
-## Both toggles only make sense before a Blood Tournament match has
-## actually gotten underway -- flipping "Blood Tournament: Off" or
-## "AI Opponent" mid-match (round 2+, or mid-battle) doesn't correspond
-## to anything sensible GameManager/BloodTournamentMode does with a
-## mode/AI switch that late, so they're just hidden rather than left
-## clickable-but-confusing. "Match underway" is round_number > 0 (at
-## least one round has already finished) OR currently outside PLACEMENT
-## (round 1's own battle, before round_number has incremented yet) --
-## either alone would miss one of the two windows.
+## Off by default -- toggling swaps GameManager.current_mode between
+## ClassicEliminationMode and a fresh HeroFootiesMode (roadmap Phase 6:
+## wave-spawner + throne-HP win condition) via Main.gd. Mutually exclusive
+## with Blood Tournament (both claim GameManager.current_mode) -- Main.gd's
+## own handlers turn the other one off first, this button just needs its
+## own on/off text like the other two.
+func _build_hero_footies_toggle(parent: Control) -> void:
+	_hero_footies_toggle = Button.new()
+	_hero_footies_toggle.text = "Hero Footies: Off"
+	_hero_footies_toggle.custom_minimum_size = Vector2(140, 36)
+	_hero_footies_toggle.toggle_mode = true
+	_hero_footies_toggle.toggled.connect(_on_hero_footies_toggled)
+	parent.add_child(_hero_footies_toggle)
+
+
+func _on_hero_footies_toggled(enabled: bool) -> void:
+	_hero_footies_toggle.text = "Hero Footies: On" if enabled else "Hero Footies: Off"
+	hero_footies_mode_toggled.emit(enabled)
+
+
+func set_hero_footies_toggle(enabled: bool) -> void:
+	_hero_footies_toggle.set_pressed_no_signal(enabled)
+	_on_hero_footies_toggled(enabled)
+
+
+## All three mode-switch toggles only make sense before a match has
+## actually gotten underway -- flipping "Blood Tournament: Off"/
+## "AI Opponent"/"Hero Footies" mid-match doesn't correspond to anything
+## sensible the active mode does with a mode/AI switch that late, so
+## they're just hidden rather than left clickable-but-confusing.
+## "Match underway" is either a Blood Tournament match past round 1's own
+## PLACEMENT (round_number > 0, or currently outside PLACEMENT at all --
+## either alone would miss one of the two windows), or a Hero Footies
+## battle that has actually started (outside PLACEMENT -- it has no
+## rounds, so there's only the one window to check).
 func _refresh_match_toggles_visibility() -> void:
 	var mode := GameManager.current_mode
-	var match_underway: bool = mode is BloodTournamentMode and (mode.round_number > 0 or not GameManager.is_placement_phase())
+	var tournament_match_underway: bool = mode is BloodTournamentMode and (mode.round_number > 0 or not GameManager.is_placement_phase())
+	var hero_footies_match_underway: bool = mode is HeroFootiesMode and not GameManager.is_placement_phase()
+	var match_underway := tournament_match_underway or hero_footies_match_underway
 	_tournament_toggle.visible = not match_underway
 	_ai_toggle.visible = not match_underway
+	_hero_footies_toggle.visible = not match_underway
 
 
 ## Called by Main.gd to apply UI/MainMenu.gd's pre-match selection --

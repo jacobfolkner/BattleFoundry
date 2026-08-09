@@ -76,6 +76,7 @@ func _ready() -> void:
 	_hud.start_battle_pressed.connect(_on_start_battle_pressed)
 	_hud.tournament_mode_toggled.connect(_on_tournament_toggled)
 	_hud.ai_opponent_toggled.connect(_on_ai_opponent_toggled)
+	_hud.hero_footies_mode_toggled.connect(_on_hero_footies_toggled)
 	_hud.ability_slot_pressed.connect(_try_cast_or_target)
 	_hud.roster_slot_sold.connect(_on_roster_slot_sold)
 	_hud.hero_ability_picked.connect(_on_hero_ability_picked)
@@ -215,6 +216,8 @@ func _sync_arena_shape() -> void:
 ## that's what triggers on_activated()'s starting-gold grant, which reads
 ## it.
 func _on_tournament_toggled(enabled: bool, active_team_ids: Array = []) -> void:
+	if enabled and GameManager.current_mode is HeroFootiesMode:
+		_hud.set_hero_footies_toggle(false) # mutually exclusive game modes -- both claim GameManager.current_mode
 	if enabled:
 		# 12 -- the genre-accurate fixed match length (see
 		# BloodTournamentMode.total_rounds' own doc comment): every round
@@ -267,6 +270,26 @@ func _run_ai_turn_if_needed() -> void:
 	_bt_controller.run_ai_turn_if_needed()
 
 
+## Swaps GameManager.current_mode between ClassicEliminationMode and a
+## fresh HeroFootiesMode (roadmap Phase 6 -- wave-spawner + throne-HP win
+## condition). Mutually exclusive with Blood Tournament -- see
+## _on_tournament_toggled()'s matching guard the other direction --
+## since both claim GameManager.current_mode; turning this on while a
+## tournament is active turns the tournament off first via the HUD button
+## itself, so its own visual state and Main._tournament_mode both stay in
+## sync rather than just the underlying GameManager.current_mode swap.
+func _on_hero_footies_toggled(enabled: bool) -> void:
+	if enabled and _tournament_mode != null:
+		_hud.set_tournament_toggle(false)
+	if enabled:
+		GameManager.set_mode(HeroFootiesMode.new())
+	else:
+		GameManager.set_mode(ClassicEliminationMode.new())
+	_sync_arena_shape()
+	_hud.reset_for_new_round()
+	_refresh_gold_display()
+
+
 func _scoreboard_text() -> String:
 	return _bt_controller.scoreboard_text()
 
@@ -286,6 +309,7 @@ func _begin_staggered_deployment() -> void:
 ## wait_physics_frames(), which is specifically tied to physics frames.
 func _physics_process(delta: float) -> void:
 	_bt_controller.tick(delta)
+	GameManager.current_mode.tick(delta) # no-op for every mode but HeroFootiesMode (see GameMode.tick()'s own doc comment)
 
 
 ## Shows Blue/Red's current gold and blood points whenever
