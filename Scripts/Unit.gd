@@ -50,6 +50,19 @@ const _PROJECTILE_SCENE: PackedScene = preload("res://Scenes/Projectile.tscn")
 const _AVOIDANCE_NEIGHBOR_DISTANCE := 6.0
 const _ARRIVAL_EPSILON := 0.3 ## Horizontal distance (m) within which a MOVE/ATTACK_MOVE/PATROL destination counts as "reached."
 const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
+## Roadmap Phase 0's "no re-acquisition interval" gap: without this,
+## _update_target() calls GameManager.find_nearest_enemy() (an O(n) scan
+## over every hostile unit) on literally every physics frame a unit has
+## no valid target -- e.g. every unit on a team once the enemy team is
+## wiped, or every unit during PLACEMENT -- which is what actually makes
+## the whole system O(n^2) per frame, not the occasional single-target
+## re-acquisition a unit does once it's already fighting something (that
+## path is already cheap: _update_target() only re-scans once its
+## current target goes invalid or drifts out of range). 0.2s (5
+## scans/sec instead of 60) is a large constant-factor win with no
+## gameplay-visible latency -- an idle unit still notices a new enemy
+## well within a fraction of a second, not "instead of instantly."
+const _TARGET_REACQUISITION_INTERVAL := 0.2
 ## How long a unit is immune to a *new* application of the same hard-CC
 ## flag after one wears off -- simplified stand-in for real diminishing
 ## returns (WC3 halves each successive CC duration within a window; this
@@ -131,6 +144,12 @@ var _active_effects: Array[Effect] = []
 ## missing/absent key (the common case) means no immunity active for
 ## that flag at all.
 var _cc_immunity_remaining: Dictionary = {}
+## Seconds until _update_target() is allowed to call
+## GameManager.find_nearest_enemy() again while targetless -- see
+## _TARGET_REACQUISITION_INTERVAL. Irrelevant (never consulted) whenever
+## target_enemy is already valid and in range, since _update_target()
+## returns before ever reaching this check in that case.
+var _reacquisition_cooldown: float = 0.0
 
 ## Ability slot index (0/1/2, matching stats.abilities) -> remaining
 ## cooldown seconds. Absent/0 means ready.
@@ -594,6 +613,7 @@ func _physics_process(delta: float) -> void:
 	_tick_effects(delta)
 	_tick_ability_cooldowns(delta)
 	_tick_aura(delta)
+	_reacquisition_cooldown = maxf(_reacquisition_cooldown - delta, 0.0)
 
 	if _is_airborne:
 		_process_knockback(delta)
@@ -822,6 +842,17 @@ func _update_target() -> void:
 	var target_is_valid := target_enemy != null and is_instance_valid(target_enemy) and target_enemy.current_health > 0.0
 	if target_is_valid and horizontal_distance_to(global_position, target_enemy.global_position) <= stats.acquisition_range:
 		return
+	# Dropping an invalid/out-of-range target is immediate, regardless of
+	# the reacquisition cooldown below -- only the (expensive) *search for
+	# a replacement* is throttled, not "give up on what I can't reach
+	# anymore," which existing callers (ATTACK_MOVE/PATROL/FOLLOW's own
+	# "fight anything encountered" fallback, and tests like
+	# test_an_already_engaged_unit_gives_up_once_its_target_drifts_beyond_acquisition_range)
+	# expect to happen essentially the same frame it goes out of range.
+	target_enemy = null
+	if _reacquisition_cooldown > 0.0:
+		return
+	_reacquisition_cooldown = _TARGET_REACQUISITION_INTERVAL
 	target_enemy = GameManager.find_nearest_enemy(self)
 
 
