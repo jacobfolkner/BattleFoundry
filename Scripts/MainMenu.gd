@@ -1,11 +1,15 @@
 ## Front screen shown before Scenes/Main.tscn (see project.godot's
-## run/main_scene). Offers the same two pre-match toggles Main.tscn's own
-## HUD does mid-session (Blood Tournament, AI Opponent -- see
-## UI/HUD.gd's _build_tournament_toggle()/_build_ai_toggle()) plus a
-## plain-text controls reference, since the input surface (drag-select,
-## right-click orders, Q/W/E abilities with click-to-target, control
-## groups, U/I upgrades...) has grown well past "click to place, click to
-## fight" since this was the only screen anyone saw.
+## run/main_scene). Offers the same pre-match toggles Main.tscn's own HUD
+## does mid-session (Blood Tournament, Hero Footies, AI Opponent -- see
+## UI/HUD.gd's _build_tournament_toggle()/_build_hero_footies_toggle()/
+## _build_ai_toggle()) plus a plain-text controls reference, since the
+## input surface (drag-select, right-click orders, Q/W/E abilities with
+## click-to-target, control groups, U/I upgrades...) has grown well past
+## "click to place, click to fight" since this was the only screen anyone
+## saw. Blood Tournament and Hero Footies are mutually exclusive here too
+## (see _build_options()' own toggle wiring), matching the guard
+## Main._on_tournament_toggled()/_on_hero_footies_toggled() already
+## enforce mid-match -- both claim GameManager.current_mode.
 ##
 ## Built in code, same as UI/HUD.gd and for the same reason: a handful of
 ## controls is just as readable this way and keeps it in one file. Choices
@@ -16,6 +20,7 @@ extends Control
 
 var _tournament_toggle: Button
 var _ai_toggle: Button
+var _hero_footies_toggle: Button
 var _team_option: OptionButton
 var _team_count_option: OptionButton
 
@@ -59,9 +64,26 @@ func _build_options(parent: Control) -> void:
 	parent.add_child(row)
 
 	_tournament_toggle = _add_toggle(row, "Blood Tournament: Off", "Blood Tournament: On")
+	_hero_footies_toggle = _add_toggle(row, "Hero Footies: Off", "Hero Footies: On")
 	_ai_toggle = _add_toggle(row, "AI Opponent: Off", "AI Opponent: On")
 	_build_team_selector(row)
 	_build_team_count_selector(row)
+
+	# Both game-mode toggles claim GameManager.current_mode (same mutual
+	# exclusion Main._on_tournament_toggled()/_on_hero_footies_toggled()
+	# already enforce mid-match) -- mirrored here so the menu's own
+	# checkbox state can't silently disagree with what Play would actually
+	# start once Main._apply_menu_selection() runs.
+	_tournament_toggle.toggled.connect(func(enabled: bool):
+		if enabled:
+			_hero_footies_toggle.set_pressed_no_signal(false)
+			_hero_footies_toggle.text = "Hero Footies: Off"
+	)
+	_hero_footies_toggle.toggled.connect(func(enabled: bool):
+		if enabled:
+			_tournament_toggle.set_pressed_no_signal(false)
+			_tournament_toggle.text = "Blood Tournament: Off"
+	)
 
 
 ## Which of the 8 registered teams the player plays as -- only meaningful
@@ -134,6 +156,7 @@ func _build_play_button(parent: Control) -> void:
 ## down and reload a whole new scene.
 func apply_selection_to_menu_state() -> void:
 	MenuSelection.start_with_tournament = _tournament_toggle.button_pressed
+	MenuSelection.start_with_hero_footies = _hero_footies_toggle.button_pressed
 	MenuSelection.start_with_ai_opponent = _ai_toggle.button_pressed
 	MenuSelection.human_team_id = _team_option.selected
 	MenuSelection.team_count = _team_count_option.selected + 2

@@ -10,6 +10,7 @@ func before_each() -> void:
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode leak into this one
 	GameManager.get_player(GameManager.RED_TEAM_ID).is_human = true
 	MenuSelection.start_with_tournament = false
+	MenuSelection.start_with_hero_footies = false
 	MenuSelection.start_with_ai_opponent = false
 
 
@@ -55,6 +56,47 @@ func test_main_honors_menu_selection_and_clears_it_afterward() -> void:
 	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).roster.is_empty(), "the AI should have bought Red's round 1 roster already")
 	assert_false(MenuSelection.start_with_tournament, "the hand-off should be one-shot -- consumed and cleared")
 	assert_false(MenuSelection.start_with_ai_opponent)
+
+
+## Both game-mode toggles claim GameManager.current_mode, so the menu itself
+## (not just Main.gd's runtime handlers) must not let a player leave both
+## pressed -- see _build_options()'s toggle wiring in Scripts/MainMenu.gd.
+func test_hero_footies_and_tournament_toggles_are_mutually_exclusive_in_the_menu() -> void:
+	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
+	add_child_autofree(menu)
+	await wait_physics_frames(1)
+
+	menu._tournament_toggle.button_pressed = true
+	assert_false(menu._hero_footies_toggle.button_pressed)
+
+	menu._hero_footies_toggle.button_pressed = true
+	assert_false(menu._tournament_toggle.button_pressed, "turning on Hero Footies should turn Blood Tournament back off")
+
+
+func test_toggling_hero_footies_and_pressing_play_records_the_selection() -> void:
+	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
+	add_child_autofree(menu)
+	await wait_physics_frames(1)
+
+	menu._hero_footies_toggle.button_pressed = true
+	menu.apply_selection_to_menu_state()
+
+	assert_true(MenuSelection.start_with_hero_footies)
+	assert_false(MenuSelection.start_with_tournament)
+
+
+## Full hand-off: Main.gd's _ready() should consume the flag and actually
+## activate HeroFootiesMode, the same as clicking the HUD's own toggle
+## mid-session would (see Main._on_hero_footies_toggled()).
+func test_main_honors_hero_footies_menu_selection_and_clears_it_afterward() -> void:
+	MenuSelection.start_with_hero_footies = true
+
+	var main: Node3D = load("res://Scenes/Main.tscn").instantiate()
+	add_child_autofree(main)
+	await wait_physics_frames(2)
+
+	assert_true(GameManager.current_mode is HeroFootiesMode)
+	assert_false(MenuSelection.start_with_hero_footies, "the hand-off should be one-shot -- consumed and cleared")
 
 
 func test_main_defaults_to_classic_mode_with_no_menu_selection() -> void:

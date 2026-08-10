@@ -103,10 +103,12 @@ func _on_selection_changed(units: Array[Unit]) -> void:
 ## scene change (or a whole test suite run) untouched.
 func _apply_menu_selection() -> void:
 	var tournament := MenuSelection.start_with_tournament
+	var hero_footies := MenuSelection.start_with_hero_footies
 	var ai_opponent := MenuSelection.start_with_ai_opponent
 	var human_team_id := MenuSelection.human_team_id
 	var team_count := MenuSelection.team_count
 	MenuSelection.start_with_tournament = false
+	MenuSelection.start_with_hero_footies = false
 	MenuSelection.start_with_ai_opponent = false
 	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
 	MenuSelection.team_count = GameManager.TEAM_COUNT
@@ -152,6 +154,15 @@ func _apply_menu_selection() -> void:
 		# re-running activation a second time.
 		_on_tournament_toggled(true, active_team_ids) # its own tail call to _run_ai_turn_if_needed() is what actually runs the AI's first turn
 		_hud.sync_tournament_toggle_visual(true)
+	elif hero_footies:
+		# set_hero_footies_toggle() (not a direct GameManager.set_mode() call)
+		# so this goes through the exact same path a mid-match HUD click
+		# would -- HUD.gd's own text/pressed-state bookkeeping and the
+		# hero_footies_mode_toggled signal into _on_hero_footies_toggled()
+		# all stay correct, unlike Blood Tournament's branch above, which
+		# only bypasses HUD because it needs to carry active_team_ids
+		# through (Hero Footies has no such extra menu parameter).
+		_hud.set_hero_footies_toggle(true)
 
 
 ## Kept for backward compat (AIController and several tests read this

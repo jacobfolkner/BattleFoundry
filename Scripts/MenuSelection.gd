@@ -8,6 +8,10 @@ extends Node
 
 var start_with_tournament: bool = false
 var start_with_ai_opponent: bool = false
+## Mutually exclusive with start_with_tournament in UI/MainMenu.gd itself
+## (both toggles claim GameManager.current_mode, same guard Main.gd's own
+## in-match HUD handlers already enforce) -- see Main._apply_menu_selection().
+var start_with_hero_footies: bool = false
 ## Which of the 8 registered teams the player picked in UI/MainMenu.gd's
 ## team selector -- Main._apply_menu_selection() makes every OTHER team
 ## non-human when start_with_ai_opponent is also true (generalizes the
