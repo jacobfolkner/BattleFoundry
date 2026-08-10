@@ -27,6 +27,19 @@ func test_toggling_options_and_pressing_play_records_the_selection() -> void:
 	assert_true(MenuSelection.start_with_ai_opponent)
 
 
+## Doesn't exercise _on_settings_pressed() itself (it calls
+## change_scene_to_file(), which would tear down this test's own scene
+## tree) -- just confirms the button Scripts/SettingsMenu.gd's screen is
+## reachable through actually exists and is wired to the right handler.
+func test_settings_button_exists_and_is_wired_to_the_settings_scene() -> void:
+	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
+	add_child_autofree(menu)
+	await wait_physics_frames(1)
+
+	assert_not_null(menu._settings_button)
+	assert_true(menu._settings_button.pressed.is_connected(menu._on_settings_pressed))
+
+
 func test_leaving_both_options_off_records_a_plain_classic_match() -> void:
 	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
 	add_child_autofree(menu)

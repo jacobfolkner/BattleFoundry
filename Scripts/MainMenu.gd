@@ -15,12 +15,15 @@
 ## controls is just as readable this way and keeps it in one file. Choices
 ## are handed off via the MenuSelection autoload (see its own doc comment
 ## for why that's a separate tiny autoload rather than fields on
-## GameManager) -- Main.gd consumes and clears them in _ready().
+## GameManager) -- Main.gd consumes and clears them in _ready(). A
+## "Settings" button (below "Play") leads to Scenes/SettingsMenu.tscn,
+## Phase 10's keybind remap screen.
 extends Control
 
 var _tournament_toggle: Button
 var _ai_toggle: Button
 var _hero_footies_toggle: Button
+var _settings_button: Button
 var _team_option: OptionButton
 var _team_count_option: OptionButton
 
@@ -47,6 +50,7 @@ func _ready() -> void:
 	_build_options(column)
 	_build_controls_reference(column)
 	_build_play_button(column)
+	_build_settings_button(column)
 
 
 func _build_title(parent: Control) -> void:
@@ -167,3 +171,22 @@ func apply_selection_to_menu_state() -> void:
 func _on_play_pressed() -> void:
 	apply_selection_to_menu_state()
 	get_tree().change_scene_to_file("res://Scenes/Main.tscn")
+
+
+## Roadmap Phase 10's "settings/keybind remapping UI" -- Scripts/Hotkeys.gd
+## already has the actual InputMap-rebind mechanism (rebind(), tested by
+## tests/test_hotkeys.gd); Scripts/SettingsMenu.gd is the screen that
+## finally calls into it. A separate scene (not a panel bolted onto this
+## one) since it needs its own full-screen key-capture input handling
+## (_unhandled_input()) that would otherwise compete with this menu's own.
+func _build_settings_button(parent: Control) -> void:
+	_settings_button = Button.new()
+	_settings_button.text = "Settings"
+	_settings_button.custom_minimum_size = Vector2(190, 40)
+	_settings_button.pressed.connect(_on_settings_pressed)
+	_settings_button.pressed.connect(func(): Sfx.play_ui_click())
+	parent.add_child(_settings_button)
+
+
+func _on_settings_pressed() -> void:
+	get_tree().change_scene_to_file("res://Scenes/SettingsMenu.tscn")

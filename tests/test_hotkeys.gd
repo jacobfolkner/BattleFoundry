@@ -1,24 +1,19 @@
 ## Tests for Scripts/Hotkeys.gd -- roadmap Phase 3's "rebindable
-## hotkeys" item. Confirms the InputMap actions this project relies on
-## (Scripts/PlayerInputController.gd, Scripts/OrbitCamera.gd) actually
-## get registered at boot, and that rebind() really does replace a
-## key's binding rather than just adding a second one alongside it.
+## hotkeys" item (registration/rebind()) and Phase 10's settings-screen
+## support added alongside Scripts/SettingsMenu.gd (display_name(),
+## find_conflicting_action(), reset_to_defaults()).
 extends GutTest
-
-var _original_order_stop_events: Array[InputEvent] = []
-
-
-func before_each() -> void:
-	# rebind() tests mutate a real, project-wide InputMap action --
-	# restore it afterward so no other test file (which all assume the
-	# default S = order_stop binding) is affected by run order.
-	_original_order_stop_events = InputMap.action_get_events("order_stop")
 
 
 func after_each() -> void:
-	InputMap.action_erase_events("order_stop")
-	for event in _original_order_stop_events:
-		InputMap.action_add_event("order_stop", event)
+	# Several tests below rebind more than one action (conflict-detection
+	# needs two real actions to collide) -- reset_to_defaults() restores
+	# every one of them at once, so no other test file (which all assume
+	# Hotkeys.DEFAULT_BINDINGS' own defaults, e.g. S = order_stop) is
+	# affected by run order, the same cross-test-pollution risk already on
+	# file for every other persistent-autoload-owned piece of state in
+	# this project.
+	Hotkeys.reset_to_defaults()
 
 
 func test_every_default_binding_is_registered_as_a_real_inputmap_action() -> void:
@@ -48,3 +43,35 @@ func test_rebind_replaces_the_actions_bound_key_rather_than_adding_a_second_one(
 	new_key_event.pressed = true
 	assert_true(new_key_event.is_action_pressed("order_stop"),
 		"the new X binding should trigger order_stop after rebinding")
+
+
+func test_every_default_binding_has_a_display_name() -> void:
+	for action_name in Hotkeys.DEFAULT_BINDINGS:
+		assert_ne(Hotkeys.display_name(action_name), "", "%s should have a player-facing label" % action_name)
+
+
+func test_find_conflicting_action_reports_nothing_for_an_unclaimed_key() -> void:
+	assert_eq(Hotkeys.find_conflicting_action("order_stop", KEY_Z), "")
+
+
+func test_find_conflicting_action_reports_the_other_action_holding_that_key() -> void:
+	assert_eq(Hotkeys.find_conflicting_action("order_stop", KEY_H), "order_hold")
+
+
+func test_find_conflicting_action_excludes_the_action_being_rebound_itself() -> void:
+	# order_stop already holds KEY_S by default -- rebinding it to the key
+	# it already has shouldn't read as a conflict with itself.
+	assert_eq(Hotkeys.find_conflicting_action("order_stop", KEY_S), "")
+
+
+func test_reset_to_defaults_restores_every_action_after_rebinding_several() -> void:
+	Hotkeys.rebind("order_stop", KEY_X)
+	Hotkeys.rebind("order_hold", KEY_Y)
+
+	Hotkeys.reset_to_defaults()
+
+	for action_name in Hotkeys.DEFAULT_BINDINGS:
+		var events := InputMap.action_get_events(action_name)
+		assert_eq(events.size(), 1)
+		assert_eq((events[0] as InputEventKey).keycode, Hotkeys.DEFAULT_BINDINGS[action_name],
+			"%s should be back to its default keycode" % action_name)
