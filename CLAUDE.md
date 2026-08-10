@@ -90,3 +90,15 @@ lighting bug in the game itself.
   (mostly fixed engine/shader-compile startup cost, not much affected
   by `--wait` once above ~8 frames), vs. ~5-10s for Compatibility. See
   `tools/screenshot.sh`'s `--renderer` flag.
+- **A script field named `_input` collides with `Node`'s own built-in
+  `_input(event)` virtual method** — reaching into it from outside via a
+  plain/generic-typed reference (e.g. a `Node3D`-typed local calling
+  `.some_method()` through it) resolves dynamically to the built-in
+  method instead of the field, producing a misleading `Function "..." not
+  found in base Callable` rather than a type error. `Main.gd`'s own
+  `_input: PlayerInputController` field hits this; every existing call
+  site avoids it by going through `Main`'s own thin delegate methods
+  (`_handle_key()`, etc.) instead of `_main._input.foo()` directly. Avoid
+  naming a field `_input` (or anything else that shadows a `Node`
+  virtual — `_process`, `_ready`, `_draw`, ...) if it needs to be reached
+  from outside the class.
