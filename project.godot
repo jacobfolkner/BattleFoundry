@@ -33,6 +33,7 @@ DebugInspector="*res://Scripts/DebugInspector.gd"
 DebugSettings="*res://Scripts/DebugSettings.gd"
 SelectionManager="*res://Scripts/SelectionManager.gd"
 MenuSelection="*res://Scripts/MenuSelection.gd"
+Sfx="*res://Scripts/Sfx.gd"
 
 [layer_names]
 

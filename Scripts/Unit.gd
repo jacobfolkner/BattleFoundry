@@ -577,6 +577,7 @@ func cast_ability(index: int, target: Unit = null) -> bool:
 			ability.cast_unit_target(self, target)
 
 	_ability_cooldowns[index] = ability.cooldown
+	Sfx.play_ability_cast(global_position)
 	return true
 
 
@@ -1247,6 +1248,7 @@ func take_damage(instance: DamageInstance) -> bool:
 	_health_bar.set_fraction(current_health / stat_block.max_health())
 	_hit_flash_remaining = _HIT_FLASH_DURATION
 	_spawn_damage_popup(mitigated, instance.damage_type)
+	Sfx.play_attack_land(global_position) # shared by melee and projectile impacts alike -- both funnel through here
 	damaged.emit(self, instance, mitigated)
 
 	if current_health <= 0.0:
@@ -1271,6 +1273,7 @@ func die(killer: Unit = null) -> void:
 	_health_bar.visible = false
 	_status_indicator.hide_status()
 	clear_all_effects()
+	Sfx.play_death(global_position)
 	died.emit(self, killer)
 
 

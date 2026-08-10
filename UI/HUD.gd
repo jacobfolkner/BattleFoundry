@@ -216,6 +216,7 @@ func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_p
 	button.button_group = group
 	button.button_pressed = is_pressed
 	button.pressed.connect(on_pressed)
+	button.pressed.connect(func(): Sfx.play_ui_click()) # "pressed" only ever fires on real interaction (mouse/keyboard), never from setting button_pressed programmatically -- safe to wire unconditionally here
 	parent.add_child(button)
 	return button
 
@@ -229,6 +230,7 @@ func _build_start_button(parent: Control) -> void:
 	_start_button.text = "Start Battle"
 	_start_button.custom_minimum_size = Vector2(140, 40)
 	_start_button.pressed.connect(_on_start_pressed)
+	_start_button.pressed.connect(func(): Sfx.play_ui_click())
 	parent.add_child(_start_button)
 
 
@@ -243,6 +245,7 @@ func _build_tournament_toggle(parent: Control) -> void:
 	_tournament_toggle.custom_minimum_size = Vector2(140, 36)
 	_tournament_toggle.toggle_mode = true
 	_tournament_toggle.toggled.connect(_on_tournament_toggled)
+	_tournament_toggle.toggled.connect(func(_enabled: bool): Sfx.play_ui_click()) # "toggled" only fires from real interaction here -- every programmatic update elsewhere uses set_pressed_no_signal() specifically to avoid it
 	parent.add_child(_tournament_toggle)
 
 
@@ -265,6 +268,7 @@ func _build_ai_toggle(parent: Control) -> void:
 	_ai_toggle.custom_minimum_size = Vector2(140, 36)
 	_ai_toggle.toggle_mode = true
 	_ai_toggle.toggled.connect(_on_ai_toggled)
+	_ai_toggle.toggled.connect(func(_enabled: bool): Sfx.play_ui_click())
 	parent.add_child(_ai_toggle)
 
 
@@ -280,6 +284,7 @@ func _build_hero_footies_toggle(parent: Control) -> void:
 	_hero_footies_toggle.custom_minimum_size = Vector2(140, 36)
 	_hero_footies_toggle.toggle_mode = true
 	_hero_footies_toggle.toggled.connect(_on_hero_footies_toggled)
+	_hero_footies_toggle.toggled.connect(func(_enabled: bool): Sfx.play_ui_click())
 	parent.add_child(_hero_footies_toggle)
 
 
@@ -503,6 +508,7 @@ func refresh_roster_row(roster: Array[UnitStats]) -> void:
 		var button := Button.new()
 		button.custom_minimum_size = Vector2(72, 32)
 		button.pressed.connect(func(): roster_slot_sold.emit(index))
+		button.pressed.connect(func(): Sfx.play_ui_click())
 		_roster_row.add_child(button)
 		_roster_slot_buttons.append(button)
 
@@ -597,6 +603,7 @@ func _build_ability_hotbar() -> void:
 		button.text = "-"
 		button.disabled = true
 		button.pressed.connect(func(): ability_slot_pressed.emit(i))
+		button.pressed.connect(func(): Sfx.play_ui_click())
 		_ability_hotbar.add_child(button)
 		_ability_slot_buttons.append(button)
 

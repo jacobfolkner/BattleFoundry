@@ -122,6 +122,7 @@ func _add_toggle(parent: Control, off_text: String, on_text: String) -> Button:
 	button.custom_minimum_size = Vector2(190, 40)
 	button.toggle_mode = true
 	button.toggled.connect(func(enabled: bool): button.text = on_text if enabled else off_text)
+	button.toggled.connect(func(_enabled: bool): Sfx.play_ui_click()) # only ever fires on real interaction -- the mutual-exclusion resets in _build_options() use set_pressed_no_signal() specifically to avoid re-triggering this
 	parent.add_child(button)
 	return button
 
@@ -148,6 +149,7 @@ func _build_play_button(parent: Control) -> void:
 	button.text = "Play"
 	button.custom_minimum_size = Vector2(190, 48)
 	button.pressed.connect(_on_play_pressed)
+	button.pressed.connect(func(): Sfx.play_ui_click()) # Sfx is an autoload, so this keeps playing across the change_scene_to_file() below without issue
 	parent.add_child(button)
 
 
