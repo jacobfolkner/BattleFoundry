@@ -72,6 +72,17 @@ var dragging_unit: Unit = null
 ## it (resolve_pending_ability_target()); right-click or Escape cancels.
 var pending_ability_target: int = -1
 
+## True only while a Patrol order (the "order_patrol"/P hotkey -- see
+## begin_patrol_targeting()) is awaiting a destination click. Mirrors
+## pending_ability_target's own two-step "press a key, then click" shape
+## (right-click or Escape cancels either one, see handle_mouse_button()/
+## handle_key()) -- SelectionManager.order_patrol() only needs ONE click
+## (a destination; each unit already knows its own current position as
+## the other end of its patrol route, see Unit.order_patrol()), unlike a
+## hypothetical "pick point A, then point B" patrol tool this project
+## doesn't build.
+var pending_patrol: bool = false
+
 
 func _init(camera: Camera3D, hud: Control, refresh_gold_display: Callable) -> void:
 	_camera = camera
@@ -101,6 +112,8 @@ func handle_mouse_button(event: InputEventMouseButton) -> void:
 	elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		if pending_ability_target != -1:
 			cancel_pending_ability_target()
+		elif pending_patrol:
+			cancel_pending_patrol()
 		elif GameManager.battle_state == GameManager.BattleState.PLACEMENT:
 			try_sell_unit_at(event.position)
 		else:
@@ -124,6 +137,10 @@ func handle_mouse_motion(event: InputEventMouseMotion) -> void:
 func on_left_release(event: InputEventMouseButton) -> void:
 	if pending_ability_target != -1:
 		resolve_pending_ability_target(event.position)
+		return
+
+	if pending_patrol:
+		resolve_pending_patrol(event.position)
 		return
 
 	if dragging_unit != null:
@@ -186,23 +203,26 @@ func on_right_click(event: InputEventMouseButton) -> void:
 		SelectionManager.order_attack_move(hit_position, queue)
 
 
-## S = Stop, H = Hold Position, Q/W/E = cast ability slot 0/1/2 (see
+## S = Stop, H = Hold Position, P = Patrol (enters click-to-target mode
+## for a destination, same shape as a UNIT_TARGET ability -- see
+## begin_patrol_targeting()), Q/W/E = cast ability slot 0/1/2 (see
 ## UnitStats.abilities -- a NO_TARGET/PASSIVE/AURA slot casts immediately
 ## same as always; a UNIT_TARGET slot enters click-to-target mode instead
 ## of auto-targeting, see try_cast_or_target()), Escape cancels a pending
-## target, plain 1-9 = recall a control group, Ctrl+1-9 = assign the
-## current selection to one. S/H specifically become no-ops during
+## target/patrol, plain 1-9 = recall a control group, Ctrl+1-9 = assign
+## the current selection to one. S/H/P specifically become no-ops during
 ## auto-battle (GameMode.is_auto_battle()) -- Q/W/E stay reachable since
 ## try_cast_or_target() has its own auto-battle guard, and 1-9 group
 ## recall is selection/inspection, not commanding, so it's never gated at
-## all. No dedicated Patrol hotkey yet -- Unit.order_patrol()/
-## SelectionManager.order_patrol() are complete and tested, just not
-## wired to input; a two-step "press P, then click a destination" mode is
-## more input-state-machine than this pass needs.
+## all.
 func handle_key(event: InputEventKey) -> void:
-	if event.keycode == KEY_ESCAPE and pending_ability_target != -1:
-		cancel_pending_ability_target()
-		return
+	if event.keycode == KEY_ESCAPE:
+		if pending_ability_target != -1:
+			cancel_pending_ability_target()
+			return
+		if pending_patrol:
+			cancel_pending_patrol()
+			return
 	if GameManager.battle_state == GameManager.BattleState.PLACEMENT:
 		handle_placement_key(event)
 		return
@@ -213,6 +233,8 @@ func handle_key(event: InputEventKey) -> void:
 		SelectionManager.order_stop()
 	elif event.is_action_pressed("order_hold") and can_command:
 		SelectionManager.order_hold()
+	elif event.is_action_pressed("order_patrol") and can_command:
+		begin_patrol_targeting()
 	elif event.is_action_pressed("ability_slot_0"):
 		try_cast_or_target(0)
 	elif event.is_action_pressed("ability_slot_1"):
@@ -245,7 +267,7 @@ func try_cast_or_target(index: int) -> void:
 	var ability := first_selected_ability(index)
 	if ability != null and ability.cast_type == Ability.CastType.UNIT_TARGET:
 		pending_ability_target = index
-		_hud.show_targeting_prompt(ability.ability_name)
+		_hud.show_targeting_prompt("Select a target for %s" % ability.ability_name)
 	else:
 		SelectionManager.cast_ability(index)
 
@@ -266,6 +288,40 @@ func resolve_pending_ability_target(screen_position: Vector2) -> void:
 
 func cancel_pending_ability_target() -> void:
 	pending_ability_target = -1
+	_hud.hide_targeting_prompt()
+
+
+## Closes the roadmap's long-standing "no PATROL hotkey" rough edge --
+## Unit.order_patrol()/SelectionManager.order_patrol() were already
+## complete and tested, just never wired to input. Only needs to arm the
+## "next click is a destination" flag; SelectionManager.order_patrol()
+## takes a single Vector3 (each unit patrols between wherever it already
+## is and that point, see Unit.order_patrol()), so this needs none of
+## pending_ability_target's per-ability lookup, just a bool. A no-op
+## entirely during auto-battle, matching every other manual-order hotkey.
+func begin_patrol_targeting() -> void:
+	if GameManager.current_mode.is_auto_battle():
+		return
+	pending_patrol = true
+	_hud.show_targeting_prompt("Select a Patrol destination")
+
+
+## Ground-plane raycast, not DebugInspector's unit-raycast
+## (resolve_pending_ability_target()'s own target-picking one) -- a
+## Patrol destination is a point on the map, never a unit. Shift queues
+## it after whatever's already queued, same convention as
+## on_right_click()'s attack-move.
+func resolve_pending_patrol(screen_position: Vector2) -> void:
+	cancel_pending_patrol() # clears state/hides the prompt regardless of whether the click actually hits ground
+	var ray_origin := _camera.project_ray_origin(screen_position)
+	var ray_direction := _camera.project_ray_normal(screen_position)
+	var hit_position = GROUND_PLANE.intersects_ray(ray_origin, ray_direction)
+	if hit_position != null:
+		SelectionManager.order_patrol(hit_position, Input.is_key_pressed(KEY_SHIFT))
+
+
+func cancel_pending_patrol() -> void:
+	pending_patrol = false
 	_hud.hide_targeting_prompt()
 
 

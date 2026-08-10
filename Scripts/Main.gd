@@ -42,6 +42,9 @@ var _dragging_unit: Unit:
 var _pending_ability_target: int:
 	get: return _input.pending_ability_target
 	set(value): _input.pending_ability_target = value
+var _pending_patrol: bool:
+	get: return _input.pending_patrol
+	set(value): _input.pending_patrol = value
 
 ## Constructed unconditionally in _ready(), like _input -- see
 ## Scripts/BloodTournamentController.gd's own class doc comment for why
@@ -404,6 +407,18 @@ func _resolve_pending_ability_target(screen_position: Vector2) -> void:
 
 func _cancel_pending_ability_target() -> void:
 	_input.cancel_pending_ability_target()
+
+
+func _begin_patrol_targeting() -> void:
+	_input.begin_patrol_targeting()
+
+
+func _resolve_pending_patrol(screen_position: Vector2) -> void:
+	_input.resolve_pending_patrol(screen_position)
+
+
+func _cancel_pending_patrol() -> void:
+	_input.cancel_pending_patrol()
 
 
 func _handle_placement_key(event: InputEventKey) -> void:

@@ -705,10 +705,14 @@ func _build_targeting_prompt() -> void:
 	add_child(_targeting_label)
 
 
-## Called by Main.gd while a UNIT_TARGET ability is awaiting a click (see
-## Main._pending_ability_target).
-func show_targeting_prompt(ability_name: String) -> void:
-	_targeting_label.text = "Select a target for %s (right-click or Esc to cancel)" % ability_name
+## Called by PlayerInputController while a UNIT_TARGET ability
+## (try_cast_or_target()) or a Patrol order (begin_patrol_targeting()) is
+## awaiting a click -- `prompt_text` is the caller's own full sentence
+## (e.g. "Select a target for Frost Bolt", "Select a Patrol destination"),
+## not just a bare ability name, so this stays generic to whichever
+## click-to-target flow is using it.
+func show_targeting_prompt(prompt_text: String) -> void:
+	_targeting_label.text = "%s (right-click or Esc to cancel)" % prompt_text
 	_targeting_label.reset_size()
 	var viewport_width := get_viewport_rect().size.x
 	_targeting_label.position = Vector2((viewport_width - _targeting_label.size.x) * 0.5, 80)

@@ -26,6 +26,7 @@ extends Node
 const DEFAULT_BINDINGS := {
 	"order_stop": KEY_S,
 	"order_hold": KEY_H,
+	"order_patrol": KEY_P,
 	"ability_slot_0": KEY_Q,
 	"ability_slot_1": KEY_W,
 	"ability_slot_2": KEY_E,
@@ -44,6 +45,7 @@ const DEFAULT_BINDINGS := {
 const ACTION_DISPLAY_NAMES := {
 	"order_stop": "Stop",
 	"order_hold": "Hold Position",
+	"order_patrol": "Patrol",
 	"ability_slot_0": "Ability Slot 1",
 	"ability_slot_1": "Ability Slot 2",
 	"ability_slot_2": "Ability Slot 3",

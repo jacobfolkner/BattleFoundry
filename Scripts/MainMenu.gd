@@ -140,6 +140,7 @@ func _build_controls_reference(parent: Control) -> void:
 		+ "Left-click: place a unit / select a unit (drag for box-select)\n" \
 		+ "Right-click: attack / follow / attack-move -- sells a unit during placement\n" \
 		+ "S / H: stop / hold position\n" \
+		+ "P: patrol (click a destination) -- right-click or Esc cancels\n" \
 		+ "Q / W / E: cast ability slot 0/1/2 (click a unit to target it)\n" \
 		+ "1-9: recall a control group -- Ctrl+1-9: assign the current selection\n" \
 		+ "U / I: buy a shop upgrade for your whole roster (Blood Tournament only)\n" \
