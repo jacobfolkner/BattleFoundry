@@ -534,18 +534,16 @@ func _find_courtyard_slot_index(unit: Unit) -> int:
 	return -1
 
 
-## Average position of a squad's currently-live members -- used as the
-## drag's revert-to center rather than the specific member that happened
-## to get clicked, since a non-center member's own position isn't the
-## squad's formation center (see GameManager._squad_formation_offset()).
+## Squad member 0's own position -- used as the drag's revert-to center.
+## Mirrors GameManager._squad_centroid() exactly (kept as a separate copy
+## here rather than a cross-class call, same as this file's other small
+## self-contained helpers) -- see that one's own doc comment for why this
+## reads member 0 directly instead of averaging every member's position
+## the way it used to.
 func _squad_centroid(squad: Array) -> Vector3:
-	var total := Vector3.ZERO
-	var count := 0
-	for unit in squad:
-		if is_instance_valid(unit):
-			total += unit.global_position
-			count += 1
-	return total / count
+	if squad.is_empty() or not is_instance_valid(squad[0]):
+		return Vector3.ZERO
+	return squad[0].global_position
 
 
 ## Resolves a Blood Tournament courtyard drag on release: repositions the

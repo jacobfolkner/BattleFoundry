@@ -63,6 +63,22 @@ const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
 ## gameplay-visible latency -- an idle unit still notices a new enemy
 ## well within a fraction of a second, not "instead of instantly."
 const _TARGET_REACQUISITION_INTERVAL := 0.2
+## How long this unit can chase the same target without ever getting
+## within attack range before _update_target() gives up on it and picks
+## a different enemy instead (gameplay feedback, 2026-08-11: "units often
+## run around chasing a target when there's other units following them" --
+## GameManager.find_nearest_enemy() is purely geometric-distance-based
+## with no crowding awareness, so once several allies converge on the
+## same nearest enemy, whichever ones can't find an open attack_range
+## slot around it keep re-pathing toward an already-occupied spot,
+## getting deflected by avoidance every time -- the "circling" this
+## fixes). Deliberately NOT applied to a forced ATTACK_MOVE target
+## (right-click a specific enemy) -- see _process_order()'s own
+## ATTACK_MOVE branch, which sets target_enemy directly and never calls
+## _update_target() at all, so a deliberate player order is never
+## silently overridden, only the default autonomous "fight whatever's
+## nearest" acquisition is.
+const _STUCK_CHASE_THRESHOLD := 2.5
 ## How long a unit is immune to a *new* application of the same hard-CC
 ## flag after one wears off -- simplified stand-in for real diminishing
 ## returns (WC3 halves each successive CC duration within a window; this
@@ -157,6 +173,15 @@ var _cc_immunity_remaining: Dictionary = {}
 ## target_enemy is already valid and in range, since _update_target()
 ## returns before ever reaching this check in that case.
 var _reacquisition_cooldown: float = 0.0
+## Seconds this unit has been chasing _last_chased_target without yet
+## getting within attack range of it -- reset to 0 the instant
+## target_enemy changes OR it comes into range (see _physics_process()'s
+## own tracking). Compared against _STUCK_CHASE_THRESHOLD in
+## _update_target() to give up on a target that's evidently unreachable
+## (crowded out by allies already occupying every attack_range slot
+## around it) rather than orbiting it forever.
+var _chase_elapsed: float = 0.0
+var _last_chased_target: Unit = null
 
 ## Ability slot index (0/1/2, matching stats.abilities) -> remaining
 ## cooldown seconds. Absent/0 means ready.
@@ -787,6 +812,7 @@ func _physics_process(delta: float) -> void:
 	if not is_stunned():
 		var is_battling := GameManager.battle_state == GameManager.BattleState.BATTLE and current_health > 0.0
 		if is_battling:
+			_tick_chase_elapsed(delta)
 			if current_order != null:
 				_process_order(delta)
 			else:
@@ -996,15 +1022,48 @@ func _process_knockback(delta: float) -> void:
 		_collision_shape.disabled = false
 
 
+## Called once per physics frame while battling (see _physics_process()),
+## regardless of order/no-order -- centralizes the delta-driven part of
+## _chase_elapsed's bookkeeping so _update_target() itself (called from
+## several different branches: default AI, HOLD, ATTACK_MOVE/PATROL/FOLLOW's
+## fallback) only needs a threshold comparison, not delta.
+func _tick_chase_elapsed(delta: float) -> void:
+	if target_enemy != _last_chased_target:
+		_last_chased_target = target_enemy
+		_chase_elapsed = 0.0
+		return
+	if target_enemy == null or not is_instance_valid(target_enemy) or target_enemy.current_health <= 0.0:
+		_chase_elapsed = 0.0
+		return
+	if _distance_to_target_edge(target_enemy) <= stat_block.attack_range():
+		_chase_elapsed = 0.0 # actively fighting, not stuck
+	else:
+		_chase_elapsed += delta
+
+
 ## Keeps the current target_enemy only if it's still alive AND still
 ## within acquisition_range of this unit's *current* position -- checked
 ## fresh every call, not just at the moment a target was first picked, so
 ## a target that drifts out of range gets given up on rather than chased
 ## forever. Otherwise re-acquires via GameManager.find_nearest_enemy(),
 ## which applies the same acquisition_range cap to the search itself.
+## Also gives up on an in-range-but-unreachable target once _chase_elapsed
+## (tracked centrally in _physics_process(), incremented whenever
+## target_enemy is valid but still outside attack_range) crosses
+## _STUCK_CHASE_THRESHOLD -- see that const's own doc comment for the
+## "several units orbiting one crowded target" problem this closes.
+## _chase_elapsed resets regardless of whether a replacement was actually
+## found, throttling retries to once per threshold window rather than
+## re-scanning every single frame once stuck.
 func _update_target() -> void:
 	var target_is_valid := target_enemy != null and is_instance_valid(target_enemy) and target_enemy.current_health > 0.0
 	if target_is_valid and horizontal_distance_to(global_position, target_enemy.global_position) <= stats.acquisition_range:
+		if _chase_elapsed >= _STUCK_CHASE_THRESHOLD:
+			_chase_elapsed = 0.0
+			var replacement := GameManager.find_nearest_enemy(self, target_enemy)
+			if replacement != null:
+				target_enemy = replacement
+				_last_chased_target = replacement
 		return
 	# Dropping an invalid/out-of-range target is immediate, regardless of
 	# the reacquisition cooldown below -- only the (expensive) *search for

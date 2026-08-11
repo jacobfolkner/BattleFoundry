@@ -456,7 +456,15 @@ func test_dragging_a_courtyard_squad_reorders_the_roster_to_match_its_physical_a
 	# threshold before a drop commits (handle_mouse_motion()) -- otherwise
 	# this is indistinguishable from a plain click that shouldn't reposition
 	# anything (usability report, 2026-08-11: clicking a courtyard unit to
-	# inspect it was shifting it).
+	# inspect it was shifting it). This test's own drop point is
+	# deliberately the SAME point Tank already occupies (testing the
+	# reorder mechanic in isolation from any actual position change), so
+	# moving straight there would never cross that threshold at all --
+	# a real drag doesn't teleport straight to its final point either, it
+	# passes through intermediate ones first, so this does too before
+	# settling back on back_point; the actual reposition still resolves
+	# from wherever the release lands, not the intermediate motion.
+	_main._try_move_mouse_to(camera.unproject_position(back_point) + Vector2(20, 0), true)
 	_main._try_move_mouse_to(camera.unproject_position(back_point), true)
 	_main._try_left_click_at(camera.unproject_position(back_point))
 

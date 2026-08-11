@@ -417,6 +417,13 @@ func _squad_formation_offset(stats: UnitStats, i: int) -> Vector3:
 ## reform around new_center -- used both to commit a courtyard
 ## drag-to-reorder (PlayerInputController._resolve_courtyard_drag()) and,
 ## called with the squad's pre-drag center, to revert an invalid drop.
+## Member 0 (the only one actually visible -- see Unit.set_courtyard_visible())
+## is snapped exactly onto new_center afterward rather than left at its
+## own _squad_formation_offset() position, same reasoning
+## _spawn_roster_squad_at()'s own doc comment covers in full: that offset
+## is zero-mean across the whole squad, not zero at index 0, so a
+## squad_size > 1 drag would otherwise visibly drop the unit somewhere
+## other than where the player actually released it.
 func reposition_courtyard_squad(player: Player, squad_index: int, new_center: Vector3) -> void:
 	var squad: Array = player.courtyard_units[squad_index]
 	var stats: UnitStats = player.roster[squad_index]
@@ -424,6 +431,8 @@ func reposition_courtyard_squad(player: Player, squad_index: int, new_center: Ve
 		var unit = squad[i]
 		if is_instance_valid(unit):
 			unit.global_position = new_center + _squad_formation_offset(stats, i)
+	if not squad.is_empty() and is_instance_valid(squad[0]):
+		squad[0].global_position = new_center
 
 
 ## Keeps Player.roster's order matching the courtyard's visual
@@ -458,19 +467,28 @@ func reorder_roster_by_courtyard_depth(player: Player) -> void:
 	player.courtyard_units = new_courtyard_units
 
 
-## Average position of a squad's currently-live members -- by
-## construction (_squad_formation_offset()'s offsets are zero-mean along
-## local X) this exactly recovers the anchor the squad was spawned/
-## repositioned around, regardless of squad_size, rather than any one
-## member's own (X-skewed) position.
+## Squad member 0's own position -- the only member ever actually visible
+## in the courtyard (Unit.set_courtyard_visible()) and the one
+## _spawn_roster_squad_at()/reposition_courtyard_squad() both pin exactly
+## onto their anchor point, so this IS the anchor, not an approximation
+## of it. Used to be an average across every live member instead
+## (relying on _squad_formation_offset()'s offsets being zero-mean to
+## recover the anchor) -- that broke the instant squad[0] started getting
+## pinned to the exact click/drop point while members 1..N-1 stayed at
+## their own (still zero-mean-around-the-*old*-anchor) offsets: the
+## courtyard's own "inward" direction turned out to share a real X
+## component with the formation spread axis, not be orthogonal to it as
+## first assumed, so the mismatch skewed depth-sort comparisons enough to
+## flip which of two squads counted as "more forward" (caught by
+## test_lineup_courtyard.gd, not just reasoned through). Member 1..N-1's
+## own positions are otherwise fully vestigial now -- invisible, non-
+## colliding, and unconditionally overwritten fresh by
+## BloodTournamentController.begin_march() the moment they matter again --
+## so there's no reason to keep averaging them in at all.
 func _squad_centroid(squad: Array) -> Vector3:
-	var total := Vector3.ZERO
-	var count := 0
-	for unit in squad:
-		if is_instance_valid(unit):
-			total += unit.global_position
-			count += 1
-	return total / count
+	if squad.is_empty() or not is_instance_valid(squad[0]):
+		return Vector3.ZERO
+	return squad[0].global_position
 
 
 ## Fraction of UnitStats.cost refunded by sell_unit() -- only meaningful
@@ -589,6 +607,25 @@ func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3)
 	# Only the squad's first member is actually shown in the courtyard --
 	# see Unit.set_courtyard_visible()'s own doc comment. The rest reveal
 	# themselves at battle start (BloodTournamentController.begin_march()).
+	# squad[0]'s own spawn position came from _squad_formation_offset(),
+	# which is zero-mean around `position` but NOT zero at index 0 for any
+	# squad_size > 1 -- e.g. a 5-wide squad's member 0 lands ~2 full
+	# spacings to one side of `position`, not on it. That was invisible
+	# before this feature (the whole spread squad read as "centered here"
+	# even though no single member was), but once member 0 became the
+	# only visible unit, a multi-member archetype would visibly appear
+	# offset from wherever the player actually clicked (gameplay
+	# feedback, 2026-08-11: "I should be able to place my unit anywhere
+	# in my courtyard but sometimes it'll shift elsewhere" -- exactly the
+	# squad_size > 1 archetypes, never the squad_size == 1 ones, which is
+	# why it read as "sometimes"). Snapping it back onto `position`
+	# explicitly, after the fact, is the fix -- members 1..N-1 are left at
+	# their own _squad_formation_offset() positions, which no longer
+	# matters for anything (see _squad_centroid()'s own doc comment: it
+	# reads member 0 directly now, not an average) since they're
+	# invisible, non-colliding, and unconditionally overwritten fresh by
+	# begin_march() the moment they're revealed for battle anyway.
+	squad[0].global_position = position
 	for i in range(1, squad.size()):
 		squad[i].set_courtyard_visible(false)
 	player.courtyard_units.append(squad)
@@ -721,13 +758,23 @@ func get_all_units() -> Array[Unit]:
 ## matters for autonomous AI, for the other half of the fix (an
 ## already-acquired target gets dropped, not chased forever, once it
 ## drifts out of range too).
-func find_nearest_enemy(unit: Unit) -> Unit:
+##
+## `exclude`, when given, is skipped even if it would otherwise be
+## nearest -- used by Unit._update_target()'s own "stuck chase" fallback
+## (see Unit._STUCK_CHASE_THRESHOLD's doc comment) to find a *different*
+## enemy once the current one has proven unreachable (crowded out by
+## allies already occupying every attack_range slot around it), rather
+## than this purely-geometric search just handing back the same
+## already-crowded target every time.
+func find_nearest_enemy(unit: Unit, exclude: Unit = null) -> Unit:
 	var nearest: Unit = null
 	var nearest_distance: float = INF
 	for other_team_id in _units_by_team:
 		if not alliances.is_hostile(unit.player.team_id, other_team_id):
 			continue
 		for enemy in _units_by_team[other_team_id]:
+			if enemy == exclude:
+				continue
 			if not is_instance_valid(enemy) or enemy.current_health <= 0.0:
 				continue
 			if enemy.stats.is_flying and not unit.stats.can_attack_flying:
