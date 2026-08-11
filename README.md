@@ -130,3 +130,16 @@ so lighting/shadows come out noticeably darker than real gameplay. Pass
 editor — it runs on a software Vulkan implementation under Xvfb, so
 budget ~30s per screenshot (mostly fixed startup/shader-compile cost,
 not sensitive to `--wait` once above ~8 frames).
+
+### Benchmark
+
+`tools/benchmark.sh` boots the real game fully headless (no renderer, no
+Xvfb) and measures physics-frame time under load — not run in CI yet,
+ad-hoc only. Spawns `--units` total units split evenly between two teams
+in classic mode, starts a real battle, and reports avg/worst frame time
+over `--frames` physics frames of actual combat.
+
+```sh
+tools/benchmark.sh --units=200
+tools/benchmark.sh --units=500 --frames=600
+```
