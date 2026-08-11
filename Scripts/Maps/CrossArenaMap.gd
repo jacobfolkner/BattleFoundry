@@ -113,8 +113,8 @@ func get_spawn_points() -> Array[Vector3]:
 ## Half-extent of each team's lineup-courtyard footprint -- must clear the
 ## widest existing squad spread (Fighter, squad_size 5, spacing
 ## collision_radius*2.5+0.3 ~= 1.55m -> ~6.2m across) plus the Builder
-## standing apart from it (see _COURTYARD_ANCHOR_OFFSET below), and leave
-## room for a roster that grows over a long match. Needs real
+## standing apart from it (see _COURTYARD_BUILDER_OFFSET below), and
+## leave room for a roster that grows over a long match. Needs real
 ## playtesting, not just this reasoning.
 const COURTYARD_HALF_EXTENT := 6.5
 
@@ -127,15 +127,31 @@ const COURTYARD_HALF_EXTENT := 6.5
 const _COURTYARD_ARM_DEPTH := 17.0
 const _COURTYARD_LATERAL_REACH := 32.0
 
-## How far the Builder (get_courtyard_position()) and the unit spawn
-## anchor (get_courtyard_unit_anchor()) sit apart from the courtyard's
-## own center, pushed in opposite directions along the center-to-courtyard
-## diagonal (the Builder toward the outer/back wall, units toward the
-## inner/front edge facing the arm) -- both previously spawned at the
-## exact same point, fully overlapping. Comfortably inside
-## COURTYARD_HALF_EXTENT so neither anchor's own footprint clips the
-## courtyard's edge.
-const _COURTYARD_ANCHOR_OFFSET := 3.0
+## How far the unit spawn anchor (get_courtyard_unit_anchor()) sits from
+## the courtyard's own center, pushed toward the inner/front edge facing
+## the arm -- the opposite direction from the Builder
+## (_COURTYARD_BUILDER_OFFSET below). Comfortably inside
+## COURTYARD_HALF_EXTENT so its own footprint (plus
+## _COURTYARD_SLOT_LATERAL_SPACING's fan-out) never clips the courtyard's
+## edge.
+const _COURTYARD_UNIT_OFFSET := 3.0
+
+## How far the Builder (get_courtyard_position()) sits from the
+## courtyard's own center, pushed toward the outer/back wall -- distinct
+## from _COURTYARD_UNIT_OFFSET (and pushed noticeably further) so the
+## Builder reads as clearly outside the actual build/roster area, not
+## just another few meters into the same footprint (gameplay feedback,
+## 2026-08-11: "the builder should just be a stationary unit somewhere
+## immediately outside the building area"). Bounded by the courtyard's
+## own square footprint: with the outward direction's dominant axis
+## component always ~0.883 (see _courtyard_center()'s LATERAL_REACH/
+## ARM_DEPTH split, constant across all 8 teams since they're just
+## axis-swapped), COURTYARD_HALF_EXTENT / 0.883 =~ 7.36 is the largest
+## offset that still lands on the courtyard's own ground tile -- past
+## that the Builder would visibly float off the tile into the plain
+## default-colored ground beyond it. 6.0 stays safely under that with
+## real margin while landing near the tile's own back edge.
+const _COURTYARD_BUILDER_OFFSET := 6.0
 
 ## Lateral spacing between roster slots' squads within a courtyard --
 ## get_courtyard_unit_anchor()'s `slot_index` param. Previously every
@@ -181,18 +197,17 @@ static func _courtyard_outward_direction(team_id: int) -> Vector2:
 
 
 ## The Builder's own spawn position -- the courtyard center pushed
-## _COURTYARD_ANCHOR_OFFSET further outward (away from the map center),
-## toward the courtyard's back wall. See get_courtyard_unit_anchor() for
-## where purchased squads spawn instead -- the two used to be the exact
-## same point, fully overlapping every squad with the Builder itself.
+## _COURTYARD_BUILDER_OFFSET further outward (away from the map center),
+## toward the courtyard's back wall, well clear of the unit lineup. See
+## get_courtyard_unit_anchor() for where purchased squads spawn instead.
 static func get_courtyard_position(team_id: int) -> Vector3:
 	var center := _courtyard_center(team_id)
 	var outward := _courtyard_outward_direction(team_id)
-	return center + Vector3(outward.x, 0, outward.y) * _COURTYARD_ANCHOR_OFFSET
+	return center + Vector3(outward.x, 0, outward.y) * _COURTYARD_BUILDER_OFFSET
 
 
 ## Where a purchased squad spawns -- the courtyard center pushed
-## _COURTYARD_ANCHOR_OFFSET inward (toward the map center / the arm this
+## _COURTYARD_UNIT_OFFSET inward (toward the map center / the arm this
 ## courtyard belongs to), the opposite side of the Builder in
 ## get_courtyard_position(). `slot_index` (the roster slot this squad
 ## belongs to) fans it out sideways from the 3rd slot onward so distinct
@@ -203,7 +218,7 @@ static func get_courtyard_unit_anchor(team_id: int, slot_index: int = 0) -> Vect
 	var outward := _courtyard_outward_direction(team_id)
 	var lateral := Vector2(-outward.y, outward.x)
 	var lateral_offset := lateral * _courtyard_slot_lateral_offset(slot_index)
-	return center - Vector3(outward.x, 0, outward.y) * _COURTYARD_ANCHOR_OFFSET + Vector3(lateral_offset.x, 0, lateral_offset.y)
+	return center - Vector3(outward.x, 0, outward.y) * _COURTYARD_UNIT_OFFSET + Vector3(lateral_offset.x, 0, lateral_offset.y)
 
 
 ## Fans out symmetrically from slot 0 (0, +1, -1, +2, -2, ...) rather
