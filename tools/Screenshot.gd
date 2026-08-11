@@ -149,6 +149,9 @@ func _run() -> void:
 	if faction_name != "":
 		_set_blue_faction(main, faction_name)
 
+	if args.has("select_roster"):
+		_select_roster_slot(int(args["select_roster"]))
+
 	if args.has("select"):
 		var index := int(args["select"])
 		if index >= 0 and index < placed.size():
@@ -228,6 +231,21 @@ func _set_blue_faction(main: Node3D, faction_name: String) -> void:
 			main._hud.refresh_unit_panel_for_faction(faction)
 			return
 	push_warning("Unknown --faction=%s (expected Human/Orc/Beast)" % faction_name)
+
+
+## Ad-hoc visual check for the unit action bar -- selects Blue's roster
+## slot `index`'s own first courtyard-visible member directly (same
+## target Main._on_roster_slot_clicked() would select from a real click,
+## which this bypasses since there's no roster-row Button to click here).
+func _select_roster_slot(index: int) -> void:
+	var player := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	GameManager.sync_courtyard_to_roster(player) # --buy only appends to roster data, doesn't spawn courtyard units on its own -- see _buy_for_roster()'s own doc comment
+	if index < 0 or index >= player.courtyard_units.size():
+		push_warning("--select_roster=%d out of range (%d courtyard slots)" % [index, player.courtyard_units.size()])
+		return
+	var squad: Array = player.courtyard_units[index]
+	if not squad.is_empty():
+		SelectionManager.select_single(squad[0])
 
 
 func _show_fake_leaderboard(main: Node3D) -> void:

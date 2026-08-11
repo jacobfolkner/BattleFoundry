@@ -171,6 +171,22 @@ func advance_to_next_round() -> void:
 	run_ai_turn_if_needed()
 
 
+## GameManager.current_mode, NOT this controller's own `mode` field --
+## same reasoning begin_march()'s own doc comment already spells out in
+## full (mode can desync from the real active mode for any caller that
+## calls GameManager.set_mode() directly instead of going through
+## Main._on_tournament_toggled()'s real activation flow). scoreboard_text()/
+## scoreboard_rows() used to read `mode` directly and only got away with
+## it because they were only ever reached via on_round_ended(), which
+## only ever fires through that real activation flow -- refresh_leaderboard()
+## is now called from Main._refresh_gold_display()'s much broader call
+## set (every gold/kill/upgrade change), some of which (several GUT
+## tests especially) call GameManager.set_mode() directly, so this bug
+## shape needed the same fix on sight rather than waiting to crash first.
+func _active_mode() -> BloodTournamentMode:
+	return GameManager.current_mode as BloodTournamentMode
+
+
 ## Only teams that have actually fielded a roster at some point (same
 ## "who's really playing" filter GoblinBossRound/FinalTournamentBracket
 ## use), sorted by wins descending -- BloodTournamentMode.wins_by_team
@@ -178,12 +194,18 @@ func advance_to_next_round() -> void:
 ## teams_with_units-style sort would silently omit anyone still sitting
 ## on 0 wins. Shared by scoreboard_text() (kept for existing test
 ## coverage) and scoreboard_rows() (the leaderboard modal's structured
-## data) so the two can never disagree on who's ranked where.
+## data) so the two can never disagree on who's ranked where. Empty if
+## GameManager.current_mode somehow isn't a BloodTournamentMode at all --
+## shouldn't happen given every caller already gates on uses_economy(),
+## but a defensive empty list beats a null-dereference crash.
 func _ranked_participants() -> Array:
+	var active_mode := _active_mode()
+	if active_mode == null:
+		return []
 	var participants := GameManager.all_team_ids().filter(
 		func(team_id: int) -> bool: return not GameManager.get_player(team_id).roster.is_empty()
 	)
-	participants.sort_custom(func(a: int, b: int) -> bool: return mode.get_wins(a) > mode.get_wins(b))
+	participants.sort_custom(func(a: int, b: int) -> bool: return active_mode.get_wins(a) > active_mode.get_wins(b))
 	return participants
 
 
@@ -193,30 +215,34 @@ func _ranked_participants() -> Array:
 ## actually wants to compare mid-match (who's ahead economically, who's
 ## racking up kills) without opening each team's own panel.
 func scoreboard_text() -> String:
+	var active_mode := _active_mode()
 	var parts: Array[String] = []
 	for team_id in _ranked_participants():
 		var player := GameManager.get_player(team_id)
 		parts.append("%s %dW (%dg, %dK, %dbp)" % [
-			GameManager.get_team_display_name(team_id), mode.get_wins(team_id),
+			GameManager.get_team_display_name(team_id), active_mode.get_wins(team_id),
 			player.resources, player.kills, player.blood_points,
 		])
 	return " : ".join(parts)
 
 
 ## Same ranking/participants as scoreboard_text(), as structured rows
-## instead of a pre-formatted string -- feeds HUD.show_tournament_score()'s
+## instead of a pre-formatted string -- feeds HUD.refresh_leaderboard()'s
 ## real table (columns, per-team color swatch) instead of the old flat
 ## text banner. Each row: team_id/display_name/color (for the swatch)/
 ## wins/gold/kills/blood_points.
 func scoreboard_rows() -> Array[Dictionary]:
+	var active_mode := _active_mode()
 	var rows: Array[Dictionary] = []
+	if active_mode == null:
+		return rows
 	for team_id in _ranked_participants():
 		var player := GameManager.get_player(team_id)
 		rows.append({
 			"team_id": team_id,
 			"display_name": GameManager.get_team_display_name(team_id),
 			"color": player.color,
-			"wins": mode.get_wins(team_id),
+			"wins": active_mode.get_wins(team_id),
 			"gold": player.resources,
 			"kills": player.kills,
 			"blood_points": player.blood_points,

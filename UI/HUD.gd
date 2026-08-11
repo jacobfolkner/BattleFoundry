@@ -22,9 +22,15 @@ signal ai_opponent_toggled(enabled: bool)
 ## Q/E/R hotkeys use, so clicking and pressing the key are equivalent.
 signal ability_slot_pressed(index: int)
 ## Emitted when a roster line-up slot is clicked (see _build_roster_row())
-## -- Main.gd routes this to GameManager.sell_roster_slot(), the
-## staging-area equivalent of the old click-a-live-unit-to-sell flow.
-signal roster_slot_sold(index: int)
+## -- Main.gd routes this to selecting that squad's own first live unit
+## (same target set_courtyard_visible(true)/begin_march() always keeps
+## visible/valid), NOT selling it. Used to sell immediately on click
+## (usability feedback, 2026-08-11: "the Shop area is dumb, I don't like
+## being able to sell there by clicking the unit name") -- selling now
+## only ever happens via the explicit Sell action in _unit_action_bar,
+## once a unit is actually selected, never as a surprise side effect of
+## a single click meant to just look at/select something.
+signal roster_slot_clicked(index: int)
 ## Emitted when the player toggles a candidate in the hero ability draft
 ## panel (see _build_hero_draft_panel()) -- Main.gd routes this to
 ## GameManager.pick_hero_ability(). `stats` is the hero archetype (e.g.
@@ -35,11 +41,19 @@ signal hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int)
 ## Player.exchange_gold_for_blood_points()/exchange_blood_points_for_gold().
 signal gold_exchange_requested
 signal blood_exchange_requested
-## Emitted by the Sell button (see _build_sell_button()/_refresh_sell_button())
-## -- no payload, Main.gd's own handler reads whichever unit
-## SelectionManager currently reports as selected, same source HUD's own
-## track_unit()/_tracked_unit already reflects.
+## Emitted by the unit action bar's Sell button (see
+## _build_unit_action_bar()/_refresh_unit_action_bar()) -- no payload,
+## Main.gd's own handler reads whichever unit SelectionManager currently
+## reports as selected, same source HUD's own track_unit()/_tracked_unit
+## already reflects.
 signal sell_requested
+## Emitted by one of the unit action bar's upgrade buttons -- Main.gd
+## routes this to GameManager.buy_roster_upgrade(). Account-wide (per
+## UnitUpgrade.gd's own doc comment), not actually specific to whichever
+## unit is selected -- shown alongside Sell anyway so "select a unit,
+## see what you can do" is one consistent place for both, rather than
+## upgrades living in yet another separate always-on control.
+signal upgrade_requested(upgrade: UnitUpgrade)
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
@@ -51,24 +65,38 @@ const PRIEST_STATS: UnitStats = preload("res://Resources/Units/PriestStats.tres"
 const AXE_THROWER_STATS: UnitStats = preload("res://Resources/Units/AxeThrowerStats.tres")
 const SPITTER_STATS: UnitStats = preload("res://Resources/Units/SpitterStats.tres")
 
+## Own copies, not a reach into PlayerInputController's own private
+## _UPGRADES -- HUD stays decoupled from input internals (see this file's
+## own class doc comment), same reasoning as the UnitStats consts above.
+## Index order matches PlayerInputController._UPGRADES/_UPGRADE_ACTIONS
+## purely so the U/I/O/L hotkeys and these buttons feel like the same
+## four actions, not because anything here reads that array directly.
+const IRON_ARMOR_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/IronArmorUpgrade.tres")
+const WHETSTONE_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/WhetstoneUpgrade.tres")
+const HEROIC_VIGOR_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/HeroicVigorUpgrade.tres")
+const HEROIC_MIGHT_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/HeroicMightUpgrade.tres")
+
 var _start_button: Button
 var _winner_label: Label
 var _drag_box: ColorRect
-## The leaderboard modal (see _build_leaderboard_modal()/show_tournament_score()) --
-## _leaderboard_dim is the dim full-rect backdrop. _leaderboard_card is
-## positioned manually from get_viewport_rect().size (same pattern
-## show_tournament_score()'s own predecessor and every other overlay in
-## this file already uses), not a CenterContainer -- two different
-## CenterContainer attempts (one nested inside an extra full-rect wrapper,
-## one as a direct full-rect-anchored child of `self`) both rendered the
-## card pinned to the top-left corner instead of centered. Matches
-## CLAUDE.md's documented "a Control's anchors don't reliably resolve in
-## this codebase's setup" gotcha closely enough that manual positioning,
-## not more anchor nesting, is the fix.
-var _leaderboard_dim: ColorRect
+## The leaderboard -- an always-on, collapsible panel pinned to the right
+## edge of the screen (usability feedback, 2026-08-11: "I'd like to see
+## it be 'always on' on the right side... maybe collapsable/expandable"),
+## not the dim-backdrop modal it started as. _leaderboard_card is
+## positioned manually from get_viewport_rect().size (same pattern every
+## other overlay in this file already uses), not a CenterContainer/anchors
+## -- two different CenterContainer attempts (one nested inside an extra
+## full-rect wrapper, one as a direct full-rect-anchored child of `self`)
+## both rendered the card pinned to the top-left corner instead of
+## centered when this was still a modal. Matches CLAUDE.md's documented
+## "a Control's anchors don't reliably resolve in this codebase's setup"
+## gotcha closely enough that manual positioning, not more anchor
+## nesting, is the fix.
 var _leaderboard_card: PanelContainer
-var _leaderboard_title: Label
+var _leaderboard_collapse_button: Button
 var _leaderboard_grid: GridContainer
+## Collapsed by default -- see refresh_leaderboard()/show_tournament_score().
+var _leaderboard_expanded: bool = false
 var _gold_label: Label
 var _gold_exchange_button: Button
 var _blood_exchange_button: Button
@@ -108,7 +136,9 @@ var _build_menu_card: PanelContainer
 
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
+var _unit_action_bar: HBoxContainer
 var _sell_button: Button
+var _upgrade_buttons: Array[Button] = []
 var _buff_row: HBoxContainer
 var _targeting_label: Label
 var _placement_hint_label: Label
@@ -153,7 +183,7 @@ func _ready() -> void:
 	_build_winner_label()
 	_build_drag_box()
 	_build_ability_hotbar()
-	_build_sell_button()
+	_build_unit_action_bar()
 	_build_buff_row()
 	_build_targeting_prompt()
 	_build_placement_hint()
@@ -170,7 +200,7 @@ func _ready() -> void:
 ## count down even while the selection itself hasn't changed.
 func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
-	_refresh_sell_button()
+	_refresh_unit_action_bar()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
 	_refresh_placement_hint()
@@ -526,7 +556,7 @@ func _build_winner_label() -> void:
 	_style_overlay_label(_winner_label)
 	center.add_child(_winner_label)
 
-	_build_leaderboard_modal()
+	_build_leaderboard_panel()
 
 	# Positioned just below the score label (see show_gold()) rather than
 	# stacked in a Container with it -- same bare-Label-on-a-parentless-
@@ -615,54 +645,53 @@ func _style_primary_button(button: Button) -> void:
 
 const _LEADERBOARD_COLUMNS := 6
 
-## A dim full-rect backdrop (blocks clicks to the game underneath, and
-## dismisses the modal itself when clicked) behind a centered card with a
-## real table -- rank/team-color-swatch/wins/gold/kills/blood points --
-## replacing the old always-on, plain-text top-center banner (usability
-## review, 2026-08-11: "the leaderboard should be a modal and much nicer
-## to read with clear columns, icons"). Built once in _ready(); only the
-## data rows get rebuilt per show_tournament_score() call, same
-## "not every frame, so a from-scratch rebuild is safe" reasoning
-## _build_ability_draft_row()'s own doc comment already uses.
-func _build_leaderboard_modal() -> void:
-	_leaderboard_dim = ColorRect.new()
-	_leaderboard_dim.color = Color(0, 0, 0, 0.6)
-	_leaderboard_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_leaderboard_dim.visible = false
-	_leaderboard_dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	_leaderboard_dim.gui_input.connect(func(event: InputEvent):
-		if event is InputEventMouseButton and event.pressed:
-			hide_tournament_score()
-	)
-	add_child(_leaderboard_dim)
-
+## An always-on panel pinned to the right edge of the screen -- a real
+## table (rank/team-color-swatch/wins/gold/kills/blood points), collapsed
+## to just its header by default with a ▸/▾ toggle (same collapsible
+## pattern UI/MainMenu.gd's own "Controls" section already established),
+## expanding automatically on show_tournament_score() (a fresh round's
+## result) so a player notices without having to go looking, but staying
+## out of the way otherwise. Replaces what used to be a dim-backdrop
+## modal shown only once per round end. Built once in _ready(); only the
+## data rows get rebuilt per refresh_leaderboard() call, same "not every
+## frame, so a from-scratch rebuild is safe" reasoning
+## _build_ability_draft_row()'s own doc comment already uses -- refresh_leaderboard()
+## itself IS called every time gold/kills/wins could plausibly have
+## changed (Main._refresh_gold_display()'s own call sites), not just at
+## round end, which is what makes this "always on" rather than a stale
+## snapshot.
+func _build_leaderboard_panel() -> void:
 	_leaderboard_card = PanelContainer.new()
 	_leaderboard_card.visible = false
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.1, 0.1, 0.12, 0.98)
+	style.bg_color = Color(0.1, 0.1, 0.12, 0.92)
 	style.set_corner_radius_all(8)
-	style.set_content_margin_all(24)
+	style.set_content_margin_all(16)
 	style.border_color = _TOGGLE_SELECTED_COLOR
-	style.set_border_width_all(2)
+	style.set_border_width_all(1)
 	_leaderboard_card.add_theme_stylebox_override("panel", style)
-	# Own mouse_filter left at the default (STOP) -- unlike _leaderboard_dim,
-	# clicking the card itself shouldn't dismiss the modal, only clicking
-	# outside it.
 	add_child(_leaderboard_card)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 14)
+	content.add_theme_constant_override("separation", 10)
 	_leaderboard_card.add_child(content)
 
-	_leaderboard_title = Label.new()
-	_leaderboard_title.add_theme_font_size_override("font_size", 22)
-	_leaderboard_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	content.add_child(_leaderboard_title)
+	var header_row := HBoxContainer.new()
+	header_row.add_theme_constant_override("separation", 8)
+	content.add_child(header_row)
+	var title := Label.new()
+	title.text = "Leaderboard"
+	title.add_theme_font_size_override("font_size", 18)
+	header_row.add_child(title)
+	_leaderboard_collapse_button = Button.new()
+	_leaderboard_collapse_button.flat = true
+	_leaderboard_collapse_button.pressed.connect(_on_leaderboard_collapse_pressed)
+	header_row.add_child(_leaderboard_collapse_button)
 
 	_leaderboard_grid = GridContainer.new()
 	_leaderboard_grid.columns = _LEADERBOARD_COLUMNS
-	_leaderboard_grid.add_theme_constant_override("h_separation", 24)
-	_leaderboard_grid.add_theme_constant_override("v_separation", 8)
+	_leaderboard_grid.add_theme_constant_override("h_separation", 18)
+	_leaderboard_grid.add_theme_constant_override("v_separation", 6)
 	content.add_child(_leaderboard_grid)
 	for header in ["Rank", "Team", "Wins", "Gold", "Kills", "Blood Points"]:
 		var header_label := Label.new()
@@ -670,27 +699,32 @@ func _build_leaderboard_modal() -> void:
 		header_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
 		_leaderboard_grid.add_child(header_label)
 
-	var close_button := Button.new()
-	close_button.text = "Continue"
-	close_button.custom_minimum_size = Vector2(140, 40)
-	close_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_style_primary_button(close_button)
-	close_button.pressed.connect(hide_tournament_score)
-	close_button.pressed.connect(func(): Sfx.play_ui_click())
-	content.add_child(close_button)
+	_set_leaderboard_expanded(false)
 
 
-## Called by Main.gd on every BloodTournamentMode.round_ended -- `rows` is
+func _on_leaderboard_collapse_pressed() -> void:
+	Sfx.play_ui_click()
+	_set_leaderboard_expanded(not _leaderboard_expanded)
+
+
+func _set_leaderboard_expanded(expanded: bool) -> void:
+	_leaderboard_expanded = expanded
+	_leaderboard_grid.visible = expanded
+	_leaderboard_collapse_button.text = "▾" if expanded else "▸"
+	if _leaderboard_card.visible:
+		_reposition_leaderboard()
+
+
+## Called by Main._refresh_gold_display() -- every gold/blood-point/kill
+## change, not just round transitions, is what keeps this "always on"
+## instead of a stale once-per-round snapshot. `rows` is
 ## BloodTournamentController.scoreboard_rows(), already sorted by wins
 ## descending, so this stays a generic "render whatever rows you're
 ## given" table, same boundary this class's own doc comment already
-## describes for GameManager lookups. Rebuilds the grid's data rows from
-## scratch each call (the header row, added in _build_leaderboard_modal(),
-## is never touched) -- fine since this only ever fires once per round
-## end, not per-frame.
-func show_tournament_score(round_number: int, rows: Array[Dictionary]) -> void:
-	_leaderboard_title.text = "Round %d Results" % round_number
-
+## describes for GameManager lookups. Does NOT change the collapsed/
+## expanded state -- see show_tournament_score() for the one case that
+## should auto-expand it.
+func refresh_leaderboard(rows: Array[Dictionary]) -> void:
 	while _leaderboard_grid.get_child_count() > _LEADERBOARD_COLUMNS:
 		_leaderboard_grid.get_child(_LEADERBOARD_COLUMNS).free()
 
@@ -728,16 +762,35 @@ func show_tournament_score(round_number: int, rows: Array[Dictionary]) -> void:
 		blood_label.text = "%dbp" % row["blood_points"]
 		_leaderboard_grid.add_child(blood_label)
 
-	_leaderboard_dim.visible = true
 	_leaderboard_card.visible = true
+	_reposition_leaderboard()
+
+
+## Called by BloodTournamentController.on_round_ended() specifically --
+## the one moment worth interrupting a collapsed panel for. Refreshes the
+## same as refresh_leaderboard() (a round ending always changes standings
+## anyway) and expands it.
+func show_tournament_score(_round_number: int, rows: Array[Dictionary]) -> void:
+	refresh_leaderboard(rows)
+	_set_leaderboard_expanded(true)
+
+
+## Hides the panel entirely -- classic mode/Hero Footies (neither has a
+## leaderboard at all) and mode transitions. Collapsing is a separate,
+## lesser action (_set_leaderboard_expanded(false)) the player drives via
+## the ▸/▾ button; this is "nothing to show," not "user tucked it away."
+func hide_tournament_score() -> void:
+	_leaderboard_card.visible = false
+
+
+## Repositioned every call rather than only in _ready() -- the card's own
+## size changes when it expands/collapses or gains/loses rows, and a
+## right-pinned panel needs to stay flush with the (possibly resized)
+## viewport edge regardless.
+func _reposition_leaderboard() -> void:
 	_leaderboard_card.reset_size()
 	var viewport_size := get_viewport_rect().size
-	_leaderboard_card.position = (viewport_size - _leaderboard_card.size) * 0.5
-
-
-func hide_tournament_score() -> void:
-	_leaderboard_dim.visible = false
-	_leaderboard_card.visible = false
+	_leaderboard_card.position = Vector2(viewport_size.x - _leaderboard_card.size.x - 24, 24)
 
 
 ## Called by Main.gd whenever Blood Tournament gold/blood points change
@@ -800,11 +853,15 @@ func refresh_affordability(player: Player) -> void:
 
 ## The "rectangle" -- a literal separate staging area's line-up display,
 ## not the arena itself. Shows the currently active placement side's
-## roster in purchase order (see Player.roster); clicking a slot sells
-## it (roster_slot_sold, routed by Main.gd to
-## GameManager.sell_roster_slot()). Hidden entirely outside Blood
-## Tournament via refresh_roster_row([]) -- Main.gd is what decides that,
-## same as show_gold()/hide_gold().
+## roster in purchase order (see Player.roster); clicking a slot selects
+## that squad (roster_slot_clicked, routed by Main.gd to
+## SelectionManager.select_single()) rather than selling it outright --
+## selling now only happens via the explicit Sell action in
+## _unit_action_bar once something's actually selected (usability
+## feedback, 2026-08-11: a single click here silently selling was a real
+## complaint, not just a hypothetical foot-gun). Hidden entirely outside
+## Blood Tournament via refresh_roster_row([]) -- Main.gd is what decides
+## that, same as show_gold()/hide_gold().
 func _build_roster_row(parent: Control) -> void:
 	_roster_row = HBoxContainer.new()
 	_roster_row.add_theme_constant_override("separation", 4)
@@ -820,7 +877,7 @@ func refresh_roster_row(roster: Array[UnitStats]) -> void:
 		var index := _roster_slot_buttons.size()
 		var button := Button.new()
 		button.custom_minimum_size = Vector2(72, 32)
-		button.pressed.connect(func(): roster_slot_sold.emit(index))
+		button.pressed.connect(func(): roster_slot_clicked.emit(index))
 		button.pressed.connect(func(): Sfx.play_ui_click())
 		_roster_row.add_child(button)
 		_roster_slot_buttons.append(button)
@@ -981,47 +1038,84 @@ func _refresh_ability_hotbar() -> void:
 			button.disabled = false
 
 
-## Positioned at the very bottom of the screen -- clear of the ability
-## hotbar (viewport_size.y - 80), buff row (-106), and hero level/XP bar
-## (-140/-118), all of which only show for specific unit types, whereas
-## Sell should be able to show for anything ownable regardless of what
-## else is currently visible.
-func _build_sell_button() -> void:
+## A visible set of "what can I do with the thing I just selected"
+## actions -- Sell (with its real refund price) plus, under Blood
+## Tournament, the 4 account-wide upgrade purchases (previously only
+## reachable via the U/I/O/L hotkeys, with zero visible affordance --
+## usability feedback, 2026-08-11: "nothing shows up" when a unit is
+## selected). Positioned at the very bottom of the screen -- clear of the
+## ability hotbar (viewport_size.y - 80), buff row (-106), and hero
+## level/XP bar (-140/-118), all of which only show for specific unit
+## types, whereas this bar should be able to show for anything ownable
+## regardless of what else is currently visible.
+func _build_unit_action_bar() -> void:
+	_unit_action_bar = HBoxContainer.new()
+	_unit_action_bar.add_theme_constant_override("separation", 6)
+	_unit_action_bar.visible = false
+	add_child(_unit_action_bar)
+
 	_sell_button = Button.new()
-	_sell_button.visible = false
-	_sell_button.custom_minimum_size = Vector2(140, 32)
+	_sell_button.custom_minimum_size = Vector2(120, 32)
 	_style_primary_button(_sell_button)
 	_sell_button.pressed.connect(func(): sell_requested.emit())
 	_sell_button.pressed.connect(func(): Sfx.play_ui_click())
-	add_child(_sell_button)
+	_unit_action_bar.add_child(_sell_button)
+
+	for upgrade in [IRON_ARMOR_UPGRADE, WHETSTONE_UPGRADE, HEROIC_VIGOR_UPGRADE, HEROIC_MIGHT_UPGRADE]:
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(150, 32)
+		button.pressed.connect(func(): upgrade_requested.emit(upgrade))
+		button.pressed.connect(func(): Sfx.play_ui_click())
+		_unit_action_bar.add_child(button)
+		_upgrade_buttons.append(button)
 
 
 ## Selling was previously only a right-click-and-hope affordance with no
-## visible price -- shown here instead whenever a sellable unit is
-## selected (usability feedback, 2026-08-11), with the actual refund
-## amount, so a player can see what they'd get back before committing.
-## "Sellable" mirrors PlayerInputController.try_sell_unit()'s own gate
-## (own team, not the Builder, PLACEMENT only) -- kept in sync by hand
-## since HUD doesn't reach into PlayerInputController directly (see this
-## file's own class doc comment on staying decoupled from input/selection
-## internals).
-func _refresh_sell_button() -> void:
+## visible price; upgrades were hotkey-only with no visible affordance at
+## all -- both shown here now whenever a sellable unit is selected during
+## PLACEMENT, refund/cost included, so a player can see what a click
+## actually does before committing. "Sellable" mirrors
+## PlayerInputController.try_sell_unit()'s own gate (own team, not the
+## Builder, PLACEMENT only) -- kept in sync by hand since HUD doesn't
+## reach into PlayerInputController directly (see this file's own class
+## doc comment on staying decoupled from input/selection internals).
+## Iron Armor/Whetstone apply to every squad and always show; Heroic
+## Vigor/Heroic Might are heroes_only (UnitUpgrade.gd) and only show
+## while the selected unit is actually a hero -- offering them against a
+## Tank would silently no-op (buy_roster_upgrade() just skips non-hero
+## squads) with no indication why.
+func _refresh_unit_action_bar() -> void:
 	var unit := _tracked_unit
 	var sellable := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE \
 		and unit.player == SelectionManager.local_player and not unit.stats.is_builder \
 		and GameManager.is_placement_phase()
-	_sell_button.visible = sellable
+	_unit_action_bar.visible = sellable
 	if not sellable:
 		return
 
-	if GameManager.current_mode.uses_economy():
+	var use_gold := GameManager.current_mode.uses_economy()
+	if use_gold:
 		var refund := int(unit.stats.cost * GameManager.SELL_REFUND_FRACTION)
 		_sell_button.text = "Sell (%dg)" % refund
 	else:
 		_sell_button.text = "Sell"
 
+	var player := SelectionManager.local_player
+	for i in _upgrade_buttons.size():
+		var upgrade: UnitUpgrade = [IRON_ARMOR_UPGRADE, WHETSTONE_UPGRADE, HEROIC_VIGOR_UPGRADE, HEROIC_MIGHT_UPGRADE][i]
+		var button := _upgrade_buttons[i]
+		var relevant := use_gold and (not upgrade.heroes_only or unit.stats.is_hero)
+		button.visible = relevant
+		if not relevant:
+			continue
+		var unaffordable := not player.can_afford_blood_points(upgrade.cost)
+		button.text = "%s (%dbp)" % [upgrade.upgrade_name, upgrade.cost]
+		button.disabled = unaffordable
+		button.modulate = _UNAFFORDABLE_MODULATE if unaffordable else Color.WHITE
+
+	_unit_action_bar.reset_size()
 	var viewport_size := get_viewport_rect().size
-	_sell_button.position = Vector2((viewport_size.x - _sell_button.size.x) * 0.5, viewport_size.y - 40)
+	_unit_action_bar.position = Vector2((viewport_size.x - _unit_action_bar.size.x) * 0.5, viewport_size.y - 40)
 
 
 func _build_buff_row() -> void:

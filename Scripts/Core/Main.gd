@@ -84,11 +84,12 @@ func _ready() -> void:
 	_hud.start_battle_pressed.connect(_on_start_battle_pressed)
 	_hud.ai_opponent_toggled.connect(_on_ai_opponent_toggled)
 	_hud.ability_slot_pressed.connect(_try_cast_or_target)
-	_hud.roster_slot_sold.connect(_on_roster_slot_sold)
+	_hud.roster_slot_clicked.connect(_on_roster_slot_clicked)
 	_hud.hero_ability_picked.connect(_on_hero_ability_picked)
 	_hud.gold_exchange_requested.connect(_on_gold_exchange_requested)
 	_hud.blood_exchange_requested.connect(_on_blood_exchange_requested)
 	_hud.sell_requested.connect(_on_sell_requested)
+	_hud.upgrade_requested.connect(_on_upgrade_requested)
 	# HUD only ever displays whichever unit SelectionManager reports as
 	# selected -- it never reads SelectionManager itself (see HUD.gd's own
 	# doc comment on staying decoupled from selection/battle-lifecycle
@@ -359,8 +360,10 @@ func _refresh_gold_display() -> void:
 		var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 		_hud.show_gold(blue.resources, red.resources, blue.blood_points, red.blood_points)
 		_hud.refresh_roster_row(_selected_player.roster)
+		_hud.refresh_leaderboard(_bt_controller.scoreboard_rows()) # this call site (every gold/kill/upgrade change, not just round transitions) is what keeps the leaderboard "always on" rather than a stale once-per-round snapshot
 	else:
 		_hud.hide_gold()
+		_hud.hide_tournament_score()
 		# _hud is typed as plain Control (see its @onready declaration), so this
 		# call dispatches dynamically -- a bare [] literal has no static context
 		# to become Array[UnitStats] and fails HUD.refresh_roster_row()'s typed
@@ -374,13 +377,20 @@ func _refresh_gold_display() -> void:
 
 
 ## Connected to HUD's roster line-up row (see UI/HUD.gd) -- clicking a
-## slot there sells it (GameManager.sell_roster_slot()) instead of the
-## old right-click-a-live-unit flow (_try_sell_unit_at()), since nothing
-## is live to click during PLACEMENT anymore under the staggered-deployment
-## model.
-func _on_roster_slot_sold(index: int) -> void:
-	if GameManager.sell_roster_slot(_selected_player, index):
-		_refresh_gold_display()
+## slot there SELECTS that squad's own first live unit instead of selling
+## it outright (usability feedback, 2026-08-11: a bare click silently
+## selling was a real complaint) -- the same courtyard squad member
+## Unit.set_courtyard_visible(true) always keeps visible/valid (see its
+## own doc comment). Selecting it surfaces the real Sell/upgrade actions
+## in HUD's unit action bar, same as clicking the unit directly in the
+## world would.
+func _on_roster_slot_clicked(index: int) -> void:
+	if index < 0 or index >= _selected_player.courtyard_units.size():
+		return
+	var squad: Array = _selected_player.courtyard_units[index]
+	if squad.is_empty() or not is_instance_valid(squad[0]):
+		return
+	SelectionManager.select_single(squad[0])
 
 
 func _on_hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int) -> void:
@@ -406,6 +416,14 @@ func _on_sell_requested() -> void:
 	if SelectionManager.selected_units.is_empty():
 		return
 	_input.try_sell_unit(SelectionManager.selected_units[0])
+
+
+## HUD's unit action bar upgrade buttons -- account-wide (see
+## UnitUpgrade.gd's own doc comment), so this doesn't need to know which
+## unit is selected at all, just spends _selected_player's blood points.
+func _on_upgrade_requested(upgrade: UnitUpgrade) -> void:
+	if GameManager.buy_roster_upgrade(_selected_player, upgrade):
+		_refresh_gold_display()
 
 
 ## Actual input handling lives in Scripts/Core/PlayerInputController.gd (_input)
