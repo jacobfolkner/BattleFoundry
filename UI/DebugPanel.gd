@@ -1,4 +1,4 @@
-## Displays a live snapshot of whatever unit Scripts/DebugInspector.gd
+## Displays a live snapshot of whatever unit Scripts/Autoloads/DebugInspector.gd
 ## has selected.
 ##
 ## Purely observational UI: it renders whatever key/value pairs
@@ -21,12 +21,26 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	_panel = PanelContainer.new()
+	# Shares the same dark-card chrome as every player-facing HUD panel by
+	# default -- nothing marked this as a dev-only tool (usability review,
+	# 2026-08-11). An amber left-border + tinted background reads as
+	# "diagnostic overlay," distinct from Shop/Match/Build's neutral cards.
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.12, 0.09, 0.02, 0.85)
+	style.border_color = Color(0.9, 0.65, 0.15)
+	style.set_border_width_all(1)
+	style.border_width_left = 4
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(10)
+	_panel.add_theme_stylebox_override("panel", style)
 	add_child(_panel)
 	_panel.custom_minimum_size = Vector2(_WIDTH, 0)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.visible = false
 
 	_info_label = Label.new()
+	_info_label.add_theme_font_size_override("font_size", 13)
+	_info_label.add_theme_color_override("font_color", Color(0.95, 0.82, 0.55))
 	_panel.add_child(_info_label)
 
 	_reposition()
@@ -71,7 +85,7 @@ func _on_selection_changed(unit: Unit) -> void:
 ## cased, so this never needs to change when a new field (or a whole new
 ## inspectable object type) is added elsewhere.
 func _refresh(info: Dictionary) -> void:
-	var lines: Array[String] = ["Selected Unit", ""]
+	var lines: Array[String] = ["DEBUG INSPECTOR", ""]
 	for key in info:
 		lines.append("%s: %s" % [key, info[key]])
 	_info_label.text = "\n".join(lines)

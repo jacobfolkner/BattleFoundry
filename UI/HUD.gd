@@ -300,6 +300,18 @@ func _add_spacer(parent: Control, height: float) -> void:
 	parent.add_child(spacer)
 
 
+## The default theme's own "pressed" look (a marginally lighter shade of
+## the same dark charcoal) barely reads against these already-dark cards
+## -- side-by-side, a selected and unselected toggle look nearly
+## identical (usability review, 2026-08-11, same category of finding
+## refresh_affordability()'s own _UNAFFORDABLE_MODULATE already fixed for
+## affordability). A single warm-gold accent (matching the hero XP bar's
+## existing fill color, the one deliberate accent color already in this
+## UI) on the "pressed" stylebox gives every toggle group in this file --
+## team select, build-menu unit selection, hero ability draft picks --
+## an unambiguous selected state for free.
+const _TOGGLE_SELECTED_COLOR := Color(0.85, 0.7, 0.2)
+
 func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_pressed: bool, on_pressed: Callable) -> Button:
 	var button := Button.new()
 	button.text = label
@@ -307,10 +319,20 @@ func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_p
 	button.toggle_mode = true
 	button.button_group = group
 	button.button_pressed = is_pressed
+	_style_toggle_button(button)
 	button.pressed.connect(on_pressed)
 	button.pressed.connect(func(): Sfx.play_ui_click()) # "pressed" only ever fires on real interaction (mouse/keyboard), never from setting button_pressed programmatically -- safe to wire unconditionally here
 	parent.add_child(button)
 	return button
+
+
+func _style_toggle_button(button: Button) -> void:
+	var pressed_style := StyleBoxFlat.new()
+	pressed_style.bg_color = _TOGGLE_SELECTED_COLOR
+	pressed_style.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("pressed", pressed_style)
+	button.add_theme_color_override("font_pressed_color", Color.BLACK)
+	button.add_theme_color_override("font_hover_pressed_color", Color.BLACK)
 
 
 ## Placed inside the team panel (as its own VBoxContainer flow) rather than
@@ -397,6 +419,18 @@ func _on_ai_toggled(enabled: bool) -> void:
 ## the same category of bug that previously made the Start Battle button
 ## invisible: setting position/size on a Control before it's in the tree
 ## resolves against a zero-size parent rect in Godot 4.7.
+## These labels sit directly on top of the live 3D scene (no backing
+## panel) -- the default theme's mid-gray font color barely holds up
+## against whatever happens to be rendered underneath (usability review,
+## 2026-08-11). A bright near-white fill plus a black outline keeps them
+## legible against any background without needing to size/position a
+## panel behind each one.
+func _style_overlay_label(label: Label) -> void:
+	label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	label.add_theme_constant_override("outline_size", 6)
+
+
 func _build_winner_label() -> void:
 	var center := CenterContainer.new()
 	add_child(center)
@@ -408,6 +442,7 @@ func _build_winner_label() -> void:
 	_winner_label.add_theme_font_size_override("font_size", 48)
 	_winner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_winner_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_style_overlay_label(_winner_label)
 	center.add_child(_winner_label)
 
 	# Added directly to self (like _drag_box), not nested inside the
@@ -418,6 +453,7 @@ func _build_winner_label() -> void:
 	_tournament_score_label.visible = false
 	_tournament_score_label.add_theme_font_size_override("font_size", 22)
 	_tournament_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_overlay_label(_tournament_score_label)
 	add_child(_tournament_score_label)
 
 	# Positioned just below the score label (see show_gold()) rather than
@@ -428,6 +464,7 @@ func _build_winner_label() -> void:
 	_gold_label.visible = false
 	_gold_label.add_theme_font_size_override("font_size", 18)
 	_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_overlay_label(_gold_label)
 	add_child(_gold_label)
 
 	# Positioned below _gold_label in show_gold() (parentless-Control
@@ -707,9 +744,17 @@ func track_unit(unit: Unit) -> void:
 ## cooldown, or not a player-triggerable cast type (PASSIVE/ON_HIT/AURA --
 ## Unit.cast_ability() enforces the same gate; this just reflects it
 ## visually rather than letting a click silently no-op with no feedback).
+## The whole hotbar hides rather than showing 3 "-" placeholders when
+## there's nothing selected or the selected unit has zero abilities
+## (usability review, 2026-08-11: most archetypes have none, so this row
+## was permanently visible noise across nearly every screenshot).
 func _refresh_ability_hotbar() -> void:
 	var unit := _tracked_unit
 	var alive := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE
+	var has_any_ability := alive and unit.resolved_abilities.any(func(a): return a != null)
+	_ability_hotbar.visible = has_any_ability
+	if not has_any_ability:
+		return
 
 	for i in _ability_slot_buttons.size():
 		var button := _ability_slot_buttons[i]
@@ -803,6 +848,7 @@ func _build_targeting_prompt() -> void:
 	_targeting_label.visible = false
 	_targeting_label.add_theme_font_size_override("font_size", 20)
 	_targeting_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_overlay_label(_targeting_label)
 	add_child(_targeting_label)
 
 
