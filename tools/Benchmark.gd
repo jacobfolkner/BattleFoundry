@@ -18,11 +18,16 @@ const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tre
 
 const DEFAULT_UNITS := 200
 const DEFAULT_FRAMES := 300
-## How far apart adjacent units in the spawn grid start -- loose enough
-## that avoidance has real (but not degenerate/fully-overlapping) work to
-## do sorting them out into combat, matching what "200/500 units" is
-## actually meant to stress.
-const _GRID_SPACING := 1.6
+## How far apart adjacent units in the spawn grid start, in meters --
+## loose enough that avoidance has real (but not degenerate/fully-
+## overlapping) work to do sorting them out into combat by default.
+## Override with --spacing to test a more spread-out battle (e.g. 8
+## teams starting at different cross-map arms, not one dense clump) --
+## GameManager.find_nearest_enemy()'s spatial-grid optimization's actual
+## payoff is scenario-dependent: a tightly clustered fight (the default)
+## doesn't reduce candidates much per query since most units are already
+## "nearby" regardless; spreading units out shows the real win.
+const DEFAULT_SPACING := 1.6
 
 
 func _ready() -> void:
@@ -33,6 +38,7 @@ func _run() -> void:
 	var args := _parse_args()
 	var unit_count := int(args.get("units", DEFAULT_UNITS))
 	var frame_count := int(args.get("frames", DEFAULT_FRAMES))
+	var spacing := float(args.get("spacing", DEFAULT_SPACING))
 
 	var main: Node3D = load("res://Scenes/Main.tscn").instantiate()
 	add_child(main)
@@ -41,8 +47,8 @@ func _run() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
 	var half := unit_count / 2
-	_spawn_grid(TANK_STATS, blue, half, -1.0)
-	_spawn_grid(FIGHTER_STATS, red, unit_count - half, 1.0)
+	_spawn_grid(TANK_STATS, blue, half, -1.0, spacing)
+	_spawn_grid(FIGHTER_STATS, red, unit_count - half, 1.0, spacing)
 
 	GameManager.start_battle()
 	await get_tree().physics_frame # let the first real combat frame run before timing starts
@@ -68,12 +74,18 @@ func _run() -> void:
 ## 20m bound, leaving room for the grid's own footprint) -- the two
 ## teams' grids start apart, not overlapping, but close enough that
 ## real combat (not just idle standing) happens well within `frames`.
-func _spawn_grid(stats: UnitStats, player: Player, count: int, x_sign: float) -> void:
+## `spacing` isn't clamped to fit inside the arena bound -- a large
+## --spacing at a high --units will spill past ARENA_HALF_EXTENT and get
+## squashed back in by Unit's own per-frame arena clamp, which just
+## produces a denser-than-requested spread rather than an error; fine for
+## this tool's own comparative purpose (this run vs. that run), not meant
+## to guarantee an exact footprint.
+func _spawn_grid(stats: UnitStats, player: Player, count: int, x_sign: float, spacing: float) -> void:
 	var columns := ceili(sqrt(count))
 	for i in count:
 		var col := i % columns
 		var row := i / columns
-		var position := Vector3(x_sign * 12.0 + col * _GRID_SPACING, 0, (row - columns * 0.5) * _GRID_SPACING)
+		var position := Vector3(x_sign * 12.0 + col * spacing, 0, (row - columns * 0.5) * spacing)
 		GameManager.spawn_unit(stats, player, position)
 
 

@@ -766,6 +766,23 @@ func get_all_units() -> Array[Unit]:
 ## allies already occupying every attack_range slot around it), rather
 ## than this purely-geometric search just handing back the same
 ## already-crowded target every time.
+##
+## Still a plain O(n) scan, deliberately -- roadmap Phase 0's own
+## long-deferred note. A spatial-grid version (rebuilt at most once per
+## physics frame, queried by cell instead of scanning every hostile unit)
+## was tried and reverted the same session (2026-08-11): tools/benchmark.sh
+## showed no measurable improvement even with units spread across the
+## arena instead of clustered -- the real cost at high unit counts is
+## evidently elsewhere (NavigationAgent3D pathfinding/avoidance is the
+## likely suspect, not this search), so the added complexity bought
+## nothing. It also introduced a real, reproducible bug: caching "the
+## grid as of this physics frame" broke the very next physics-frame-exact
+## test that spawned a new unit and immediately re-queried within the
+## same frame (test_target_acquisition_perf.gd's own reacquisition-cooldown
+## tests do exactly this) -- the newly spawned unit was invisible to a
+## grid snapshot taken before it existed. Don't re-attempt this exact
+## approach without first confirming (with tools/benchmark.sh) that the
+## scan itself, not something else, is actually the bottleneck.
 func find_nearest_enemy(unit: Unit, exclude: Unit = null) -> Unit:
 	var nearest: Unit = null
 	var nearest_distance: float = INF
