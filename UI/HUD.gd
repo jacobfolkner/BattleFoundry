@@ -46,7 +46,21 @@ const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
 var _start_button: Button
 var _winner_label: Label
 var _drag_box: ColorRect
-var _tournament_score_label: Label
+## The leaderboard modal (see _build_leaderboard_modal()/show_tournament_score()) --
+## _leaderboard_dim is the dim full-rect backdrop. _leaderboard_card is
+## positioned manually from get_viewport_rect().size (same pattern
+## show_tournament_score()'s own predecessor and every other overlay in
+## this file already uses), not a CenterContainer -- two different
+## CenterContainer attempts (one nested inside an extra full-rect wrapper,
+## one as a direct full-rect-anchored child of `self`) both rendered the
+## card pinned to the top-left corner instead of centered. Matches
+## CLAUDE.md's documented "a Control's anchors don't reliably resolve in
+## this codebase's setup" gotcha closely enough that manual positioning,
+## not more anchor nesting, is the fix.
+var _leaderboard_dim: ColorRect
+var _leaderboard_card: PanelContainer
+var _leaderboard_title: Label
+var _leaderboard_grid: GridContainer
 var _gold_label: Label
 var _gold_exchange_button: Button
 var _blood_exchange_button: Button
@@ -368,19 +382,10 @@ func _build_start_button(parent: Control) -> void:
 	_start_button.custom_minimum_size = Vector2(140, 40)
 	# Every panel in this HUD shared the same neutral charcoal chrome, so
 	# the one button that actually ends PLACEMENT looked no louder than a
-	## a team-select toggle (usability review, 2026-08-11) -- a filled
-	## accent background makes it read as the primary action, not just
-	## another row in the Match card.
-	var style := StyleBoxFlat.new()
-	style.bg_color = _TOGGLE_SELECTED_COLOR
-	style.set_corner_radius_all(4)
-	_start_button.add_theme_stylebox_override("normal", style)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = _TOGGLE_SELECTED_COLOR.lightened(0.15)
-	hover_style.set_corner_radius_all(4)
-	_start_button.add_theme_stylebox_override("hover", hover_style)
-	_start_button.add_theme_color_override("font_color", Color.BLACK)
-	_start_button.add_theme_color_override("font_hover_color", Color.BLACK)
+	# team-select toggle (usability review, 2026-08-11) -- _style_primary_button()'s
+	# filled accent background makes it read as the primary action, not
+	# just another row in the Match card.
+	_style_primary_button(_start_button)
 	_start_button.pressed.connect(_on_start_pressed)
 	_start_button.pressed.connect(func(): Sfx.play_ui_click())
 	parent.add_child(_start_button)
@@ -483,21 +488,13 @@ func _build_winner_label() -> void:
 	_style_overlay_label(_winner_label)
 	center.add_child(_winner_label)
 
-	# Added directly to self (like _drag_box), not nested inside the
-	## CenterContainer above -- a Container overrides/ignores a child's own
-	## `position`, which is exactly the manual top-center placement this
-	## needs and the winner banner doesn't.
-	_tournament_score_label = Label.new()
-	_tournament_score_label.visible = false
-	_tournament_score_label.add_theme_font_size_override("font_size", 22)
-	_tournament_score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_style_overlay_label(_tournament_score_label)
-	add_child(_tournament_score_label)
+	_build_leaderboard_modal()
 
 	# Positioned just below the score label (see show_gold()) rather than
 	# stacked in a Container with it -- same bare-Label-on-a-parentless-
-	# Control gotcha as _tournament_score_label itself, so it gets the
-	# same manual get_viewport_rect().size positioning.
+	# Control gotcha the leaderboard modal itself avoids by living inside
+	# a CenterContainer instead, so this one still gets the manual
+	# get_viewport_rect().size positioning.
 	_gold_label = Label.new()
 	_gold_label.visible = false
 	_gold_label.add_theme_font_size_override("font_size", 18)
@@ -560,28 +557,149 @@ func show_winner(winning_team_id: int, is_draw: bool) -> void:
 	_winner_label.visible = true
 
 
-## Called by Main.gd on every BloodTournamentMode.round_ended --
-## score_text is a fully pre-formatted "TeamName wins : TeamName wins : ..."
-## string (Main._scoreboard_text() builds it, sorted, for however many of
-## the up to 8 teams are actually playing) so this stays a generic
-## "display whatever text you're given" renderer, same boundary this
-## class's own doc comment already describes for GameManager lookups --
-## HUD doesn't know how many teams exist or how ranking works. Positioned
-## from get_viewport_rect().size directly rather than anchors -- a bare
-## Label parented straight to this full-rect Control (not inside a
-## layout Container) never resolves a real position from anchors alone,
-## same gotcha _build_drag_box()'s sibling _drag_box would hit if it
-## needed to be centered instead of just stretched to a drag rect.
-func show_tournament_score(round_number: int, score_text: String) -> void:
-	_tournament_score_label.text = "Round %d — %s" % [round_number, score_text]
-	_tournament_score_label.reset_size()
-	var viewport_width := get_viewport_rect().size.x
-	_tournament_score_label.position = Vector2((viewport_width - _tournament_score_label.size.x) * 0.5, 24)
-	_tournament_score_label.visible = true
+## Shared by Start Battle and the leaderboard modal's Continue button --
+## both are "the one thing you actually click to move on" action in their
+## respective screens, so both get the same filled-gold treatment
+## (usability review, 2026-08-11) instead of blending into the rest of
+## the charcoal chrome.
+func _style_primary_button(button: Button) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = _TOGGLE_SELECTED_COLOR
+	style.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("normal", style)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = _TOGGLE_SELECTED_COLOR.lightened(0.15)
+	hover_style.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("hover", hover_style)
+	button.add_theme_color_override("font_color", Color.BLACK)
+	button.add_theme_color_override("font_hover_color", Color.BLACK)
+
+
+const _LEADERBOARD_COLUMNS := 6
+
+## A dim full-rect backdrop (blocks clicks to the game underneath, and
+## dismisses the modal itself when clicked) behind a centered card with a
+## real table -- rank/team-color-swatch/wins/gold/kills/blood points --
+## replacing the old always-on, plain-text top-center banner (usability
+## review, 2026-08-11: "the leaderboard should be a modal and much nicer
+## to read with clear columns, icons"). Built once in _ready(); only the
+## data rows get rebuilt per show_tournament_score() call, same
+## "not every frame, so a from-scratch rebuild is safe" reasoning
+## _build_ability_draft_row()'s own doc comment already uses.
+func _build_leaderboard_modal() -> void:
+	_leaderboard_dim = ColorRect.new()
+	_leaderboard_dim.color = Color(0, 0, 0, 0.6)
+	_leaderboard_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_leaderboard_dim.visible = false
+	_leaderboard_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_leaderboard_dim.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.pressed:
+			hide_tournament_score()
+	)
+	add_child(_leaderboard_dim)
+
+	_leaderboard_card = PanelContainer.new()
+	_leaderboard_card.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.1, 0.12, 0.98)
+	style.set_corner_radius_all(8)
+	style.set_content_margin_all(24)
+	style.border_color = _TOGGLE_SELECTED_COLOR
+	style.set_border_width_all(2)
+	_leaderboard_card.add_theme_stylebox_override("panel", style)
+	# Own mouse_filter left at the default (STOP) -- unlike _leaderboard_dim,
+	# clicking the card itself shouldn't dismiss the modal, only clicking
+	# outside it.
+	add_child(_leaderboard_card)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 14)
+	_leaderboard_card.add_child(content)
+
+	_leaderboard_title = Label.new()
+	_leaderboard_title.add_theme_font_size_override("font_size", 22)
+	_leaderboard_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_leaderboard_title)
+
+	_leaderboard_grid = GridContainer.new()
+	_leaderboard_grid.columns = _LEADERBOARD_COLUMNS
+	_leaderboard_grid.add_theme_constant_override("h_separation", 24)
+	_leaderboard_grid.add_theme_constant_override("v_separation", 8)
+	content.add_child(_leaderboard_grid)
+	for header in ["Rank", "Team", "Wins", "Gold", "Kills", "Blood Points"]:
+		var header_label := Label.new()
+		header_label.text = header
+		header_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
+		_leaderboard_grid.add_child(header_label)
+
+	var close_button := Button.new()
+	close_button.text = "Continue"
+	close_button.custom_minimum_size = Vector2(140, 40)
+	close_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_style_primary_button(close_button)
+	close_button.pressed.connect(hide_tournament_score)
+	close_button.pressed.connect(func(): Sfx.play_ui_click())
+	content.add_child(close_button)
+
+
+## Called by Main.gd on every BloodTournamentMode.round_ended -- `rows` is
+## BloodTournamentController.scoreboard_rows(), already sorted by wins
+## descending, so this stays a generic "render whatever rows you're
+## given" table, same boundary this class's own doc comment already
+## describes for GameManager lookups. Rebuilds the grid's data rows from
+## scratch each call (the header row, added in _build_leaderboard_modal(),
+## is never touched) -- fine since this only ever fires once per round
+## end, not per-frame.
+func show_tournament_score(round_number: int, rows: Array[Dictionary]) -> void:
+	_leaderboard_title.text = "Round %d Results" % round_number
+
+	while _leaderboard_grid.get_child_count() > _LEADERBOARD_COLUMNS:
+		_leaderboard_grid.get_child(_LEADERBOARD_COLUMNS).free()
+
+	for i in rows.size():
+		var row := rows[i]
+
+		var rank_label := Label.new()
+		rank_label.text = "#%d" % (i + 1)
+		_leaderboard_grid.add_child(rank_label)
+
+		var team_cell := HBoxContainer.new()
+		team_cell.add_theme_constant_override("separation", 8)
+		var swatch := ColorRect.new()
+		swatch.color = row["color"]
+		swatch.custom_minimum_size = Vector2(14, 14)
+		team_cell.add_child(swatch)
+		var team_label := Label.new()
+		team_label.text = row["display_name"]
+		team_cell.add_child(team_label)
+		_leaderboard_grid.add_child(team_cell)
+
+		var wins_label := Label.new()
+		wins_label.text = "%d" % row["wins"]
+		_leaderboard_grid.add_child(wins_label)
+
+		var gold_label := Label.new()
+		gold_label.text = "%dg" % row["gold"]
+		_leaderboard_grid.add_child(gold_label)
+
+		var kills_label := Label.new()
+		kills_label.text = "%d" % row["kills"]
+		_leaderboard_grid.add_child(kills_label)
+
+		var blood_label := Label.new()
+		blood_label.text = "%dbp" % row["blood_points"]
+		_leaderboard_grid.add_child(blood_label)
+
+	_leaderboard_dim.visible = true
+	_leaderboard_card.visible = true
+	_leaderboard_card.reset_size()
+	var viewport_size := get_viewport_rect().size
+	_leaderboard_card.position = (viewport_size - _leaderboard_card.size) * 0.5
 
 
 func hide_tournament_score() -> void:
-	_tournament_score_label.visible = false
+	_leaderboard_dim.visible = false
+	_leaderboard_card.visible = false
 
 
 ## Called by Main.gd whenever Blood Tournament gold/blood points change

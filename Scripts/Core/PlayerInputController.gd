@@ -154,6 +154,18 @@ func handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if not (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
 		return
 	if dragging_unit != null:
+		# A plain click landing on a unit (to select/inspect it) still fires
+		# a mouse-motion event or two from incidental cursor jitter between
+		# press and release -- without this threshold, that jitter alone
+		# was enough to teleport the unit under the cursor, so simply
+		# clicking a courtyard unit visibly shifted it (usability report,
+		# 2026-08-11). Reuses _is_left_dragging as a general "past the
+		# click threshold" latch -- safe to share with the box-select path
+		# below since the two are mutually exclusive (dragging_unit is only
+		# ever set during PLACEMENT, box-select only during BATTLE).
+		if not _is_left_dragging and _left_drag_start.distance_to(event.position) <= _DRAG_THRESHOLD:
+			return
+		_is_left_dragging = true
 		drag_unit_to(event.position)
 		return
 	if GameManager.battle_state != GameManager.BattleState.BATTLE:
@@ -178,10 +190,15 @@ func on_left_release(event: InputEventMouseButton) -> void:
 		return
 
 	if dragging_unit != null:
-		if GameManager.current_mode.uses_economy() and _drag_source_squad_index != -1:
+		# Only reposition if the cursor actually crossed _DRAG_THRESHOLD
+		# (handle_mouse_motion() above) -- a plain click that never moved
+		# should leave the squad exactly where it was, not reform it around
+		# wherever the release-point ground raycast happened to land.
+		if _is_left_dragging and GameManager.current_mode.uses_economy() and _drag_source_squad_index != -1:
 			_resolve_courtyard_drag(event.position)
 		dragging_unit = null
 		_drag_source_squad_index = -1
+		_is_left_dragging = false
 		return
 
 	if _is_left_dragging:
@@ -402,6 +419,12 @@ func handle_placement_key(event: InputEventKey) -> void:
 ## and is what stopped a click from ever placing a fresh unit on top of
 ## one that's already there.
 func try_start_unit_drag(screen_position: Vector2) -> void:
+	# Set here (not just by handle_mouse_button()'s own press branch) so
+	# the click-vs-drag distance threshold (handle_mouse_motion()) has a
+	# correct origin even when this is called directly (every GUT test
+	# that arms a courtyard drag does exactly this, bypassing the real
+	# button-press event entirely).
+	_left_drag_start = screen_position
 	dragging_unit = null
 	_drag_source_squad_index = -1
 	if GameManager.battle_state != GameManager.BattleState.PLACEMENT:

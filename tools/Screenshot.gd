@@ -56,6 +56,11 @@
 ##                                eyeballing its unit-type button icons.
 ##   --debug=<flag>[,<flag>...]  Enable DebugSettings flags by name
 ##                                (e.g. pathfinding,detailed_stats).
+##   --leaderboard                Opens the leaderboard modal with 3 fake
+##                                rows -- needs --tournament first (the
+##                                HUD it's built into only exists once
+##                                Main.tscn is loaded, which it always is,
+##                                but this bypasses a real round entirely).
 ##   --wait=<frames>             Physics frames to simulate before
 ##                                capturing. Default: 30. Staggered
 ##                                deployment's first roster slot deploys
@@ -132,6 +137,9 @@ func _run() -> void:
 		for flag_name in String(args["debug"]).split(",", false):
 			DebugSettings.set_enabled(flag_name.strip_edges(), true)
 
+	if args.has("leaderboard"):
+		_show_fake_leaderboard(main)
+
 	if args.has("select"):
 		var index := int(args["select"])
 		if index >= 0 and index < placed.size():
@@ -193,6 +201,20 @@ func _buy_for_roster(spec: String) -> void:
 		return
 	player.spend(stats.cost)
 	player.roster.append(stats)
+
+
+## Ad-hoc visual check for the leaderboard modal -- fabricated rows, not
+## a real Blood Tournament round (triggering one via this tool would need
+## a whole match's worth of setup). Bypasses BloodTournamentController
+## entirely and calls HUD.show_tournament_score() directly.
+func _show_fake_leaderboard(main: Node3D) -> void:
+	var hud: Control = main.get_node("HUDLayer/HUD")
+	var rows: Array[Dictionary] = [
+		{"team_id": 1, "display_name": "Red", "color": Color.RED, "wins": 3, "gold": 420, "kills": 12, "blood_points": 90},
+		{"team_id": 0, "display_name": "Blue", "color": Color.BLUE, "wins": 2, "gold": 300, "kills": 7, "blood_points": 55},
+		{"team_id": 2, "display_name": "Green", "color": Color.GREEN, "wins": 0, "gold": 300, "kills": 2, "blood_points": 10},
+	]
+	hud.show_tournament_score(4, rows)
 
 
 func _arm_ghost(main: Node3D, spec: String) -> void:

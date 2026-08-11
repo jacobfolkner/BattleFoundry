@@ -10,6 +10,7 @@ max_health = 300.0
 damage = 24.0
 attack_range = 1.2
 attack_interval = 1.0
+can_attack_flying = true
 move_speed = 3.5
 collision_radius = 0.9
 split_into_on_death = ExtResource("2")

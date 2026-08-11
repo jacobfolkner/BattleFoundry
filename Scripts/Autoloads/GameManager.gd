@@ -586,6 +586,11 @@ func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3)
 		var saved: Dictionary = player.hero_progress[stats]
 		for unit in squad:
 			unit.restore_hero_progress(saved.level, saved.xp)
+	# Only the squad's first member is actually shown in the courtyard --
+	# see Unit.set_courtyard_visible()'s own doc comment. The rest reveal
+	# themselves at battle start (BloodTournamentController.begin_march()).
+	for i in range(1, squad.size()):
+		squad[i].set_courtyard_visible(false)
 	player.courtyard_units.append(squad)
 
 

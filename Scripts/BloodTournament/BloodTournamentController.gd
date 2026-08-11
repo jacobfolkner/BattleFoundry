@@ -149,7 +149,7 @@ func run_ai_turn_if_needed() -> void:
 ## come from something holding the mode reference directly.
 func on_round_ended(round_number: int, _winning_team_id: int, _is_draw: bool) -> void:
 	Sfx.play_round_end()
-	_hud.show_tournament_score(round_number, scoreboard_text())
+	_hud.show_tournament_score(round_number, scoreboard_rows())
 	_refresh_gold_display.call() # round income (BloodTournamentMode.on_battle_ended()) already landed by now
 	if not mode.is_match_over():
 		# Deferred, not called straight from here: this handler runs
@@ -171,31 +171,57 @@ func advance_to_next_round() -> void:
 	run_ai_turn_if_needed()
 
 
-## "TeamName wins : TeamName wins : ..." sorted by wins descending, only
-## for teams that have actually fielded a roster at some point (same
+## Only teams that have actually fielded a roster at some point (same
 ## "who's really playing" filter GoblinBossRound/FinalTournamentBracket
-## use) -- BloodTournamentMode.wins_by_team only ever gets a key for a
-## team once it's WON a round, so a plain teams_with_units-style sort
-## would silently omit anyone still sitting on 0 wins.
+## use), sorted by wins descending -- BloodTournamentMode.wins_by_team
+## only ever gets a key for a team once it's WON a round, so a plain
+## teams_with_units-style sort would silently omit anyone still sitting
+## on 0 wins. Shared by scoreboard_text() (kept for existing test
+## coverage) and scoreboard_rows() (the leaderboard modal's structured
+## data) so the two can never disagree on who's ranked where.
+func _ranked_participants() -> Array:
+	var participants := GameManager.all_team_ids().filter(
+		func(team_id: int) -> bool: return not GameManager.get_player(team_id).roster.is_empty()
+	)
+	participants.sort_custom(func(a: int, b: int) -> bool: return mode.get_wins(a) > mode.get_wins(b))
+	return participants
+
+
 ## "TeamName Wg (Xg, YK, Zbp)" per participating team, sorted by wins
 ## descending -- wins decide ranking (the actual point of a leaderboard),
 ## gold/kills/blood points ride along per team as the things a player
 ## actually wants to compare mid-match (who's ahead economically, who's
 ## racking up kills) without opening each team's own panel.
 func scoreboard_text() -> String:
-	var participants := GameManager.all_team_ids().filter(
-		func(team_id: int) -> bool: return not GameManager.get_player(team_id).roster.is_empty()
-	)
-	participants.sort_custom(func(a: int, b: int) -> bool: return mode.get_wins(a) > mode.get_wins(b))
-
 	var parts: Array[String] = []
-	for team_id in participants:
+	for team_id in _ranked_participants():
 		var player := GameManager.get_player(team_id)
 		parts.append("%s %dW (%dg, %dK, %dbp)" % [
 			GameManager.get_team_display_name(team_id), mode.get_wins(team_id),
 			player.resources, player.kills, player.blood_points,
 		])
 	return " : ".join(parts)
+
+
+## Same ranking/participants as scoreboard_text(), as structured rows
+## instead of a pre-formatted string -- feeds HUD.show_tournament_score()'s
+## real table (columns, per-team color swatch) instead of the old flat
+## text banner. Each row: team_id/display_name/color (for the swatch)/
+## wins/gold/kills/blood_points.
+func scoreboard_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for team_id in _ranked_participants():
+		var player := GameManager.get_player(team_id)
+		rows.append({
+			"team_id": team_id,
+			"display_name": GameManager.get_team_display_name(team_id),
+			"color": player.color,
+			"wins": mode.get_wins(team_id),
+			"gold": player.resources,
+			"kills": player.kills,
+			"blood_points": player.blood_points,
+		})
+	return rows
 
 
 ## Connected to GameManager.battle_started -- marches every team's
@@ -257,6 +283,7 @@ func begin_march() -> void:
 			for i in squad.size():
 				var offset := Vector3((i - (squad.size() - 1) * 0.5) * spacing, 0, 0)
 				squad[i].global_position = anchor + offset
+				squad[i].set_courtyard_visible(true) # reveals every member past the first -- see Unit.set_courtyard_visible()'s own doc comment
 				# Engage the same-arm rival first (matches the roadmap's
 				# documented design: same-arm opponents fight at the arm
 				# ends before survivors converge) -- walking to that spot

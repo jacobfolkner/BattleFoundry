@@ -217,6 +217,23 @@ func setup(new_stats: UnitStats, new_player: Player) -> void:
 	_apply_passive_abilities()
 
 
+## Used by GameManager to hide every squad member past the first one
+## while a purchased squad is just standing in its courtyard -- a
+## squad_size-5 Fighter purchase used to spawn all 5 visibly stacked
+## side by side in the (relatively small) courtyard, which read as
+## visual clutter for what's really "one roster slot" (usability
+## feedback, 2026-08-11). All squad_size members are still real, fully
+## set-up Unit instances the whole time (upgrades/hero-progress applied
+## once at spawn, same as before) -- only rendering and click/raycast
+## targeting are suppressed; BloodTournamentController.begin_march()
+## calls this with `true` on every squad member to reveal the full squad
+## again the instant marching starts. Node visibility already hides
+## every child (health bar, status marker) for free.
+func set_courtyard_visible(is_visible: bool) -> void:
+	visible = is_visible
+	_collision_shape.disabled = not is_visible
+
+
 ## Pure repositioning -- never attacks, even if an enemy comes into range
 ## along the way. Clears current_order on arrival (see
 ## _move_toward_and_clear_when_arrived()), so the unit falls back to

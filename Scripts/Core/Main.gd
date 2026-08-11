@@ -464,10 +464,17 @@ func _on_unit_type_selected(stats: UnitStats) -> void:
 
 ## Thin delegate for simulating cursor movement (see
 ## PlayerInputController.handle_mouse_motion()) -- same `_input` naming
-## gotcha as _try_left_click_at() above, avoided the same way.
-func _try_move_mouse_to(screen_position: Vector2) -> void:
+## gotcha as _try_left_click_at() above, avoided the same way. `held`
+## simulates the left button still being down during the move (needed to
+## cross handle_mouse_motion()'s own click-vs-drag distance threshold for
+## a courtyard-squad drag test) -- false by default since the
+## build-placement ghost path this originally existed for doesn't check
+## button_mask at all.
+func _try_move_mouse_to(screen_position: Vector2, held: bool = false) -> void:
 	var event := InputEventMouseMotion.new()
 	event.position = screen_position
+	if held:
+		event.button_mask = MOUSE_BUTTON_MASK_LEFT
 	_input.handle_mouse_motion(event)
 
 

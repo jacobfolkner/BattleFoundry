@@ -452,6 +452,12 @@ func test_dragging_a_courtyard_squad_reorders_the_roster_to_match_its_physical_a
 	_main._try_start_unit_drag(camera.unproject_position(blue.courtyard_units[0][0].global_position))
 	assert_eq(_main._drag_source_squad_index, 0, "sanity check: the drag should have armed on Tank's slot")
 
+	# A real drag has to actually move the cursor past the click-vs-drag
+	# threshold before a drop commits (handle_mouse_motion()) -- otherwise
+	# this is indistinguishable from a plain click that shouldn't reposition
+	# anything (usability report, 2026-08-11: clicking a courtyard unit to
+	# inspect it was shifting it).
+	_main._try_move_mouse_to(camera.unproject_position(back_point), true)
 	_main._try_left_click_at(camera.unproject_position(back_point))
 
 	assert_eq(blue.roster, [FIGHTER_STATS, TANK_STATS], "roster order should now match the physical front-to-back arrangement")
@@ -480,6 +486,9 @@ func test_dropping_a_dragged_squad_outside_the_courtyard_reverts_its_position_an
 	_main._try_start_unit_drag(camera.unproject_position(fighter_squad[0].global_position))
 	assert_eq(_main._drag_source_squad_index, 1, "sanity check: the drag should have armed on Fighter's slot")
 
+	# See the sibling reorder test's own comment -- a real drag has to
+	# cross the click-vs-drag distance threshold before a drop commits.
+	_main._try_move_mouse_to(camera.unproject_position(Vector3.ZERO), true)
 	_main._try_left_click_at(camera.unproject_position(Vector3.ZERO)) # arena center, outside any courtyard
 
 	var centroid_after := _centroid(fighter_squad)

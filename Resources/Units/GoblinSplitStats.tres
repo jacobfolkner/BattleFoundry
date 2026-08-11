@@ -9,6 +9,7 @@ max_health = 70.0
 damage = 7.0
 attack_range = 0.8
 attack_interval = 0.8
+can_attack_flying = true
 move_speed = 4.0
 collision_radius = 0.35
 split_into_self_on_death = true
