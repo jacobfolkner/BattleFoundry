@@ -58,10 +58,16 @@ func _ready() -> void:
 ## silently breaks too. Called again from _refresh() since the label's
 ## text (and thus the panel's ideal width/height) changes with the
 ## selected unit.
+##
+## Bottom-left corner -- top-right is UI/HUD.gd's own leaderboard panel
+## now (added 2026-08-11, after this one), which this used to sit right
+## on top of. Every other corner is already claimed too (top-left: Shop/
+## Build/Match cards, bottom-right: the minimap), leaving bottom-left as
+## the only genuinely free spot on screen.
 func _reposition() -> void:
 	_panel.reset_size()
-	var viewport_width := get_viewport_rect().size.x
-	_panel.position = Vector2(viewport_width - _panel.size.x - _MARGIN, _MARGIN)
+	var viewport_size := get_viewport_rect().size
+	_panel.position = Vector2(_MARGIN, viewport_size.y - _panel.size.y - _MARGIN)
 
 
 func _process(_delta: float) -> void:
