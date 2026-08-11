@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Combat/UnitStats.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Abilities/HealingWordAbility.tres" id="2"]
+[ext_resource type="Resource" path="res://Resources/Factions/HumanFaction.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+faction = ExtResource("3")
+unit_name = "Priest"
+cost = 110
+squad_size = 3
+max_health = 80.0
+damage = 6.0
+attack_range = 5.0
+attack_interval = 1.2
+attack_type = 1
+armor_type = 1
+aura_ability = ExtResource("2")
+projectile_speed = 10.0
+projectile_homing = true
+move_speed = 3.5
+collision_radius = 0.45
+mesh_shape = "Capsule"
+mesh_size = Vector3(0.45, 1.5, 0.45)

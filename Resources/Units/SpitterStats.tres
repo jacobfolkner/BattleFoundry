@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Combat/UnitStats.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Abilities/PoisonSpitAbility.tres" id="2"]
+[ext_resource type="Resource" path="res://Resources/Factions/BeastFaction.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+faction = ExtResource("3")
+unit_name = "Spitter"
+cost = 120
+squad_size = 4
+max_health = 65.0
+damage = 9.0
+attack_range = 4.5
+attack_interval = 1.1
+armor_type = 1
+on_hit_ability = ExtResource("2")
+projectile_speed = 11.0
+projectile_homing = true
+move_speed = 3.8
+collision_radius = 0.4
+mesh_shape = "Capsule"
+mesh_size = Vector3(0.4, 1.0, 0.4)

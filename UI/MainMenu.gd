@@ -37,6 +37,13 @@ var _lobby_panel: VBoxContainer
 
 enum SlotChoice { EMPTY, YOU, BOT }
 
+## Your own race pick (see _build_faction_picker()) -- index 0 is always
+## "Random" (MenuSelection.chosen_faction stays null), indices 1+ map to
+## Faction.ALL[index - 1]. Only ever applies to the human slot -- every
+## bot always gets Faction.random_pick() (see Main._apply_menu_selection()),
+## there's no per-bot picker.
+var _faction_option: OptionButton
+
 var _loading_overlay: Control
 var _loading_label: Label
 ## Cosmetic-only, just to prove the app is still alive during the scene
@@ -168,6 +175,8 @@ func _build_lobby_panel(parent: Control) -> void:
 	_lobby_panel.visible = false
 	parent.add_child(_lobby_panel)
 
+	_build_faction_picker(_lobby_panel)
+
 	for team_id in GameManager.all_team_ids():
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -199,6 +208,34 @@ func _build_lobby_panel(parent: Control) -> void:
 		row.add_child(option)
 
 		_slot_options.append(option)
+
+
+## Above the per-team slot rows -- your race applies regardless of which
+## team_id ends up being "You" (that's picked below), so it reads more
+## naturally as its own line than bolted onto one particular row.
+## Determines which of the 3 factions' units show up in the build menu
+## once the match starts (HUD.refresh_unit_panel_for_faction()) -- "Random"
+## (the default) leaves MenuSelection.chosen_faction null, which
+## Main._apply_menu_selection() resolves via Faction.random_pick() same
+## as every bot slot always does.
+func _build_faction_picker(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var label := Label.new()
+	label.text = "Your Race"
+	label.custom_minimum_size = Vector2(90, 0)
+	row.add_child(label)
+
+	_faction_option = OptionButton.new()
+	_faction_option.custom_minimum_size = Vector2(140, 32)
+	_faction_option.add_item("Random", 0)
+	for i in FactionRegistry.ALL.size():
+		_faction_option.add_item(FactionRegistry.ALL[i].faction_name, i + 1)
+	_faction_option.select(0)
+	_faction_option.item_selected.connect(func(_index: int): Sfx.play_ui_click())
+	row.add_child(_faction_option)
 
 
 func _on_slot_option_selected(index: int, team_id: int) -> void:
@@ -350,6 +387,9 @@ func apply_selection_to_menu_state() -> void:
 				MenuSelection.human_team_id = team_id
 			SlotChoice.BOT:
 				MenuSelection.bot_team_ids.append(team_id)
+
+	var faction_index: int = _faction_option.get_selected_id()
+	MenuSelection.chosen_faction = FactionRegistry.ALL[faction_index - 1] if faction_index > 0 else null
 
 
 ## Threaded load instead of the old direct get_tree().change_scene_to_file()

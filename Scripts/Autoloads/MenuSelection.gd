@@ -28,3 +28,8 @@ var human_team_id: int = GameManager.BLUE_TEAM_ID
 ## "every registered team plays," matching the original pre-lobby
 ## behavior of a plain "Blood Tournament: On" with no opponent setup.
 var bot_team_ids: Array[int] = []
+## The human slot's chosen race (UI/MainMenu.gd's faction picker) -- null
+## means "Random," consumed by Main._apply_menu_selection() the same
+## consume-and-clear way every other field here is (see
+## apply_selection_to_menu_state()'s own doc comment on why that's safe).
+var chosen_faction: Faction = null

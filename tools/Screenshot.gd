@@ -61,6 +61,11 @@
 ##                                HUD it's built into only exists once
 ##                                Main.tscn is loaded, which it always is,
 ##                                but this bypasses a real round entirely).
+##   --faction=<Human|Orc|Beast>  Sets Blue's Player.faction and gates the
+##                                build menu to it -- bypasses the real
+##                                lobby picker (this tool's --tournament
+##                                doesn't go through Main._apply_menu_selection()
+##                                at all). Needs --tournament first.
 ##   --wait=<frames>             Physics frames to simulate before
 ##                                capturing. Default: 30. Staggered
 ##                                deployment's first roster slot deploys
@@ -140,6 +145,10 @@ func _run() -> void:
 	if args.has("leaderboard"):
 		_show_fake_leaderboard(main)
 
+	var faction_name: String = args.get("faction", "")
+	if faction_name != "":
+		_set_blue_faction(main, faction_name)
+
 	if args.has("select"):
 		var index := int(args["select"])
 		if index >= 0 and index < placed.size():
@@ -207,6 +216,20 @@ func _buy_for_roster(spec: String) -> void:
 ## a real Blood Tournament round (triggering one via this tool would need
 ## a whole match's worth of setup). Bypasses BloodTournamentController
 ## entirely and calls HUD.show_tournament_score() directly.
+## Ad-hoc visual check for race selection's build-menu gating -- bypasses
+## the real lobby-picker -> Main._apply_menu_selection() flow (this
+## tool's own --tournament just calls _on_tournament_toggled() directly,
+## which never assigns a faction) and sets Blue's Player.faction/refreshes
+## the build menu directly instead.
+func _set_blue_faction(main: Node3D, faction_name: String) -> void:
+	for faction in FactionRegistry.ALL:
+		if faction.faction_name.to_lower() == faction_name.to_lower():
+			GameManager.get_player(GameManager.BLUE_TEAM_ID).faction = faction
+			main._hud.refresh_unit_panel_for_faction(faction)
+			return
+	push_warning("Unknown --faction=%s (expected Human/Orc/Beast)" % faction_name)
+
+
 func _show_fake_leaderboard(main: Node3D) -> void:
 	var hud: Control = main.get_node("HUDLayer/HUD")
 	var rows: Array[Dictionary] = [

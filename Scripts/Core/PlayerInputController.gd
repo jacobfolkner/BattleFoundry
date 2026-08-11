@@ -497,7 +497,17 @@ func try_place_unit(screen_position: Vector2) -> void:
 func try_sell_unit_at(screen_position: Vector2) -> void:
 	if not DebugInspector.try_select_at(_camera, screen_position):
 		return
-	var unit := DebugInspector.selected_unit
+	try_sell_unit(DebugInspector.selected_unit)
+
+
+## Shared by the right-click-a-unit path above and HUD's own explicit
+## Sell button (see UI/HUD.gd's sell_requested signal / Main.gd's
+## _on_sell_requested()) -- both ultimately just need "sell this specific
+## Unit," they differ only in how they identify it (a raycast vs.
+## whatever SelectionManager currently reports as selected).
+func try_sell_unit(unit: Unit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
 	if unit.player != selected_player:
 		return
 	if unit.stats.is_builder:

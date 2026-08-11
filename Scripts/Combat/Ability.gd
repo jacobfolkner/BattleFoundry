@@ -45,6 +45,16 @@ enum CastType { NO_TARGET, UNIT_TARGET, PASSIVE, ON_HIT, AURA }
 @export var damage: float = 0.0 ## 0 means this ability deals no direct damage.
 @export var damage_type: DamageInstance.DamageType = DamageInstance.DamageType.SPELL
 
+@export_group("Healing")
+## 0 means this ability heals nothing. No separate "heal type"/mitigation
+## concept the way damage has -- a heal is never reduced by armor. A
+## heal-over-time isn't a separate mechanic either: an AURA ability with
+## a small `heal` value already reapplies every Unit._AURA_TICK_INTERVAL
+## (0.25s) via apply_aura() below, the same way Warlord's Aura of Vigor
+## gets a HoT-shaped stat buff for free from that same ticking, so this
+## field alone is enough for a support unit's healing aura.
+@export var heal: float = 0.0
+
 @export_group("Knockback (ON_HIT only)")
 ## Positional, not a StatBlock/CC concept, so it's applied via
 ## Unit.apply_knockback() directly rather than through the Effect
@@ -120,6 +130,8 @@ func _apply_to(caster: Unit, target: Unit) -> void:
 		target.take_damage(DamageInstance.new(damage, caster, damage_type))
 	if target.life_state != Unit.LifeState.ALIVE:
 		return # the damage above could have killed it -- nothing left to apply an Effect to
+	if heal > 0.0:
+		target.heal(heal)
 	if effect_duration > 0.0 or effect_cc_flag != Effect.CCFlag.NONE or effect_stat != "":
 		var effect := Effect.new(ability_name, effect_duration, self)
 		if effect_cc_flag != Effect.CCFlag.NONE:

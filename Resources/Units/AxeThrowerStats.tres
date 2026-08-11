@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="UnitStats" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Combat/UnitStats.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Factions/OrcFaction.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+faction = ExtResource("2")
+unit_name = "Axe Thrower"
+cost = 130
+squad_size = 4
+max_health = 75.0
+damage = 16.0
+attack_range = 5.0
+attack_interval = 1.3
+attack_type = 1
+armor_type = 1
+projectile_speed = 12.0
+projectile_homing = false
+move_speed = 3.5
+collision_radius = 0.45
+mesh_shape = "Cone"
+mesh_size = Vector3(0.5, 1.4, 0.5)

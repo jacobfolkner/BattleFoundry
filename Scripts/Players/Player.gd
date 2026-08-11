@@ -16,6 +16,15 @@ var team_id: int
 var display_name: String
 var color: Color
 var is_human: bool
+## The race this player is building from -- gates which archetypes
+## HUD._build_unit_panel() shows (see HUD.refresh_unit_panel_for_faction()).
+## Assigned once per match by Main._apply_menu_selection() (the lobby's
+## chosen faction for the human slot, Faction.random_pick() for every
+## other team) -- null only before that first assignment (e.g. classic
+## mode's own tests that never go through the menu at all), in which case
+## the build menu shows every archetype ungated, same as before this
+## feature existed.
+var faction: Faction = null
 ## Gold -- only meaningful while GameManager.current_mode.uses_economy() is
 ## true (see GameMode.gd/BloodTournamentMode.gd); stays 0 and unused for
 ## a plain single-battle match, same as before this field had real

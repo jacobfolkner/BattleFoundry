@@ -35,6 +35,11 @@ signal hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int)
 ## Player.exchange_gold_for_blood_points()/exchange_blood_points_for_gold().
 signal gold_exchange_requested
 signal blood_exchange_requested
+## Emitted by the Sell button (see _build_sell_button()/_refresh_sell_button())
+## -- no payload, Main.gd's own handler reads whichever unit
+## SelectionManager currently reports as selected, same source HUD's own
+## track_unit()/_tracked_unit already reflects.
+signal sell_requested
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
@@ -42,6 +47,9 @@ const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres"
 const BAT_RIDER_STATS: UnitStats = preload("res://Resources/Units/BatRiderStats.tres")
 const GIANT_STATS: UnitStats = preload("res://Resources/Units/GiantStats.tres")
 const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
+const PRIEST_STATS: UnitStats = preload("res://Resources/Units/PriestStats.tres")
+const AXE_THROWER_STATS: UnitStats = preload("res://Resources/Units/AxeThrowerStats.tres")
+const SPITTER_STATS: UnitStats = preload("res://Resources/Units/SpitterStats.tres")
 
 var _start_button: Button
 var _winner_label: Label
@@ -73,6 +81,9 @@ var _red_team_button: Button
 ## lookup structure.
 var _unit_type_buttons: Array[Button] = []
 var _unit_type_stats: Array[UnitStats] = []
+## Faction -> {header: Label, grid: GridContainer}, built once in
+## _build_unit_panel() -- see refresh_unit_panel_for_faction().
+var _faction_group_nodes: Dictionary = {}
 
 var _roster_row: HBoxContainer
 ## Grow-only pool, same pattern as the ability hotbar/buff row -- see
@@ -97,6 +108,7 @@ var _build_menu_card: PanelContainer
 
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
+var _sell_button: Button
 var _buff_row: HBoxContainer
 var _targeting_label: Label
 var _placement_hint_label: Label
@@ -141,6 +153,7 @@ func _ready() -> void:
 	_build_winner_label()
 	_build_drag_box()
 	_build_ability_hotbar()
+	_build_sell_button()
 	_build_buff_row()
 	_build_targeting_prompt()
 	_build_placement_hint()
@@ -157,6 +170,7 @@ func _ready() -> void:
 ## count down even while the selection itself hasn't changed.
 func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
+	_refresh_sell_button()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
 	_refresh_placement_hint()
@@ -196,14 +210,19 @@ func _wrap_in_card(parent: Control, title: String) -> VBoxContainer:
 ## Grouped by UnitStats.faction (Phase 11: "team-color/material per
 ## faction" -- the build menu grouping is the free/no-new-art half of
 ## that, the ground-ring accent in Unit._build_faction_accent() is the
-## visual half) instead of one flat 6-button grid. Order here is fixed
+## visual half) instead of one flat button list. Order here is fixed
 ## (not derived from the archetype list) so the same faction always
 ## renders in the same position across sessions rather than reshuffling
-## based on iteration order.
+## based on iteration order. Each faction's {header, grid} pair is kept
+## in _faction_group_nodes so refresh_unit_panel_for_faction() (race
+## selection) can show/hide whole groups later without rebuilding
+## anything -- this function still only ever runs once, in _ready().
 func _build_unit_panel(parent: Control) -> void:
 	var group := ButtonGroup.new()
 	var archetypes: Array[UnitStats] = [
-		TANK_STATS, FIGHTER_STATS, ARCHER_STATS, BAT_RIDER_STATS, GIANT_STATS, HERO_STATS,
+		TANK_STATS, FIGHTER_STATS, AXE_THROWER_STATS,
+		ARCHER_STATS, HERO_STATS, PRIEST_STATS,
+		BAT_RIDER_STATS, GIANT_STATS, SPITTER_STATS,
 	]
 
 	var by_faction: Dictionary = {} # Faction (or null) -> Array[UnitStats], insertion-ordered
@@ -216,8 +235,9 @@ func _build_unit_panel(parent: Control) -> void:
 
 	var first_button := true
 	for faction in faction_order:
+		var header: Label = null
 		if faction != null:
-			var header := Label.new()
+			header = Label.new()
 			header.text = (faction as Faction).faction_name
 			header.add_theme_font_size_override("font_size", 13)
 			header.modulate = Color(0.8, 0.8, 0.8)
@@ -228,10 +248,28 @@ func _build_unit_panel(parent: Control) -> void:
 		grid.add_theme_constant_override("h_separation", 8)
 		grid.add_theme_constant_override("v_separation", 8)
 		parent.add_child(grid)
+		if faction != null:
+			_faction_group_nodes[faction] = {"header": header, "grid": grid}
 
 		for stats in by_faction[faction]:
 			_add_unit_type_button(grid, group, stats, first_button)
 			first_button = false
+
+
+## Race selection (see UI/MainMenu.gd's lobby faction picker): gates the
+## build menu to only `faction`'s own units, hiding the other factions'
+## header+grid entirely rather than just their buttons -- an empty
+## faction section would still leave a dangling header label with
+## nothing under it. `null` shows every faction (classic mode/Hero
+## Footies, neither of which opens the build menu at all, and any GUT
+## test that never goes through the menu -- Player.faction stays null
+## for those, same fallback UnitStats.faction itself already documents).
+func refresh_unit_panel_for_faction(faction: Faction) -> void:
+	for other_faction in _faction_group_nodes:
+		var visible_now: bool = faction == null or other_faction == faction
+		var nodes: Dictionary = _faction_group_nodes[other_faction]
+		nodes["header"].visible = visible_now
+		nodes["grid"].visible = visible_now
 
 
 ## Label includes cost (e.g. "Tank (150g)") so a player can see what they
@@ -941,6 +979,49 @@ func _refresh_ability_hotbar() -> void:
 		else:
 			button.text = ability.ability_name
 			button.disabled = false
+
+
+## Positioned at the very bottom of the screen -- clear of the ability
+## hotbar (viewport_size.y - 80), buff row (-106), and hero level/XP bar
+## (-140/-118), all of which only show for specific unit types, whereas
+## Sell should be able to show for anything ownable regardless of what
+## else is currently visible.
+func _build_sell_button() -> void:
+	_sell_button = Button.new()
+	_sell_button.visible = false
+	_sell_button.custom_minimum_size = Vector2(140, 32)
+	_style_primary_button(_sell_button)
+	_sell_button.pressed.connect(func(): sell_requested.emit())
+	_sell_button.pressed.connect(func(): Sfx.play_ui_click())
+	add_child(_sell_button)
+
+
+## Selling was previously only a right-click-and-hope affordance with no
+## visible price -- shown here instead whenever a sellable unit is
+## selected (usability feedback, 2026-08-11), with the actual refund
+## amount, so a player can see what they'd get back before committing.
+## "Sellable" mirrors PlayerInputController.try_sell_unit()'s own gate
+## (own team, not the Builder, PLACEMENT only) -- kept in sync by hand
+## since HUD doesn't reach into PlayerInputController directly (see this
+## file's own class doc comment on staying decoupled from input/selection
+## internals).
+func _refresh_sell_button() -> void:
+	var unit := _tracked_unit
+	var sellable := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE \
+		and unit.player == SelectionManager.local_player and not unit.stats.is_builder \
+		and GameManager.is_placement_phase()
+	_sell_button.visible = sellable
+	if not sellable:
+		return
+
+	if GameManager.current_mode.uses_economy():
+		var refund := int(unit.stats.cost * GameManager.SELL_REFUND_FRACTION)
+		_sell_button.text = "Sell (%dg)" % refund
+	else:
+		_sell_button.text = "Sell"
+
+	var viewport_size := get_viewport_rect().size
+	_sell_button.position = Vector2((viewport_size.x - _sell_button.size.x) * 0.5, viewport_size.y - 40)
 
 
 func _build_buff_row() -> void:

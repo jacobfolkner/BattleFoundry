@@ -88,6 +88,7 @@ func _ready() -> void:
 	_hud.hero_ability_picked.connect(_on_hero_ability_picked)
 	_hud.gold_exchange_requested.connect(_on_gold_exchange_requested)
 	_hud.blood_exchange_requested.connect(_on_blood_exchange_requested)
+	_hud.sell_requested.connect(_on_sell_requested)
 	# HUD only ever displays whichever unit SelectionManager reports as
 	# selected -- it never reads SelectionManager itself (see HUD.gd's own
 	# doc comment on staying decoupled from selection/battle-lifecycle
@@ -114,10 +115,26 @@ func _apply_menu_selection() -> void:
 	var hero_footies := MenuSelection.start_with_hero_footies
 	var human_team_id := MenuSelection.human_team_id
 	var bot_team_ids := MenuSelection.bot_team_ids.duplicate()
+	var chosen_faction := MenuSelection.chosen_faction
 	MenuSelection.start_with_tournament = false
 	MenuSelection.start_with_hero_footies = false
 	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
 	MenuSelection.bot_team_ids.clear()
+	MenuSelection.chosen_faction = null
+
+	# Every team gets a race, not just whoever ends up playing this match
+	# -- cheaper than threading active_team_ids through this too, and
+	# harmless for a team that never plays. The human's own slot gets the
+	# lobby's pick (or a random one if they left it on "Random"); every
+	# other slot (bots included) always gets a random race -- there's no
+	# per-bot picker. HUD.refresh_unit_panel_for_faction() then gates the
+	# build menu to the human player's own race -- a no-op visually for
+	# classic mode/Hero Footies, neither of which ever opens the build
+	# menu, so this runs unconditionally rather than only under `tournament`.
+	for team_id in GameManager.all_team_ids():
+		var player := GameManager.get_player(team_id)
+		player.faction = chosen_faction if (team_id == human_team_id and chosen_faction != null) else FactionRegistry.random_pick()
+	_hud.refresh_unit_panel_for_faction(GameManager.get_player(human_team_id).faction)
 
 	_on_team_selected(human_team_id) # harmless no-op when this is already the default (Blue)
 
@@ -367,6 +384,16 @@ func _on_gold_exchange_requested() -> void:
 func _on_blood_exchange_requested() -> void:
 	if _selected_player.exchange_blood_points_for_gold():
 		_refresh_gold_display()
+
+
+## HUD's Sell button (see UI/HUD.gd's sell_requested signal) has no
+## payload -- it always refers to whichever unit SelectionManager
+## currently reports selected, the same source HUD's own track_unit()/
+## _tracked_unit already reflects for the button's own visibility.
+func _on_sell_requested() -> void:
+	if SelectionManager.selected_units.is_empty():
+		return
+	_input.try_sell_unit(SelectionManager.selected_units[0])
 
 
 ## Actual input handling lives in Scripts/Core/PlayerInputController.gd (_input)

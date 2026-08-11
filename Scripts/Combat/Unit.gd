@@ -1324,6 +1324,17 @@ func take_damage(instance: DamageInstance) -> bool:
 	return true
 
 
+## Restores up to `amount` health, capped at max -- the counterpart to
+## take_damage(), used by Ability.gd's own `heal` field (see its doc
+## comment). No mitigation/armor concept here, unlike damage -- a heal is
+## never reduced.
+func heal(amount: float) -> void:
+	if life_state != LifeState.ALIVE:
+		return
+	current_health = minf(current_health + amount, stat_block.max_health())
+	_health_bar.set_fraction(current_health / stat_block.max_health())
+
+
 ## Enters the DEAD state -- collision off (no longer blocks or gets
 ## targeted), health bar hidden, died signal fired immediately (so
 ## GameManager's roster/win-condition check happens at the moment of
