@@ -1,11 +1,13 @@
-[gd_resource type="Resource" script_class="UnitStats" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="UnitStats" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://Scripts/Combat/UnitStats.gd" id="1"]
 [ext_resource type="Resource" path="res://Resources/Abilities/HealingWordAbility.tres" id="2"]
 [ext_resource type="Resource" path="res://Resources/Factions/HumanFaction.tres" id="3"]
+[ext_resource type="Texture2D" path="res://Resources/Icons/Priest.svg" id="4"]
 
 [resource]
 script = ExtResource("1")
+icon = ExtResource("4")
 faction = ExtResource("3")
 unit_name = "Priest"
 cost = 110

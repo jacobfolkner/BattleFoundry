@@ -77,9 +77,20 @@ const ACTION_DISPLAY_NAMES := {
 }
 
 
+## Roadmap Phase 10's last open item for the settings screen: rebinds
+## used to live only in the current InputMap runtime state, reset on
+## relaunch. ConfigFile, not ProjectSettings/an autoload singleton
+## resource -- this is real player preference data, meant to survive a
+## relaunch, so it belongs in user:// like any other save file, not
+## baked into the project itself.
+const _SAVE_PATH := "user://keybinds.cfg"
+const _SAVE_SECTION := "keybinds"
+
+
 func _ready() -> void:
 	for action_name in DEFAULT_BINDINGS:
 		_ensure_action_exists(action_name, DEFAULT_BINDINGS[action_name])
+	_load_saved_bindings()
 
 
 func _ensure_action_exists(action_name: String, default_keycode: Key) -> void:
@@ -96,13 +107,18 @@ func _ensure_action_exists(action_name: String, default_keycode: Key) -> void:
 ## Registers the action first (via its own DEFAULT_BINDINGS entry, if
 ## it has one) if it doesn't exist yet -- defensive only; _ready()
 ## should already have covered every action this project defines.
-func rebind(action_name: String, new_keycode: Key) -> void:
+## `persist`, false only from reset_to_defaults()'s own per-action loop,
+## avoids writing the save file N times in a row when one write at the
+## end already covers the whole reset.
+func rebind(action_name: String, new_keycode: Key, persist: bool = true) -> void:
 	if not InputMap.has_action(action_name):
 		InputMap.add_action(action_name)
 	InputMap.action_erase_events(action_name)
 	var event := InputEventKey.new()
 	event.keycode = new_keycode
 	InputMap.action_add_event(action_name, event)
+	if persist:
+		_save_bindings()
 
 
 func display_name(action_name: String) -> String:
@@ -132,4 +148,36 @@ func find_conflicting_action(excluding_action: String, keycode: Key) -> String:
 ## Defaults" button.
 func reset_to_defaults() -> void:
 	for action_name in DEFAULT_BINDINGS:
-		rebind(action_name, DEFAULT_BINDINGS[action_name])
+		rebind(action_name, DEFAULT_BINDINGS[action_name], false)
+	_save_bindings()
+
+
+## Writes every current binding to _SAVE_PATH -- called after every real
+## rebind (see rebind()'s own `persist` param). Only ever the first bound
+## InputEventKey per action is saved/restored -- this project never binds
+## more than one event per action itself (rebind() always replaces,
+## never adds), so there's nothing else to capture.
+func _save_bindings() -> void:
+	var config := ConfigFile.new()
+	for action_name in DEFAULT_BINDINGS:
+		var events := InputMap.action_get_events(action_name)
+		if not events.is_empty() and events[0] is InputEventKey:
+			config.set_value(_SAVE_SECTION, action_name, (events[0] as InputEventKey).keycode)
+	config.save(_SAVE_PATH)
+
+
+## Called once from _ready(), after every action already has its
+## DEFAULT_BINDINGS keycode registered -- a missing or unreadable save
+## file (first launch, or a fresh test run's user:// directory) just
+## leaves those defaults in place, silently. `persist: false` on the
+## rebind() calls here since re-writing the file with the exact values
+## just read from it would be a pointless no-op write on every single
+## boot.
+func _load_saved_bindings() -> void:
+	var config := ConfigFile.new()
+	if config.load(_SAVE_PATH) != OK:
+		return
+	for action_name in DEFAULT_BINDINGS:
+		if config.has_section_key(_SAVE_SECTION, action_name):
+			var keycode: Key = config.get_value(_SAVE_SECTION, action_name)
+			rebind(action_name, keycode, false)
