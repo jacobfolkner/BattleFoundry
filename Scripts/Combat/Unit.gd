@@ -199,6 +199,12 @@ var _decay_elapsed: float = 0.0
 ## most physics frames) means _body_material is just player.color, and
 ## _tick_hit_flash() does nothing.
 var _hit_flash_remaining: float = 0.0
+## The in-flight squash-and-recover tween from the most recent landed
+## hit (see _play_hit_squash()) -- killed and restarted on every new hit
+## rather than left to run alongside a fresh one, which would otherwise
+## fight the new tween for _mesh_instance.scale on a unit taking rapid
+## hits.
+var _hit_squash_tween: Tween = null
 
 var _is_airborne: bool = false
 var _knockback_elapsed: float = 0.0
@@ -620,6 +626,7 @@ func cast_ability(index: int, target: Unit = null) -> bool:
 
 	_ability_cooldowns[index] = ability.cooldown
 	Sfx.play_ability_cast(global_position)
+	ImpactBurst.spawn(GameManager.units_container, global_position + Vector3(0, stats.mesh_size.y * 0.8, 0), Color(0.55, 0.8, 1.0), 10, 30.0, 2.5, 0.3)
 	return true
 
 
@@ -650,6 +657,20 @@ func _tick_hit_flash(delta: float) -> void:
 		return
 	_hit_flash_remaining = maxf(_hit_flash_remaining - delta, 0.0)
 	_body_material.albedo_color = player.color.lerp(_HIT_FLASH_COLOR, _hit_flash_remaining / _HIT_FLASH_DURATION)
+
+
+## A quick squash-then-recover on _mesh_instance's own scale -- cheap
+## "juice" for a landed hit beyond the existing flash tint/damage popup,
+## using nothing but a Tween (no new mesh/material/asset). Kills any
+## still-running tween from a previous hit first rather than letting two
+## fight over the same scale property on a unit taking rapid hits.
+func _play_hit_squash() -> void:
+	if _hit_squash_tween != null and _hit_squash_tween.is_valid():
+		_hit_squash_tween.kill()
+	_mesh_instance.scale = Vector3(1.15, 0.85, 1.15)
+	_hit_squash_tween = create_tween()
+	_hit_squash_tween.tween_property(_mesh_instance, "scale", Vector3.ONE, 0.15) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 ## Roadmap Phase 9's "floating combat text" -- one Scripts/Indicators/DamagePopup.gd
@@ -1374,8 +1395,11 @@ func take_damage(instance: DamageInstance) -> bool:
 	current_health -= mitigated
 	_health_bar.set_fraction(current_health / stat_block.max_health())
 	_hit_flash_remaining = _HIT_FLASH_DURATION
+	_play_hit_squash()
 	_spawn_damage_popup(mitigated, instance.damage_type)
 	Sfx.play_attack_land(global_position) # shared by melee and projectile impacts alike -- both funnel through here
+	var impact_position := global_position + Vector3(0, stats.mesh_size.y * 0.6, 0)
+	ImpactBurst.spawn(GameManager.units_container, impact_position, Color(0.9, 0.9, 0.85), 6, 40.0, 2.0, 0.25)
 	damaged.emit(self, instance, mitigated)
 
 	if current_health <= 0.0:
@@ -1413,6 +1437,7 @@ func die(killer: Unit = null) -> void:
 	clear_all_effects()
 	Sfx.play_death(global_position)
 	BloodDecal.spawn(GameManager.units_container, global_position)
+	ImpactBurst.spawn(GameManager.units_container, global_position + Vector3(0, stats.mesh_size.y * 0.4, 0), Color(0.55, 0.05, 0.05), 16, 65.0, 3.8, 0.5)
 	died.emit(self, killer)
 
 

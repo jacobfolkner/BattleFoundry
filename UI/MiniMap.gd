@@ -30,6 +30,13 @@ const _GROUND_PLANE := Plane(Vector3.UP, 0.0)
 ## black _background it was barely distinguishable in an actual
 ## screenshot, reading as "just a dark square" rather than a legible map.
 const _ARENA_SHAPE_COLOR := Color(0.4, 0.43, 0.36, 1.0)
+## Mirrors CrossArenaMap's own per-arm tints (brightened to hold contrast
+## against the minimap's own near-black background) so the minimap reads
+## as the same map, not a differently-colored abstraction of it.
+const _NORTH_ARM_COLOR := Color(0.34, 0.42, 0.5, 1.0)
+const _EAST_ARM_COLOR := Color(0.5, 0.36, 0.34, 1.0)
+const _SOUTH_ARM_COLOR := Color(0.34, 0.5, 0.38, 1.0)
+const _WEST_ARM_COLOR := Color(0.5, 0.47, 0.32, 1.0)
 ## A visible edge around the whole minimap so it reads as a defined
 ## instrument panel rather than blending into whatever's rendered behind
 ## it in the corner of the 3D viewport (usability review, 2026-08-11).
@@ -130,16 +137,16 @@ func _draw_cross_arena_shape() -> void:
 	var w := GameManager.CROSS_ARM_HALF_WIDTH
 	var o := GameManager.CROSS_ARM_OUTER_EXTENT
 	var pieces: Array = [
-		[Vector3(-w, 0, -w), Vector3(w, 0, w)],  # center
-		[Vector3(-w, 0, -o), Vector3(w, 0, -w)], # north arm
-		[Vector3(-w, 0, w), Vector3(w, 0, o)],   # south arm
-		[Vector3(w, 0, -w), Vector3(o, 0, w)],   # east arm
-		[Vector3(-o, 0, -w), Vector3(-w, 0, w)], # west arm
+		[Vector3(-w, 0, -w), Vector3(w, 0, w), _ARENA_SHAPE_COLOR],  # center -- untinted, shared convergence point
+		[Vector3(-w, 0, -o), Vector3(w, 0, -w), _NORTH_ARM_COLOR],
+		[Vector3(-w, 0, w), Vector3(w, 0, o), _SOUTH_ARM_COLOR],
+		[Vector3(w, 0, -w), Vector3(o, 0, w), _EAST_ARM_COLOR],
+		[Vector3(-o, 0, -w), Vector3(-w, 0, w), _WEST_ARM_COLOR],
 	]
 	for piece in pieces:
 		var mapped_min := _world_to_map(piece[0], half_extent)
 		var mapped_max := _world_to_map(piece[1], half_extent)
-		draw_rect(Rect2(mapped_min, Vector2.ZERO).expand(mapped_max), _ARENA_SHAPE_COLOR)
+		draw_rect(Rect2(mapped_min, Vector2.ZERO).expand(mapped_max), piece[2])
 
 
 func _draw() -> void:

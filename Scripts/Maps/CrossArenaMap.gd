@@ -41,6 +41,22 @@ static func arm_partner_index(index: int) -> int:
 	return index ^ 1
 
 
+## Subtle per-arm ground tints -- gameplay feedback, 2026-08-11: "the
+## cross arena has no lane/landmark differentiation," every arm and the
+## center hub being the exact same flat color. Deliberately small
+## deviations from ArenaMap.DEFAULT_GROUND_COLOR (0.16, 0.18, 0.16), not
+## saturated team-style colors -- this is a "which lane am I looking at"
+## wayfinding cue, not a team-ownership signal (a team's own arm changes
+## every round via round_spawn_points, so an arm's tint is fixed to its
+## compass direction, never to whichever team currently holds it). The
+## center hub itself stays untinted (see build()) -- it's the shared
+## convergence point, not any one lane.
+const _NORTH_ARM_COLOR := Color(0.14, 0.17, 0.20, 1)
+const _EAST_ARM_COLOR := Color(0.20, 0.15, 0.14, 1)
+const _SOUTH_ARM_COLOR := Color(0.14, 0.20, 0.15, 1)
+const _WEST_ARM_COLOR := Color(0.20, 0.19, 0.13, 1)
+
+
 func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	var half := GameManager.CROSS_ARM_HALF_WIDTH
 	var outer := GameManager.CROSS_ARM_OUTER_EXTENT
@@ -75,11 +91,11 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	var full := half * 2.0
 	var arm_length := outer - half
 	var arm_center := half + arm_length * 0.5
-	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, full), Vector3.ZERO)) # center
-	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, arm_length), Vector3(0, 0, -arm_center))) # north
-	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(arm_length, full), Vector3(arm_center, 0, 0))) # east
-	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, arm_length), Vector3(0, 0, arm_center))) # south
-	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(arm_length, full), Vector3(-arm_center, 0, 0))) # west
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, full), Vector3.ZERO)) # center -- left at DEFAULT_GROUND_COLOR, neutral convergence point
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, arm_length), Vector3(0, 0, -arm_center), _NORTH_ARM_COLOR))
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(arm_length, full), Vector3(arm_center, 0, 0), _EAST_ARM_COLOR))
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, arm_length), Vector3(0, 0, arm_center), _SOUTH_ARM_COLOR))
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(arm_length, full), Vector3(-arm_center, 0, 0), _WEST_ARM_COLOR))
 
 	# The 8 lineup courtyards, one per team, in the diagonal gaps between
 	# arms -- deliberately separate ground pieces, not part of the 5
