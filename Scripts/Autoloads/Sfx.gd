@@ -9,7 +9,9 @@
 ## Swapping in real SFX later only means changing what the
 ## _build_*_sound() functions return; every call site
 ## (play_attack_land()/play_death()/play_ability_cast()/play_ui_click())
-## stays unchanged.
+## stays unchanged. play_attack_land() varies by the attacker's
+## UnitStats.AttackType (NORMAL/PIERCING/SIEGE/HERO) -- everything else
+## here is a single fixed sound.
 ##
 ## Positional sounds (attack-land, death, ability-cast) play through a
 ## small round-robin pool of AudioStreamPlayer3D children of this
@@ -25,7 +27,12 @@ extends Node
 const _MIX_RATE := 44100
 const _POOL_SIZE := 8
 
-var _attack_land_sound: AudioStreamWAV
+## One variant per UnitStats.AttackType -- closes this file's own
+## documented "no per-archetype sound variety" gap. Keyed by the
+## *attacker's* attack_type (Unit.take_damage()'s instance.source), not
+## the victim's armor_type -- the sound is meant to read as "what kind of
+## hit landed," which is a property of the weapon/attack, not what it hit.
+var _attack_land_sounds: Dictionary = {}
 var _death_sound: AudioStreamWAV
 var _ability_cast_sound: AudioStreamWAV
 var _ui_click_sound: AudioStreamWAV
@@ -41,7 +48,10 @@ var _fanfare_player: AudioStreamPlayer
 
 
 func _ready() -> void:
-	_attack_land_sound = _build_attack_land_sound()
+	_attack_land_sounds[UnitStats.AttackType.NORMAL] = _build_attack_land_sound()
+	_attack_land_sounds[UnitStats.AttackType.PIERCING] = _build_piercing_land_sound()
+	_attack_land_sounds[UnitStats.AttackType.SIEGE] = _build_siege_land_sound()
+	_attack_land_sounds[UnitStats.AttackType.HERO] = _build_hero_land_sound()
 	_death_sound = _build_death_sound()
 	_ability_cast_sound = _build_ability_cast_sound()
 	_ui_click_sound = _build_ui_click_sound()
@@ -61,8 +71,8 @@ func _ready() -> void:
 	add_child(_fanfare_player)
 
 
-func play_attack_land(position: Vector3) -> void:
-	_play_positional(_attack_land_sound, position, -6.0)
+func play_attack_land(position: Vector3, attack_type: UnitStats.AttackType = UnitStats.AttackType.NORMAL) -> void:
+	_play_positional(_attack_land_sounds[attack_type], position, -6.0)
 
 
 func play_death(position: Vector3) -> void:
@@ -204,14 +214,41 @@ static func _mix(a: PackedFloat32Array, b: PackedFloat32Array) -> PackedFloat32A
 
 
 ## Short percussive thud: a fast-decaying low tone sweep plus a filtered
-## noise burst, mixed together -- reads as an impact, not a musical note.
-## Shared by every landed hit regardless of damage type/weapon (melee and
-## projectile impacts both funnel through Unit.take_damage(), see its own
-## play_attack_land() call) -- no per-archetype sound variety in this v1.
+## noise burst, mixed together -- reads as a generic impact. Used for
+## UnitStats.AttackType.NORMAL (the majority of archetypes).
 static func _build_attack_land_sound() -> AudioStreamWAV:
 	var tone := _tone_sweep(0.08, 180.0, 70.0, 0.002, 0.07, 0.5)
 	var noise := _noise_burst(0.06, 0.001, 0.05, 0.35, 0.4)
 	return _make_wav(_mix(tone, noise))
+
+
+## Higher and shorter than the NORMAL thud, with less low-pass on the
+## noise burst (closer to a crack than a thud) -- reads as a thin, sharp
+## puncture (arrows, thrown axes, spines) rather than a blunt hit.
+static func _build_piercing_land_sound() -> AudioStreamWAV:
+	var tone := _tone_sweep(0.05, 500.0, 280.0, 0.001, 0.04, 0.45)
+	var noise := _noise_burst(0.04, 0.001, 0.03, 0.3, 0.15)
+	return _make_wav(_mix(tone, noise))
+
+
+## Longer and lower than the NORMAL thud, with a heavier low-passed noise
+## tail -- reads as a deep boom, distinct from a regular attack the same
+## way play_death()'s longer/lower sweep reads as more final. Used for
+## UnitStats.AttackType.SIEGE.
+static func _build_siege_land_sound() -> AudioStreamWAV:
+	var tone := _tone_sweep(0.16, 110.0, 40.0, 0.003, 0.14, 0.55)
+	var noise := _noise_burst(0.12, 0.002, 0.1, 0.4, 0.6)
+	return _make_wav(_mix(tone, noise))
+
+
+## The NORMAL thud plus a second, slightly delayed low transient mixed in
+## -- reads as a heavier, meatier hit without just turning the volume up.
+## Used for UnitStats.AttackType.HERO.
+static func _build_hero_land_sound() -> AudioStreamWAV:
+	var tone := _tone_sweep(0.1, 200.0, 65.0, 0.002, 0.09, 0.5)
+	var noise := _noise_burst(0.08, 0.001, 0.07, 0.4, 0.45)
+	var thump := _tone_sweep(0.12, 90.0, 45.0, 0.02, 0.1, 0.4)
+	return _make_wav(_mix(_mix(tone, noise), thump))
 
 
 ## A longer, lower descending sweep -- deliberately longer and lower than

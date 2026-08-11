@@ -1397,7 +1397,8 @@ func take_damage(instance: DamageInstance) -> bool:
 	_hit_flash_remaining = _HIT_FLASH_DURATION
 	_play_hit_squash()
 	_spawn_damage_popup(mitigated, instance.damage_type)
-	Sfx.play_attack_land(global_position) # shared by melee and projectile impacts alike -- both funnel through here
+	var attack_type := instance.source.stats.attack_type if instance.source != null else UnitStats.AttackType.NORMAL
+	Sfx.play_attack_land(global_position, attack_type) # shared by melee and projectile impacts alike -- both funnel through here
 	var impact_position := global_position + Vector3(0, stats.mesh_size.y * 0.6, 0)
 	ImpactBurst.spawn(GameManager.units_container, impact_position, Color(0.9, 0.9, 0.85), 6, 40.0, 2.0, 0.25)
 	damaged.emit(self, instance, mitigated)

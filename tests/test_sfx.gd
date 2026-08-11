@@ -10,6 +10,7 @@
 extends GutTest
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/Units/GiantStats.tres") # attack_type = SIEGE
 
 var _main: Node3D
 
@@ -23,12 +24,26 @@ func before_each() -> void:
 
 
 func test_the_four_sounds_are_distinct_nonempty_buffers() -> void:
-	var sounds: Array = [Sfx._attack_land_sound, Sfx._death_sound, Sfx._ability_cast_sound, Sfx._ui_click_sound]
+	var sounds: Array = [Sfx._attack_land_sounds[UnitStats.AttackType.NORMAL], Sfx._death_sound, Sfx._ability_cast_sound, Sfx._ui_click_sound]
 	for sound in sounds:
 		assert_gt(sound.data.size(), 0)
 	for i in sounds.size():
 		for j in range(i + 1, sounds.size()):
 			assert_ne(sounds[i].data, sounds[j].data, "each sound should be audibly distinct")
+
+
+func test_each_attack_type_has_a_distinct_nonempty_attack_land_sound() -> void:
+	var sounds: Array = [
+		Sfx._attack_land_sounds[UnitStats.AttackType.NORMAL],
+		Sfx._attack_land_sounds[UnitStats.AttackType.PIERCING],
+		Sfx._attack_land_sounds[UnitStats.AttackType.SIEGE],
+		Sfx._attack_land_sounds[UnitStats.AttackType.HERO],
+	]
+	for sound in sounds:
+		assert_gt(sound.data.size(), 0)
+	for i in sounds.size():
+		for j in range(i + 1, sounds.size()):
+			assert_ne(sounds[i].data, sounds[j].data, "each attack-type variant should be audibly distinct")
 
 
 func _any_positional_player_matches(stream: AudioStreamWAV, position: Vector3) -> bool:
@@ -40,7 +55,12 @@ func _any_positional_player_matches(stream: AudioStreamWAV, position: Vector3) -
 
 func test_play_attack_land_starts_a_positional_player_at_the_given_position() -> void:
 	Sfx.play_attack_land(Vector3(3, 0, 4))
-	assert_true(_any_positional_player_matches(Sfx._attack_land_sound, Vector3(3, 0, 4)))
+	assert_true(_any_positional_player_matches(Sfx._attack_land_sounds[UnitStats.AttackType.NORMAL], Vector3(3, 0, 4)))
+
+
+func test_play_attack_land_with_a_piercing_attack_type_uses_the_piercing_sound() -> void:
+	Sfx.play_attack_land(Vector3(3, 0, 4), UnitStats.AttackType.PIERCING)
+	assert_true(_any_positional_player_matches(Sfx._attack_land_sounds[UnitStats.AttackType.PIERCING], Vector3(3, 0, 4)))
 
 
 func test_play_death_starts_a_positional_player_at_the_given_position() -> void:
@@ -64,7 +84,16 @@ func test_a_landed_hit_plays_the_attack_land_sound_at_the_victims_position() -> 
 
 	victim.take_damage(DamageInstance.new(20.0, null, DamageInstance.DamageType.PURE))
 
-	assert_true(_any_positional_player_matches(Sfx._attack_land_sound, victim.global_position))
+	assert_true(_any_positional_player_matches(Sfx._attack_land_sounds[UnitStats.AttackType.NORMAL], victim.global_position))
+
+
+func test_a_landed_hit_from_a_siege_attacker_plays_the_siege_attack_land_sound() -> void:
+	var attacker := GameManager.spawn_unit(GIANT_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(2, 0, 2))
+	var victim := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), Vector3(2, 0, 2))
+
+	victim.take_damage(DamageInstance.new(20.0, attacker, DamageInstance.DamageType.PURE))
+
+	assert_true(_any_positional_player_matches(Sfx._attack_land_sounds[UnitStats.AttackType.SIEGE], victim.global_position))
 
 
 func test_an_evaded_hit_plays_no_attack_land_sound() -> void:
@@ -79,7 +108,7 @@ func test_an_evaded_hit_plays_no_attack_land_sound() -> void:
 	var hit_landed := victim.take_damage(DamageInstance.new(20.0, null, DamageInstance.DamageType.ATTACK))
 
 	assert_false(hit_landed)
-	assert_false(_any_positional_player_matches(Sfx._attack_land_sound, victim.global_position))
+	assert_false(_any_positional_player_matches(Sfx._attack_land_sounds[UnitStats.AttackType.NORMAL], victim.global_position))
 
 
 func test_dying_plays_the_death_sound_at_the_units_position() -> void:
