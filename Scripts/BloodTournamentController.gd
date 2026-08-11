@@ -148,6 +148,7 @@ func run_ai_turn_if_needed() -> void:
 ## (see GameMode.gd), so mode-specific UI reactions like this one have to
 ## come from something holding the mode reference directly.
 func on_round_ended(round_number: int, _winning_team_id: int, _is_draw: bool) -> void:
+	Sfx.play_round_end()
 	_hud.show_tournament_score(round_number, scoreboard_text())
 	_refresh_gold_display.call() # round income (BloodTournamentMode.on_battle_ended()) already landed by now
 	if not mode.is_match_over():
@@ -236,6 +237,7 @@ func begin_march() -> void:
 	if current_mode != null and (current_mode.current_boss_team_id != -1 or current_mode.in_bracket_match):
 		return
 
+	Sfx.play_round_start()
 	for team_id in GameManager.all_team_ids():
 		var player := GameManager.get_player(team_id)
 		if player.courtyard_units.is_empty():

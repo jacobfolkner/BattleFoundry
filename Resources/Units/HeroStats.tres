@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="UnitStats" load_steps=14 format=3]
+[gd_resource type="Resource" script_class="UnitStats" load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
 [ext_resource type="Resource" path="res://Resources/Abilities/CleaveStrikeAbility.tres" id="2"]
@@ -10,6 +10,7 @@
 [ext_resource type="Resource" path="res://Resources/Abilities/IronWillAbility.tres" id="8"]
 [ext_resource type="Resource" path="res://Resources/Abilities/ExecuteAbility.tres" id="9"]
 [ext_resource type="Texture2D" path="res://Resources/Icons/Hero.svg" id="10"]
+[ext_resource type="Resource" path="res://Resources/Factions/HumanFaction.tres" id="11"]
 
 [sub_resource type="Resource" id="AbilityChoiceSet_level1"]
 script = ExtResource("6")
@@ -26,6 +27,7 @@ candidates = [ExtResource("4"), ExtResource("9")]
 [resource]
 script = ExtResource("1")
 icon = ExtResource("10")
+faction = ExtResource("11")
 unit_name = "Warlord"
 cost = 200
 squad_size = 1

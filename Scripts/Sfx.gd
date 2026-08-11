@@ -29,10 +29,15 @@ var _attack_land_sound: AudioStreamWAV
 var _death_sound: AudioStreamWAV
 var _ability_cast_sound: AudioStreamWAV
 var _ui_click_sound: AudioStreamWAV
+var _round_start_sound: AudioStreamWAV
+var _round_end_sound: AudioStreamWAV
 
 var _positional_pool: Array[AudioStreamPlayer3D] = []
 var _next_positional_index := 0
 var _ui_player: AudioStreamPlayer
+## Separate from _ui_player so a round stinger never gets cut short by an
+## unrelated UI click landing on the same non-positional player right after.
+var _fanfare_player: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -40,6 +45,8 @@ func _ready() -> void:
 	_death_sound = _build_death_sound()
 	_ability_cast_sound = _build_ability_cast_sound()
 	_ui_click_sound = _build_ui_click_sound()
+	_round_start_sound = _build_round_start_sound()
+	_round_end_sound = _build_round_end_sound()
 
 	for i in _POOL_SIZE:
 		var player := AudioStreamPlayer3D.new()
@@ -49,6 +56,9 @@ func _ready() -> void:
 
 	_ui_player = AudioStreamPlayer.new()
 	add_child(_ui_player)
+
+	_fanfare_player = AudioStreamPlayer.new()
+	add_child(_fanfare_player)
 
 
 func play_attack_land(position: Vector3) -> void:
@@ -67,6 +77,22 @@ func play_ui_click() -> void:
 	_ui_player.stream = _ui_click_sound
 	_ui_player.volume_db = -8.0
 	_ui_player.play()
+
+
+## Blood Tournament round transitions -- not positional (a match-wide
+## event, no single world position it belongs at), same non-positional
+## AudioStreamPlayer approach as play_ui_click(), just its own player so
+## the two families can never cut each other off.
+func play_round_start() -> void:
+	_fanfare_player.stream = _round_start_sound
+	_fanfare_player.volume_db = -5.0
+	_fanfare_player.play()
+
+
+func play_round_end() -> void:
+	_fanfare_player.stream = _round_end_sound
+	_fanfare_player.volume_db = -5.0
+	_fanfare_player.play()
 
 
 ## Round-robin, not "find a free one" -- an idle AudioStreamPlayer3D
@@ -149,6 +175,23 @@ static func _noise_burst(duration: float, attack: float, release: float, amplitu
 	return samples
 
 
+## Concatenates a sequence of buffers end-to-end (as opposed to _mix(),
+## which overlays two buffers at the same starting sample) -- used to
+## build a multi-note phrase out of individual _tone_sweep() notes.
+static func _concat(clips: Array[PackedFloat32Array]) -> PackedFloat32Array:
+	var total := 0
+	for clip in clips:
+		total += clip.size()
+	var out := PackedFloat32Array()
+	out.resize(total)
+	var offset := 0
+	for clip in clips:
+		for i in clip.size():
+			out[offset + i] = clip[i]
+		offset += clip.size()
+	return out
+
+
 static func _mix(a: PackedFloat32Array, b: PackedFloat32Array) -> PackedFloat32Array:
 	var length := maxi(a.size(), b.size())
 	var out := PackedFloat32Array()
@@ -182,15 +225,10 @@ static func _build_death_sound() -> AudioStreamWAV:
 ## pitch, so it reads as "something started" rather than "something
 ## ended" (attack-land and death both fall).
 static func _build_ability_cast_sound() -> AudioStreamWAV:
-	var first := _tone_sweep(0.08, 500.0, 700.0, 0.005, 0.03, 0.4)
-	var second := _tone_sweep(0.1, 700.0, 950.0, 0.005, 0.05, 0.4)
-	var samples := PackedFloat32Array()
-	samples.resize(first.size() + second.size())
-	for i in first.size():
-		samples[i] = first[i]
-	for i in second.size():
-		samples[first.size() + i] = second[i]
-	return _make_wav(samples)
+	return _make_wav(_concat([
+		_tone_sweep(0.08, 500.0, 700.0, 0.005, 0.03, 0.4),
+		_tone_sweep(0.1, 700.0, 950.0, 0.005, 0.05, 0.4),
+	]))
 
 
 ## A short, high, near-instant blip -- distinct from every gameplay sound
@@ -198,3 +236,27 @@ static func _build_ability_cast_sound() -> AudioStreamWAV:
 ## something happening on the battlefield.
 static func _build_ui_click_sound() -> AudioStreamWAV:
 	return _make_wav(_tone_sweep(0.04, 1200.0, 1200.0, 0.002, 0.03, 0.3))
+
+
+## Three-note rising horn-call, each note a fifth/fourth above the last
+## (a cheap "fanfare" read without any real instrument synthesis) -- reads
+## as "the round is starting," distinct from ability-cast's plain
+## two-tone rising chime by being three notes and pitched an octave lower
+## (horn range, not a UI blip).
+static func _build_round_start_sound() -> AudioStreamWAV:
+	return _make_wav(_concat([
+		_tone_sweep(0.14, 220.0, 220.0, 0.01, 0.05, 0.45),
+		_tone_sweep(0.14, 330.0, 330.0, 0.01, 0.05, 0.45),
+		_tone_sweep(0.22, 440.0, 440.0, 0.01, 0.12, 0.5),
+	]))
+
+
+## A descending two-note horn call, mirroring play_round_start()'s rising
+## one -- falling pitch reads as "resolved/over," same rising-vs-falling
+## convention already established between _build_ability_cast_sound() and
+## _build_death_sound().
+static func _build_round_end_sound() -> AudioStreamWAV:
+	return _make_wav(_concat([
+		_tone_sweep(0.16, 440.0, 440.0, 0.01, 0.06, 0.45),
+		_tone_sweep(0.3, 260.0, 220.0, 0.01, 0.2, 0.5),
+	]))

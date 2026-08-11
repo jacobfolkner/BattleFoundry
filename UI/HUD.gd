@@ -176,20 +176,45 @@ func _wrap_in_card(parent: Control, title: String) -> VBoxContainer:
 	return content
 
 
+## Grouped by UnitStats.faction (Phase 11: "team-color/material per
+## faction" -- the build menu grouping is the free/no-new-art half of
+## that, the ground-ring accent in Unit._build_faction_accent() is the
+## visual half) instead of one flat 6-button grid. Order here is fixed
+## (not derived from the archetype list) so the same faction always
+## renders in the same position across sessions rather than reshuffling
+## based on iteration order.
 func _build_unit_panel(parent: Control) -> void:
-	var panel := GridContainer.new()
-	panel.columns = 2
-	panel.add_theme_constant_override("h_separation", 8)
-	panel.add_theme_constant_override("v_separation", 8)
-	parent.add_child(panel)
-
 	var group := ButtonGroup.new()
-	_add_unit_type_button(panel, group, TANK_STATS, true)
-	_add_unit_type_button(panel, group, FIGHTER_STATS, false)
-	_add_unit_type_button(panel, group, ARCHER_STATS, false)
-	_add_unit_type_button(panel, group, BAT_RIDER_STATS, false)
-	_add_unit_type_button(panel, group, GIANT_STATS, false)
-	_add_unit_type_button(panel, group, HERO_STATS, false)
+	var archetypes: Array[UnitStats] = [
+		TANK_STATS, FIGHTER_STATS, ARCHER_STATS, BAT_RIDER_STATS, GIANT_STATS, HERO_STATS,
+	]
+
+	var by_faction: Dictionary = {} # Faction (or null) -> Array[UnitStats], insertion-ordered
+	var faction_order: Array = []
+	for stats in archetypes:
+		if not by_faction.has(stats.faction):
+			by_faction[stats.faction] = []
+			faction_order.append(stats.faction)
+		by_faction[stats.faction].append(stats)
+
+	var first_button := true
+	for faction in faction_order:
+		if faction != null:
+			var header := Label.new()
+			header.text = (faction as Faction).faction_name
+			header.add_theme_font_size_override("font_size", 13)
+			header.modulate = Color(0.8, 0.8, 0.8)
+			parent.add_child(header)
+
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", 8)
+		grid.add_theme_constant_override("v_separation", 8)
+		parent.add_child(grid)
+
+		for stats in by_faction[faction]:
+			_add_unit_type_button(grid, group, stats, first_button)
+			first_button = false
 
 
 ## Label includes cost (e.g. "Tank (150g)") so a player can see what they

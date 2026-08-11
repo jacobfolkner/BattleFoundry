@@ -9,6 +9,11 @@ extends Resource
 
 @export var unit_name: String = "Unit"
 @export var icon: Texture2D ## Shown on the build-menu/roster-row buttons (HUD.gd). Null is fine, just renders with no icon.
+## Which named Faction (see Scripts/Faction.gd) this archetype belongs to --
+## purely cosmetic/organizational (HUD build-menu grouping, ground-ring
+## accent color). Null (e.g. Builder/Throne/Goblin fixtures) means no
+## grouping/accent at all, not an error.
+@export var faction: Faction = null
 
 @export_group("Economy")
 ## Gold cost to place this archetype -- only enforced while

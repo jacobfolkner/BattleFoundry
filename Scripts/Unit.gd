@@ -651,9 +651,52 @@ func _build_appearance() -> void:
 	# being centered through the floor.
 	_mesh_instance.position.y = stats.mesh_size.y * 0.5
 
+	_build_faction_accent()
 	_build_collision()
 	_build_health_bar()
 	_build_status_indicator()
+
+
+## A thin flat ring on the ground beneath the unit, colored by
+## stats.faction.accent_color -- Phase 11's "team-color/material per
+## faction, not just per team" (Faction.gd's own doc comment). Skipped
+## entirely when stats.faction is null (Builder/Throne/goblin fixtures),
+## same as every other optional-Resource field in this codebase. Kept as
+## a separate flat mesh rather than blending into _body_material because
+## the body itself already carries the primary (and more important) team
+## color -- this is a secondary accent, not a replacement. Sized off the
+## body mesh's own footprint (_mesh_footprint_radius()), not
+## collision_radius -- the two disagree for some archetypes (e.g. Archer:
+## collision_radius 0.4 vs. its cone's 0.5 base radius), which would
+## otherwise leave the ring fully hidden under the wider mesh.
+func _build_faction_accent() -> void:
+	if stats.faction == null:
+		return
+	var footprint := _mesh_footprint_radius()
+	var ring := TorusMesh.new()
+	ring.inner_radius = maxf(footprint - 0.05, 0.02)
+	ring.outer_radius = footprint + 0.15
+	var accent_material := StandardMaterial3D.new()
+	accent_material.albedo_color = stats.faction.accent_color
+	accent_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.surface_set_material(0, accent_material)
+	var accent_instance := MeshInstance3D.new()
+	accent_instance.mesh = ring
+	accent_instance.position.y = 0.05
+	add_child(accent_instance)
+
+
+## The body mesh's horizontal (XZ) footprint radius, per mesh_shape --
+## mirrors the same per-shape sizing _build_appearance() already applies
+## to the actual mesh, just reduced to "how far does it reach from the
+## unit's own center." Box uses the larger of its X/Z half-extents since
+## a box need not be square.
+func _mesh_footprint_radius() -> float:
+	match stats.mesh_shape:
+		"Capsule", "Cone":
+			return stats.mesh_size.x
+		_:
+			return maxf(stats.mesh_size.x, stats.mesh_size.z) * 0.5
 
 
 func _build_collision() -> void:
@@ -1282,6 +1325,7 @@ func die(killer: Unit = null) -> void:
 	_status_indicator.hide_status()
 	clear_all_effects()
 	Sfx.play_death(global_position)
+	BloodDecal.spawn(GameManager.units_container, global_position)
 	died.emit(self, killer)
 
 

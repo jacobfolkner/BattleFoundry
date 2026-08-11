@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="Faction" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Faction.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+faction_name = "Beast"
+accent_color = Color(0.5, 0.25, 0.6, 1)
