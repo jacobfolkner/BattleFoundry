@@ -16,6 +16,11 @@ signal died(unit: Unit, killer: Unit)
 ## GameManager listens for this to reset its stalemate timer, and it's
 ## the natural hook point for future damage-meter/on-hit UI.
 signal damaged(unit: Unit, instance: DamageInstance, damage_dealt: float)
+## Emitted on every successful cast_ability() (not on a rejected/no-op
+## attempt) -- GameManager listens for this to detect a hero's ultimate
+## specifically (see GameManager._on_unit_ability_cast()) and trigger
+## camera shake.
+signal ability_cast_used(unit: Unit, index: int)
 
 enum LifeState { ALIVE, DEAD }
 
@@ -627,6 +632,7 @@ func cast_ability(index: int, target: Unit = null) -> bool:
 	_ability_cooldowns[index] = ability.cooldown
 	Sfx.play_ability_cast(global_position)
 	ImpactBurst.spawn(GameManager.units_container, global_position + Vector3(0, stats.mesh_size.y * 0.8, 0), Color(0.55, 0.8, 1.0), 10, 30.0, 2.5, 0.3)
+	ability_cast_used.emit(self, index)
 	return true
 
 

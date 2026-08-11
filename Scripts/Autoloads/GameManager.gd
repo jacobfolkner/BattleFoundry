@@ -39,6 +39,11 @@ signal battle_started
 ## winning_team_id is meaningless when is_draw is true -- callers must
 ## check is_draw first (see _declare_draw()).
 signal battle_ended(winning_team_id: int, is_draw: bool)
+## Fires only for a hero casting its own highest-unlock-level ability
+## slot (its "ultimate," Q/E/R's R by this project's own convention) --
+## see _on_unit_ability_cast(). Main.gd listens for this to trigger
+## camera shake; GameManager itself has no opinion on presentation.
+signal hero_ultimate_cast(unit: Unit)
 
 ## Read-only from outside GameManager -- set only via _transition_to(),
 ## which every method below goes through after validating the
@@ -356,6 +361,7 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 	unit.setup(stats, player)
 	unit.died.connect(_on_unit_died)
 	unit.damaged.connect(_on_unit_damaged)
+	unit.ability_cast_used.connect(_on_unit_ability_cast)
 	if not _units_by_team.has(player.team_id):
 		_units_by_team[player.team_id] = []
 	_units_by_team[player.team_id].append(unit)
@@ -859,3 +865,14 @@ func _spawn_split(unit: Unit, split_stats: UnitStats) -> void:
 
 func _on_unit_damaged(_unit: Unit, _instance: DamageInstance, _damage_dealt: float) -> void:
 	_seconds_since_last_damage = 0.0
+
+
+## The "ultimate" slot is whichever index requires the highest hero
+## level to unlock, not a hardcoded slot number -- today that's always
+## index 2 (R) given HeroStats.tres's [1, 2, 3] unlock levels, but this
+## stays correct if a future hero archetype orders its slots differently.
+func _on_unit_ability_cast(unit: Unit, index: int) -> void:
+	if not unit.stats.is_hero or unit.stats.ability_unlock_levels.is_empty():
+		return
+	if index == unit.stats.ability_unlock_levels.find(unit.stats.ability_unlock_levels.max()):
+		hero_ultimate_cast.emit(unit)

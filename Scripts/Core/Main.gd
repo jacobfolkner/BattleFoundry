@@ -72,6 +72,7 @@ func _ready() -> void:
 	GameManager.units_container = _units_container
 	GameManager.battle_ended.connect(_hud.show_winner)
 	GameManager.battle_started.connect(_begin_staggered_deployment)
+	GameManager.hero_ultimate_cast.connect(_on_hero_ultimate_cast)
 	var placement_ghost := PlacementGhost.new()
 	_units_container.add_child(placement_ghost)
 	_input = PlayerInputController.new(_camera, _hud, _refresh_gold_display, placement_ghost)
@@ -291,6 +292,13 @@ func _on_ai_opponent_toggled(enabled: bool) -> void:
 
 func _run_ai_turn_if_needed() -> void:
 	_bt_controller.run_ai_turn_if_needed()
+
+
+## Camera-shake juice on any hero's ultimate cast -- fires regardless of
+## whose hero it was (a shared spectacle beat, not local-player-only, same
+## as ImpactBurst/Sfx not gating on ownership either).
+func _on_hero_ultimate_cast(_unit: Unit) -> void:
+	(_camera as OrbitCamera).shake(0.3, 0.6)
 
 
 ## Swaps GameManager.current_mode between ClassicEliminationMode and a

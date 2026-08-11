@@ -77,3 +77,39 @@ func test_jump_to_hero_is_a_harmless_noop_with_no_hero_owned() -> void:
 	_camera._unhandled_input(event)
 
 	assert_eq(_camera._focus_point, focus_before)
+
+
+## Hero-ultimate camera shake -- roadmap Phase 9's "combat juice" item.
+func test_shake_perturbs_position_then_settles_back_to_the_pure_transform() -> void:
+	var settled_position: Vector3 = _camera.global_position
+
+	(_camera as OrbitCamera).shake(0.3, 5.0) # large magnitude -- a coincidental near-zero jitter shouldn't flake the assertion
+	_camera._update_transform()
+	assert_ne(_camera.global_position, settled_position, "an active shake should perturb the camera's position")
+
+	(_camera as OrbitCamera)._shake_time_remaining = 0.0
+	_camera._update_transform()
+	assert_eq(_camera.global_position, settled_position, "an expired shake should leave the camera exactly where it started")
+
+
+func test_a_heros_ultimate_cast_triggers_camera_shake() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var hero := GameManager.spawn_unit(HERO_STATS, blue, Vector3(0, 0, 0))
+	hero.level = HERO_STATS.ability_unlock_levels.max() # unlock the ultimate (index 2, level 3)
+	var camera := _camera as OrbitCamera
+	camera._shake_time_remaining = 0.0
+
+	hero.cast_ability(2) # NO_TARGET -- War Stomp-style ultimate, no target needed
+
+	assert_gt(camera._shake_time_remaining, 0.0, "casting the ultimate slot should start a camera shake")
+
+
+func test_a_heros_non_ultimate_cast_does_not_trigger_camera_shake() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var hero := GameManager.spawn_unit(HERO_STATS, blue, Vector3(0, 0, 0))
+	var camera := _camera as OrbitCamera
+	camera._shake_time_remaining = 0.0
+
+	hero.cast_ability(0) # level-1 ability, always unlocked
+
+	assert_eq(camera._shake_time_remaining, 0.0, "a non-ultimate cast should not trigger camera shake")

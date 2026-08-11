@@ -30,6 +30,13 @@ var _yaw := 0.0
 var _pitch := deg_to_rad(51.0) # matches the previous fixed position (0, 20, 16)
 var _focus_point := Vector3.ZERO
 
+## Screen shake state -- see shake()/_current_shake_offset(). Magnitude
+## decays linearly to zero over _shake_duration so a shake always settles
+## back to the camera's real position rather than snapping.
+var _shake_duration := 0.0
+var _shake_time_remaining := 0.0
+var _shake_magnitude := 0.0
+
 
 func _ready() -> void:
 	_update_transform()
@@ -64,10 +71,16 @@ func _unhandled_input(event: InputEvent) -> void:
 ## (arrows or WASD) doesn't need the same guard -- Input.is_action_pressed()
 ## correctly reads false with no real input device under headless.
 func _process(delta: float) -> void:
+	var shake_active := _shake_time_remaining > 0.0
+	if shake_active:
+		_shake_time_remaining = maxf(_shake_time_remaining - delta, 0.0)
+
 	var pan_direction := _key_pan_direction()
 	if DisplayServer.get_name() != "headless":
 		pan_direction += _edge_pan_direction()
 	if pan_direction == Vector2.ZERO:
+		if shake_active:
+			_update_transform() # nothing panned, but the shake offset still needs to decay on-screen
 		return
 
 	pan_direction = pan_direction.normalized()
@@ -150,6 +163,24 @@ func focus_and_zoom(position: Vector3, distance: float) -> void:
 	_update_transform()
 
 
+## Hero-ultimate juice -- GameManager.hero_ultimate_cast, wired up by
+## Main.gd. `magnitude` in meters; decays linearly to 0 over `duration`
+## seconds. A second call while one is still active just replaces it
+## (no stacking) -- fine at this prototype's cast-cadence, real cooldowns
+## keep ultimates from overlapping in practice anyway.
+func shake(duration: float, magnitude: float) -> void:
+	_shake_duration = duration
+	_shake_time_remaining = duration
+	_shake_magnitude = magnitude
+
+
+func _current_shake_offset() -> Vector3:
+	if _shake_time_remaining <= 0.0 or _shake_duration <= 0.0:
+		return Vector3.ZERO
+	var strength := _shake_magnitude * (_shake_time_remaining / _shake_duration)
+	return Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * strength
+
+
 func _update_transform() -> void:
 	var offset := Vector3(
 		_distance * cos(_pitch) * sin(_yaw),
@@ -158,3 +189,4 @@ func _update_transform() -> void:
 	)
 	global_position = _focus_point + offset
 	look_at(_focus_point, Vector3.UP)
+	global_position += _current_shake_offset() # after look_at -- perturbs position only, orientation stays aimed at the real focus point
