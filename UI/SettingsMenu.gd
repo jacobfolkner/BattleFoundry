@@ -20,6 +20,8 @@ var _status_label: Label
 var _key_labels: Dictionary = {} # action_name -> Label showing its current key
 var _reset_button: Button
 var _back_button: Button
+var _volume_slider: HSlider
+var _mute_button: CheckButton
 
 
 func _ready() -> void:
@@ -47,10 +49,12 @@ func _ready() -> void:
 	center.add_child(column)
 
 	var title := Label.new()
-	title.text = "Settings — Keybinds"
+	title.text = "Settings"
 	title.add_theme_font_size_override("font_size", 32)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
+
+	_build_audio_card(column)
 
 	# Same dark-card treatment as UI/HUD.gd's placement screen and
 	# UI/MainMenu.gd -- previously a bare column of labels with no
@@ -126,6 +130,53 @@ func _wrap_in_card(parent: Control, title: String) -> VBoxContainer:
 		content.add_child(header)
 
 	return content
+
+
+## Closes Sfx.gd's own documented "no volume/mute settings UI" gap --
+## AudioSettings autoload already owns persistence and applying the
+## bus volume/mute, this just gives it a control surface.
+func _build_audio_card(parent: Control) -> void:
+	var audio_card := _wrap_in_card(parent, "Audio")
+
+	var volume_row := HBoxContainer.new()
+	volume_row.add_theme_constant_override("separation", 16)
+	audio_card.add_child(volume_row)
+
+	var volume_label := Label.new()
+	volume_label.text = "Volume"
+	volume_label.custom_minimum_size = Vector2(220, 0)
+	volume_row.add_child(volume_label)
+
+	_volume_slider = HSlider.new()
+	_volume_slider.custom_minimum_size = Vector2(250, 0)
+	_volume_slider.min_value = 0.0
+	_volume_slider.max_value = 1.0
+	_volume_slider.step = 0.01
+	_volume_slider.value = AudioSettings.volume
+	_volume_slider.value_changed.connect(_on_volume_changed)
+	volume_row.add_child(_volume_slider)
+
+	var mute_row := HBoxContainer.new()
+	mute_row.add_theme_constant_override("separation", 16)
+	audio_card.add_child(mute_row)
+
+	var mute_label := Label.new()
+	mute_label.text = "Mute"
+	mute_label.custom_minimum_size = Vector2(220, 0)
+	mute_row.add_child(mute_label)
+
+	_mute_button = CheckButton.new()
+	_mute_button.button_pressed = AudioSettings.muted
+	_mute_button.toggled.connect(_on_mute_toggled)
+	mute_row.add_child(_mute_button)
+
+
+func _on_volume_changed(new_volume: float) -> void:
+	AudioSettings.set_volume(new_volume)
+
+
+func _on_mute_toggled(new_muted: bool) -> void:
+	AudioSettings.set_muted(new_muted)
 
 
 func _build_row(parent: Control, action_name: String) -> void:

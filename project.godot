@@ -27,6 +27,7 @@ DebugSettings="*res://Scripts/Autoloads/DebugSettings.gd"
 SelectionManager="*res://Scripts/Autoloads/SelectionManager.gd"
 MenuSelection="*res://Scripts/Autoloads/MenuSelection.gd"
 Sfx="*res://Scripts/Autoloads/Sfx.gd"
+AudioSettings="*res://Scripts/Autoloads/AudioSettings.gd"
 
 [display]
 
