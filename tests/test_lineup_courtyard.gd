@@ -45,6 +45,27 @@ func test_builder_is_invulnerable() -> void:
 	assert_eq(builder.life_state, Unit.LifeState.ALIVE)
 
 
+## Regression: the Builder is a CharacterBody3D like any other Unit, and
+## _on_safe_velocity_computed() called move_and_slide() for it every
+## physics frame regardless of move_speed -- if another body overlapped
+## it (another unit bumping it, or two courtyard squads spawned too
+## close, see test_multiple_roster_slots_realized_in_one_sync_do_not_overlap())
+## physics collision-resolution could nudge it off its spawn point, with
+## nothing ever correcting the drift back. Gameplay feedback,
+## 2026-08-11: "the builder should just be a stationary unit." A Tank
+## spawned directly on top of it is the overlap that used to cause the
+## push.
+func test_builder_never_moves_even_when_another_unit_overlaps_it() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var spawn_position := Vector3(20, 0, 20)
+	var builder := GameManager.spawn_courtyard_fixture(BUILDER_STATS, blue, spawn_position)
+	GameManager.spawn_unit(TANK_STATS, blue, spawn_position)
+
+	await wait_physics_frames(10)
+
+	assert_eq(builder.global_position, spawn_position, "the Builder should never be displaced by physics, no matter what overlaps it")
+
+
 ## Regression: BloodTournamentMode.on_activated() used to be reachable
 ## twice for real (a mid-match HUD toggle could reactivate an
 ## already-active mode -- removed entirely, see UI/HUD.gd's own doc
@@ -240,6 +261,27 @@ func test_round_transition_repopulates_the_courtyard_from_the_persisted_roster()
 	assert_eq(blue.roster, [TANK_STATS], "the roster itself should never have been touched by any of this")
 	assert_eq(blue.courtyard_units.size(), 1)
 	assert_eq(blue.courtyard_units[0].size(), TANK_STATS.squad_size, "a fresh squad should stand in the courtyard again, with no purchase needed")
+
+
+## Regression: sync_courtyard_to_roster() used to realize every new
+## roster slot at the exact same CrossArenaMap.get_courtyard_unit_anchor()
+## point regardless of index -- harmless with one slot, but a roster of
+## 2+ (the common case after a round transition, where every slot gets
+## re-realized in the same pass) spawned every squad fully overlapping.
+## Only each squad's member 0 is visible (Unit.set_courtyard_visible()),
+## so this read as gameplay feedback (2026-08-11): "between rounds some
+## units disappear" -- the "missing" unit was actually alive, just
+## occupying the exact same point as another squad.
+func test_multiple_roster_slots_realized_in_one_sync_do_not_overlap() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.roster = [TANK_STATS, FIGHTER_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	var first_position: Vector3 = blue.courtyard_units[0][0].global_position
+	var second_position: Vector3 = blue.courtyard_units[1][0].global_position
+	assert_gt(first_position.distance_to(second_position), 1.0, "two different roster slots' squads should never spawn on top of each other")
 
 
 # ---------------------------------------------------------------------

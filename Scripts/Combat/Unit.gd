@@ -249,7 +249,11 @@ func setup(new_stats: UnitStats, new_player: Player) -> void:
 	current_health = stat_block.max_health()
 	_resolve_abilities()
 	_build_appearance()
-	_build_avoidance()
+	# The Builder never moves or seeks anything (see _physics_process()'s
+	# own is_builder early-return) -- skip building a NavigationAgent3D
+	# for it entirely rather than one that's simply never queried.
+	if not stats.is_builder:
+		_build_avoidance()
 	_apply_passive_abilities()
 
 
@@ -815,6 +819,19 @@ func _physics_process(delta: float) -> void:
 		_body_material.albedo_color = _body_color_at_death.lerp(Color.BLACK, clampf(_decay_elapsed / _CORPSE_DECAY_DURATION, 0.0, 1.0))
 		if _decay_elapsed >= _CORPSE_DECAY_DURATION:
 			queue_free()
+		return
+
+	# The Builder is a permanent, invulnerable, move_speed == 0 courtyard
+	# fixture (see GameManager.spawn_courtyard_fixture()'s own doc
+	# comment) -- it never has a _nav_agent (see _build_avoidance() below)
+	# and should never move at all. Without this it still called
+	# move_and_slide() every frame via _on_safe_velocity_computed(),
+	# which resolves any physical overlap (another unit bumping it,
+	# another courtyard squad spawned too close) by pushing it away --
+	# reading as the Builder wandering off its spawn point over a long
+	# match (gameplay feedback, 2026-08-11: "the builder should just be a
+	# stationary unit").
+	if stats.is_builder:
 		return
 
 	_tick_effects(delta)

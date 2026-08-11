@@ -590,7 +590,7 @@ func sync_courtyard_to_roster(player: Player) -> void:
 
 	for i in range(player.courtyard_units.size(), player.roster.size()):
 		var stats: UnitStats = player.roster[i]
-		_spawn_roster_squad_at(player, stats, CrossArenaMap.get_courtyard_unit_anchor(player.team_id))
+		_spawn_roster_squad_at(player, stats, CrossArenaMap.get_courtyard_unit_anchor(player.team_id, i))
 
 
 ## Spawns one roster slot's squad at `position`, applying every

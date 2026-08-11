@@ -137,6 +137,18 @@ const _COURTYARD_LATERAL_REACH := 32.0
 ## courtyard's edge.
 const _COURTYARD_ANCHOR_OFFSET := 3.0
 
+## Lateral spacing between roster slots' squads within a courtyard --
+## get_courtyard_unit_anchor()'s `slot_index` param. Previously every
+## slot resolved to the exact same point (only ever noticeable once a
+## roster had 2+ slots realized in the same sync_courtyard_to_roster()
+## pass, e.g. a fresh round -- gameplay feedback, 2026-08-11: "between
+## rounds some units disappear," actually still alive but physically
+## coincident with another squad, with only one of the two visible
+## squad[0]s winning the overlap). COURTYARD_HALF_EXTENT (6.5) already
+## budgeted "room for a roster that grows" per its own doc comment, so
+## the fix is purely this offset never having been wired in.
+const _COURTYARD_SLOT_LATERAL_SPACING := 2.0
+
 
 ## The center of team_id's lineup courtyard -- one of 8, in the diagonal
 ## gaps between arms (verified outside all 5 nav-mesh polygons, with
@@ -182,11 +194,27 @@ static func get_courtyard_position(team_id: int) -> Vector3:
 ## Where a purchased squad spawns -- the courtyard center pushed
 ## _COURTYARD_ANCHOR_OFFSET inward (toward the map center / the arm this
 ## courtyard belongs to), the opposite side of the Builder in
-## get_courtyard_position().
-static func get_courtyard_unit_anchor(team_id: int) -> Vector3:
+## get_courtyard_position(). `slot_index` (the roster slot this squad
+## belongs to) fans it out sideways from the 3rd slot onward so distinct
+## roster slots never spawn on top of each other -- see
+## _COURTYARD_SLOT_LATERAL_SPACING's own doc comment.
+static func get_courtyard_unit_anchor(team_id: int, slot_index: int = 0) -> Vector3:
 	var center := _courtyard_center(team_id)
 	var outward := _courtyard_outward_direction(team_id)
-	return center - Vector3(outward.x, 0, outward.y) * _COURTYARD_ANCHOR_OFFSET
+	var lateral := Vector2(-outward.y, outward.x)
+	var lateral_offset := lateral * _courtyard_slot_lateral_offset(slot_index)
+	return center - Vector3(outward.x, 0, outward.y) * _COURTYARD_ANCHOR_OFFSET + Vector3(lateral_offset.x, 0, lateral_offset.y)
+
+
+## Fans out symmetrically from slot 0 (0, +1, -1, +2, -2, ...) rather
+## than marching monotonically in one direction, so a growing roster
+## stays centered on the courtyard instead of drifting toward one edge.
+static func _courtyard_slot_lateral_offset(slot_index: int) -> float:
+	if slot_index == 0:
+		return 0.0
+	var pair := (slot_index + 1) / 2
+	var sign_value := 1.0 if slot_index % 2 == 1 else -1.0
+	return sign_value * float(pair) * _COURTYARD_SLOT_LATERAL_SPACING
 
 
 ## "Front of the lineup" direction -- toward the map center / the arm
