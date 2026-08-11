@@ -129,7 +129,7 @@ func get_arena_map() -> ArenaMap:
 ## true: units fight entirely on their own (Unit._maybe_auto_cast_abilities(),
 ## an auto-move ATTACK_MOVE-toward-center order issued at spawn -- see
 ## GameManager.spawn_unit()) and Main.gd's order/ability-cast input
-## (right-click, S/H, Q/W/E) becomes a no-op during BATTLE. Selection
+## (right-click, X/H, Q/E/R) becomes a no-op during BATTLE. Selection
 ## itself is untouched -- inspecting a unit's health/cooldowns/status via
 ## the existing hotbar/buff-row UI still works, only *commanding* is
 ## blocked. Independent of uses_economy()/uses_cross_map(), same reasoning

@@ -116,9 +116,9 @@ func test_pressing_the_start_battle_button_plays_a_ui_click() -> void:
 
 
 ## set_pressed_no_signal() (used by every programmatic toggle sync in
-## UI/HUD.gd -- sync_tournament_toggle_visual(), etc.) must NOT play a
-## click, since nothing was actually clicked.
+## UI/HUD.gd -- set_ai_toggle(), etc.) must NOT play a click, since
+## nothing was actually clicked.
 func test_a_programmatic_toggle_sync_plays_no_click() -> void:
 	Sfx._ui_player.stop()
-	_main._hud.sync_tournament_toggle_visual(true)
+	_main._hud.set_ai_toggle(true)
 	assert_false(Sfx._ui_player.playing)

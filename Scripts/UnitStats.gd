@@ -8,6 +8,7 @@ class_name UnitStats
 extends Resource
 
 @export var unit_name: String = "Unit"
+@export var icon: Texture2D ## Shown on the build-menu/roster-row buttons (HUD.gd). Null is fine, just renders with no icon.
 
 @export_group("Economy")
 ## Gold cost to place this archetype -- only enforced while
@@ -127,7 +128,7 @@ enum ArmorType { UNARMORED, LIGHT, MEDIUM, HEAVY, FORTIFIED, HERO }
 @export var armor_type: ArmorType = ArmorType.MEDIUM
 
 @export_group("Abilities")
-## Index 0/1/2 map to the Q/W/E hotkeys in Main.gd. NO_TARGET/UNIT_TARGET
+## Index 0/1/2 map to the Q/E/R hotkeys in Main.gd. NO_TARGET/UNIT_TARGET
 ## abilities here are player-triggered via Unit.cast_ability(); a PASSIVE
 ## one here is instead applied once, automatically, at spawn (see
 ## Unit._apply_passive_abilities()) -- it still lives in this same array,
@@ -199,24 +200,44 @@ enum ArmorType { UNARMORED, LIGHT, MEDIUM, HEAVY, FORTIFIED, HERO }
 ## behavior change from before Heroes existed.
 @export var ability_unlock_levels: Array[int] = []
 
+## True only for the Blood Tournament "Builder" fixture (see
+## Resources/Units/BuilderStats.tres) -- the one archetype a player never
+## buys/sells and can never right-click-sell by accident
+## (PlayerInputController.try_sell_unit_at() checks this before treating a
+## courtyard click as a sale). False (default, every purchasable
+## archetype) is never a behavior change.
+@export var is_builder: bool = false
+
 @export_group("Death Escalation")
 ## Goblin-boss-round mechanic (see BattleFoundry-Roadmap.md's goblin boss
 ## round item): if set, killing this unit doesn't end it -- GameManager._on_unit_died()
 ## spawns one fresh unit of this archetype at the same position instead
 ## of a normal corpse/decay, owned by the same Player (so team/hostility
-## carries over unchanged). Mutually exclusive with split_into_on_death
-## below -- a unit either revives bigger or splits smaller on death, not
-## both; if both are somehow set, revive wins. null (default, every
-## normal archetype) means a completely ordinary death, unaffected.
+## carries over unchanged). Mutually exclusive with split_into_on_death/
+## split_into_self_on_death below -- a unit revives bigger, splits
+## smaller, or splits into itself on death, never more than one; revive
+## wins if more than one is somehow set. null (default, every normal
+## archetype) means a completely ordinary death, unaffected.
 @export var revive_as_on_death: UnitStats = null
 ## Goblin-boss-round mechanic: if set (and revive_as_on_death is null),
 ## killing this unit spawns split_count fresh units of this archetype,
 ## fanned out around the same position, instead of a normal corpse/decay.
-## The terminal generation's own UnitStats (this project's smallest
-## goblin tier) leaves this null, so its death is a normal, final one --
-## the escalation doesn't recurse unless a resource explicitly chains
-## split_into_on_death to another split_into_on_death.
+## null (default) means a completely ordinary, final death.
 @export var split_into_on_death: UnitStats = null
+## Goblin-boss-round mechanic: if true (and both fields above are null/false),
+## killing this unit spawns split_count fresh units of THIS SAME archetype
+## instead of a normal corpse/decay -- a self-referencing escalation.
+## Exists as its own bool rather than split_into_on_death pointing at its
+## own resource because Godot's text resource format (.tres) doesn't
+## support an ext_resource entry referencing the very file being parsed
+## (a genuine parse error, confirmed -- not just a style choice).
+## GoblinSplitStats.tres ("Goblin Runt", this project's smallest goblin
+## tier) sets this true, so the escalation chain never actually
+## terminates -- deliberate: the goblin boss round is designed to always
+## end in the competing team's own units wiping (see
+## BloodTournamentMode.check_victory()'s own doc comment), not in the
+## goblin side running out of reinforcements.
+@export var split_into_self_on_death: bool = false
 @export var split_count: int = 2
 
 @export_group("Appearance")

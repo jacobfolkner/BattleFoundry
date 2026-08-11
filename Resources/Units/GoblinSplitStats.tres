@@ -11,5 +11,7 @@ attack_range = 0.8
 attack_interval = 0.8
 move_speed = 4.0
 collision_radius = 0.35
+split_into_self_on_death = true
+split_count = 2
 mesh_shape = "Cone"
 mesh_size = Vector3(0.4, 0.9, 0.4)

@@ -39,6 +39,9 @@ var _selected_player: Player:
 var _dragging_unit: Unit:
 	get: return _input.dragging_unit
 	set(value): _input.dragging_unit = value
+var _drag_source_squad_index: int:
+	get: return _input._drag_source_squad_index
+	set(value): _input._drag_source_squad_index = value
 var _pending_ability_target: int:
 	get: return _input.pending_ability_target
 	set(value): _input.pending_ability_target = value
@@ -69,7 +72,9 @@ func _ready() -> void:
 	GameManager.units_container = _units_container
 	GameManager.battle_ended.connect(_hud.show_winner)
 	GameManager.battle_started.connect(_begin_staggered_deployment)
-	_input = PlayerInputController.new(_camera, _hud, _refresh_gold_display)
+	var placement_ghost := PlacementGhost.new()
+	_units_container.add_child(placement_ghost)
+	_input = PlayerInputController.new(_camera, _hud, _refresh_gold_display, placement_ghost)
 	_bt_controller = BloodTournamentController.new(_hud, _refresh_gold_display)
 	SelectionManager.local_player = _selected_player # keep in sync with the default team panel toggle
 	_build_arenas()
@@ -77,12 +82,12 @@ func _ready() -> void:
 	_hud.unit_type_selected.connect(_on_unit_type_selected)
 	_hud.team_selected.connect(_on_team_selected)
 	_hud.start_battle_pressed.connect(_on_start_battle_pressed)
-	_hud.tournament_mode_toggled.connect(_on_tournament_toggled)
 	_hud.ai_opponent_toggled.connect(_on_ai_opponent_toggled)
-	_hud.hero_footies_mode_toggled.connect(_on_hero_footies_toggled)
 	_hud.ability_slot_pressed.connect(_try_cast_or_target)
 	_hud.roster_slot_sold.connect(_on_roster_slot_sold)
 	_hud.hero_ability_picked.connect(_on_hero_ability_picked)
+	_hud.gold_exchange_requested.connect(_on_gold_exchange_requested)
+	_hud.blood_exchange_requested.connect(_on_blood_exchange_requested)
 	# HUD only ever displays whichever unit SelectionManager reports as
 	# selected -- it never reads SelectionManager itself (see HUD.gd's own
 	# doc comment on staying decoupled from selection/battle-lifecycle
@@ -107,14 +112,12 @@ func _on_selection_changed(units: Array[Unit]) -> void:
 func _apply_menu_selection() -> void:
 	var tournament := MenuSelection.start_with_tournament
 	var hero_footies := MenuSelection.start_with_hero_footies
-	var ai_opponent := MenuSelection.start_with_ai_opponent
 	var human_team_id := MenuSelection.human_team_id
-	var team_count := MenuSelection.team_count
+	var bot_team_ids := MenuSelection.bot_team_ids.duplicate()
 	MenuSelection.start_with_tournament = false
 	MenuSelection.start_with_hero_footies = false
-	MenuSelection.start_with_ai_opponent = false
 	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
-	MenuSelection.team_count = GameManager.TEAM_COUNT
+	MenuSelection.bot_team_ids.clear()
 
 	_on_team_selected(human_team_id) # harmless no-op when this is already the default (Blue)
 
@@ -123,49 +126,26 @@ func _apply_menu_selection() -> void:
 	# already non-human, so this order lets round 1 auto-populate
 	# immediately rather than needing a second, redundant check.
 	#
-	# The human's own team plus the next (team_count - 1) registered
-	# teams (in team_id order, skipping the human's own) become the
-	# active roster for this match -- "2 to 8 teams, fill some or all
-	# remaining slots with bots." Left empty (meaning "every registered
-	# team," see BloodTournamentMode.active_team_ids' own doc comment)
-	# when ai_opponent is off -- team_count is only meaningful alongside
-	# it, and every registered team funded/playing is the original,
-	# pre-team-count behavior a plain "Blood Tournament: On" with no AI
-	# opponent should keep. Every OTHER registered team also becomes
-	# AI-controlled when ai_opponent is on (not restricted to just the
-	# active set) -- harmless, since an inactive team never gets gold
-	# (see BloodTournamentMode.active_team_ids) so AIController.take_turn()
-	# just finds nothing affordable and no-ops for it every round.
-	# Deliberately doesn't go through HUD.set_ai_toggle()/
-	# Main._on_ai_opponent_toggled() -- that's the separate in-match HUD
-	# button, still hardcoded to flipping just Red (a known, narrower
-	# piece of UI this doesn't touch), not a fit for "N-1 teams become
-	# AI" at menu hand-off time.
+	# The human's own team plus every explicitly-chosen bot slot become
+	# the active roster for this match (UI/MainMenu.gd's per-slot lobby --
+	# "You"/"Bot"/"Empty" per team, any number of Bots). Left empty
+	# (meaning "every registered team," see BloodTournamentMode.active_team_ids'
+	# own doc comment) when no bots were picked at all -- a plain "Blood
+	# Tournament: On" with an empty lobby keeps its original, pre-lobby
+	# behavior (every registered team funded/playing). Every slot NOT
+	# explicitly marked Bot stays is_human == true (its existing default),
+	# including "Empty" slots -- an empty slot never gets funded (outside
+	# active_team_ids) so it simply never plays, is_human is irrelevant
+	# for it either way.
 	var active_team_ids: Array = []
-	if ai_opponent:
-		active_team_ids = [human_team_id]
+	if not bot_team_ids.is_empty():
+		active_team_ids = [human_team_id] + bot_team_ids
 		for team_id in GameManager.all_team_ids():
-			GameManager.get_player(team_id).is_human = (team_id == human_team_id)
-			if team_id != human_team_id and active_team_ids.size() < team_count:
-				active_team_ids.append(team_id)
+			GameManager.get_player(team_id).is_human = not bot_team_ids.has(team_id)
 	if tournament:
-		# Goes straight to Main._on_tournament_toggled() instead of
-		# HUD.set_tournament_toggle() -- that button's own toggled signal
-		# only ever carries a bool, no way to also pass active_team_ids
-		# through it. sync_tournament_toggle_visual() afterward just
-		# matches the button's look to what already happened, without
-		# re-running activation a second time.
 		_on_tournament_toggled(true, active_team_ids) # its own tail call to _run_ai_turn_if_needed() is what actually runs the AI's first turn
-		_hud.sync_tournament_toggle_visual(true)
 	elif hero_footies:
-		# set_hero_footies_toggle() (not a direct GameManager.set_mode() call)
-		# so this goes through the exact same path a mid-match HUD click
-		# would -- HUD.gd's own text/pressed-state bookkeeping and the
-		# hero_footies_mode_toggled signal into _on_hero_footies_toggled()
-		# all stay correct, unlike Blood Tournament's branch above, which
-		# only bypasses HUD because it needs to carry active_team_ids
-		# through (Hero Footies has no such extra menu parameter).
-		_hud.set_hero_footies_toggle(true)
+		_on_hero_footies_toggled(true)
 
 
 ## Kept for backward compat (AIController and several tests read this
@@ -230,8 +210,6 @@ func _sync_arena_shape() -> void:
 ## that's what triggers on_activated()'s starting-gold grant, which reads
 ## it.
 func _on_tournament_toggled(enabled: bool, active_team_ids: Array = []) -> void:
-	if enabled and GameManager.current_mode is HeroFootiesMode:
-		_hud.set_hero_footies_toggle(false) # mutually exclusive game modes -- both claim GameManager.current_mode
 	if enabled:
 		# 12 -- the genre-accurate fixed match length (see
 		# BloodTournamentMode.total_rounds' own doc comment): every round
@@ -250,6 +228,7 @@ func _on_tournament_toggled(enabled: bool, active_team_ids: Array = []) -> void:
 	_sync_arena_shape()
 	_hud.reset_for_new_round()
 	_hud.hide_tournament_score()
+	_hud.refresh_match_toggles_visibility() # Blue/Red/AI-toggle visibility -- see its own doc comment
 	_refresh_gold_display()
 	_run_ai_turn_if_needed()
 
@@ -286,21 +265,19 @@ func _run_ai_turn_if_needed() -> void:
 
 ## Swaps GameManager.current_mode between ClassicEliminationMode and a
 ## fresh HeroFootiesMode (roadmap Phase 6 -- wave-spawner + throne-HP win
-## condition). Mutually exclusive with Blood Tournament -- see
-## _on_tournament_toggled()'s matching guard the other direction --
-## since both claim GameManager.current_mode; turning this on while a
-## tournament is active turns the tournament off first via the HUD button
-## itself, so its own visual state and Main._tournament_mode both stay in
-## sync rather than just the underlying GameManager.current_mode swap.
+## condition). Mutually exclusive with Blood Tournament -- both claim
+## GameManager.current_mode, so turning this on while a tournament is
+## active clears Main._tournament_mode too (GameManager.set_mode() below
+## already overwrites current_mode itself either way).
 func _on_hero_footies_toggled(enabled: bool) -> void:
-	if enabled and _tournament_mode != null:
-		_hud.set_tournament_toggle(false)
 	if enabled:
+		_tournament_mode = null
 		GameManager.set_mode(HeroFootiesMode.new())
 	else:
 		GameManager.set_mode(ClassicEliminationMode.new())
 	_sync_arena_shape()
 	_hud.reset_for_new_round()
+	_hud.refresh_match_toggles_visibility()
 	_refresh_gold_display()
 
 
@@ -313,16 +290,10 @@ func _assign_random_spawn_points() -> void:
 
 
 func _begin_staggered_deployment() -> void:
-	_bt_controller.begin_staggered_deployment()
+	_bt_controller.begin_march()
 
 
-## Matches every other piece of game-logic timing in this codebase (HUD's
-## own _process() is the one exception, but that's a pure UI refresh, not
-## gameplay timing) and guarantees BloodTournamentController.tick()'s
-## staggered-deployment queue actually advances during GUT's
-## wait_physics_frames(), which is specifically tied to physics frames.
 func _physics_process(delta: float) -> void:
-	_bt_controller.tick(delta)
 	GameManager.current_mode.tick(delta) # no-op for every mode but HeroFootiesMode (see GameMode.tick()'s own doc comment)
 
 
@@ -364,6 +335,16 @@ func _on_roster_slot_sold(index: int) -> void:
 
 func _on_hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int) -> void:
 	if GameManager.pick_hero_ability(_selected_player, stats, slot_index, chosen_index):
+		_refresh_gold_display()
+
+
+func _on_gold_exchange_requested() -> void:
+	if _selected_player.exchange_gold_for_blood_points():
+		_refresh_gold_display()
+
+
+func _on_blood_exchange_requested() -> void:
+	if _selected_player.exchange_blood_points_for_gold():
 		_refresh_gold_display()
 
 
@@ -441,8 +422,69 @@ func _try_sell_unit_at(screen_position: Vector2) -> void:
 	_input.try_sell_unit_at(screen_position)
 
 
+## Thin delegate for the full left-click-release resolution path
+## (selection / Builder build-menu / placement / deselect -- see
+## PlayerInputController.on_left_release()) -- exists so callers (tests)
+## don't need to reach `_input.on_left_release()` directly, which resolves
+## to Node's own built-in _input(event) virtual instead of this field when
+## accessed through a generically-typed reference (see CLAUDE.md's
+## documented `_input` naming gotcha).
+func _try_left_click_at(screen_position: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = false
+	event.position = screen_position
+	_input.on_left_release(event)
+
+
 func _on_unit_type_selected(stats: UnitStats) -> void:
 	_input.on_unit_type_selected(stats)
+
+
+## Thin delegate for simulating cursor movement (see
+## PlayerInputController.handle_mouse_motion()) -- same `_input` naming
+## gotcha as _try_left_click_at() above, avoided the same way.
+func _try_move_mouse_to(screen_position: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.position = screen_position
+	_input.handle_mouse_motion(event)
+
+
+## Test-only accessors for the ghost-placement flow's otherwise-private
+## state -- same `_input`/`_ghost` reach-through gotcha, avoided by living
+## on Main.gd itself (a statically-typed `self`, not a generic reference).
+func _is_build_placement_armed() -> bool:
+	return _input._pending_build_stats != null
+
+
+func _placement_ghost_visible() -> bool:
+	return _input._ghost.visible
+
+
+func _placement_ghost_position() -> Vector3:
+	return _input._ghost.global_position
+
+
+func _placement_ghost_is_tinted_invalid() -> bool:
+	return _input._ghost._material.albedo_color == PlacementGhost._INVALID_COLOR
+
+
+## Thin delegates for simulating a right-click / key-press, same `_input`
+## naming gotcha as _try_left_click_at()/_try_move_mouse_to() above,
+## avoided the same way.
+func _try_right_press_at(screen_position: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_RIGHT
+	event.pressed = true
+	event.position = screen_position
+	_input.handle_mouse_button(event)
+
+
+func _try_press_key(keycode: Key) -> void:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = true
+	_input.handle_key(event)
 
 
 func _on_team_selected(team_id: int) -> void:

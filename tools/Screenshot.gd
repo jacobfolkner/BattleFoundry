@@ -44,6 +44,16 @@
 ##                                Only applies to --place, not --buy
 ##                                (nothing is a live Unit to select until
 ##                                staggered deployment actually spawns it).
+##   --ghost=<unit>:<x>,<y>,<z>   Arms the build-menu's placement ghost
+##                                (Blue's) and moves it to the given world
+##                                position, without confirming a purchase
+##                                -- for eyeballing PlacementGhost's
+##                                translucent/tinted material. Needs
+##                                --tournament first.
+##   --build_menu                 Opens the build-menu popup (WC3-style
+##                                "click the Builder" panel) directly,
+##                                without needing a real click -- for
+##                                eyeballing its unit-type button icons.
 ##   --debug=<flag>[,<flag>...]  Enable DebugSettings flags by name
 ##                                (e.g. pathfinding,detailed_stats).
 ##   --wait=<frames>             Physics frames to simulate before
@@ -58,6 +68,7 @@
 ##   --place="Giant:BLUE:0,0,0;Fighter:RED:1,0,0" --battle --select=1 --debug=pathfinding --wait=20
 ##   --tournament --buy="Hero:BLUE;Tank:RED" --wait=10   (PLACEMENT screen: gold, roster row, hero draft panel)
 ##   --tournament --buy="Hero:BLUE;Tank:RED" --battle --wait=90   (mid-battle, staggered deployment settled)
+##   --tournament --ghost="Tank:-4,0,-24"   (PlacementGhost armed and hovering inside Blue's courtyard)
 extends Node3D
 
 const UNIT_STATS := {
@@ -93,6 +104,9 @@ func _run() -> void:
 		main._on_tournament_toggled(true)
 		await get_tree().physics_frame
 
+	if args.has("build_menu"):
+		main._hud.show_build_menu()
+
 	var placed: Array[Unit] = []
 	var place_spec: String = args.get("place", "")
 	if place_spec != "":
@@ -109,6 +123,10 @@ func _run() -> void:
 
 	if args.has("battle"):
 		GameManager.start_battle()
+
+	var ghost_spec: String = args.get("ghost", "")
+	if ghost_spec != "":
+		_arm_ghost(main, ghost_spec)
 
 	if args.has("debug"):
 		for flag_name in String(args["debug"]).split(",", false):
@@ -152,11 +170,12 @@ func _place_unit(spec: String) -> Unit:
 	return GameManager.spawn_unit(stats, player, position)
 
 
-## Same effect as PlayerInputController.try_buy_for_roster() (spend
-## gold, append to Player.roster) via only Player's public API -- not a
-## reimplementation of the affordability rule, just its two calls
-## inlined, since that method lives on PlayerInputController and isn't
-## reachable from here without a real click/HUD signal.
+## Same effect as GameManager.buy_roster_slot() (spend gold, append to
+## Player.roster) via only Player's public API, deliberately NOT calling
+## GameManager.sync_courtyard_to_roster() afterward -- this tool's own
+## usage examples pair --buy with a PLACEMENT-screen screenshot (gold/
+## roster row/hero draft panel), not a courtyard visual, so the roster
+## staying data-only here matches what's actually being screenshotted.
 func _buy_for_roster(spec: String) -> void:
 	var parts := spec.split(":")
 	if parts.size() != 2:
@@ -174,6 +193,29 @@ func _buy_for_roster(spec: String) -> void:
 		return
 	player.spend(stats.cost)
 	player.roster.append(stats)
+
+
+func _arm_ghost(main: Node3D, spec: String) -> void:
+	var parts := spec.split(":")
+	if parts.size() != 2:
+		push_warning("Skipping malformed --ghost entry (expected unit:x,y,z): " + spec)
+		return
+
+	var stats: UnitStats = UNIT_STATS.get(parts[0])
+	var coords := parts[1].split(",")
+	if stats == null or coords.size() != 3:
+		push_warning("Skipping malformed --ghost entry (expected unit:x,y,z): " + spec)
+		return
+
+	var world_position := Vector3(float(coords[0]), float(coords[1]), float(coords[2]))
+	# Courtyards sit far enough from the default camera focus (arena
+	# center) that unproject_position()'s precision degrades near the
+	# view frustum edge -- refocus onto the ghost point first, same fix
+	# tests use for courtyard-area clicks.
+	main._camera._focus_point = Vector3(world_position.x, 0.0, world_position.z)
+	main._camera._update_transform()
+	main._on_unit_type_selected(stats)
+	main._try_move_mouse_to(main._camera.unproject_position(world_position))
 
 
 func _player_from_team_name(team_name: String) -> Player:

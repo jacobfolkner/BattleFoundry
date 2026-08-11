@@ -22,6 +22,13 @@ func before_each() -> void:
 		player.roster.clear()
 		player.roster_upgrades.clear()
 		player.is_human = true
+	# MenuSelection is a persistent autoload, same as GameManager/Player --
+	# an earlier test in this file setting human_team_id/bot_team_ids and
+	# never getting around to a Main.tscn instantiation that would consume
+	# and clear them (see Main._apply_menu_selection()) would otherwise
+	# leak into this one.
+	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
+	MenuSelection.bot_team_ids.clear()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
@@ -136,29 +143,37 @@ func test_deployment_uses_this_rounds_randomized_spawn_point() -> void:
 	assert_almost_eq(blue_unit.global_position.z, non_default_anchor.z, 4.0)
 
 
-## Confirmed design: "2 to 8 teams, fill all slots with bots or just
-## some of them" -- team_count restricts which teams actually get
-## funded/play, independent of every team still being registered.
-func test_team_count_limits_which_teams_get_starting_gold() -> void:
+## Confirmed design: "add bots to as many slots as I want" -- explicitly
+## listed bot_team_ids restrict which teams actually get funded/play,
+## independent of every team still being registered.
+func test_explicit_bot_slots_limit_which_teams_get_starting_gold() -> void:
 	MenuSelection.start_with_tournament = true
-	MenuSelection.start_with_ai_opponent = true
 	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
-	MenuSelection.team_count = 3
+	MenuSelection.bot_team_ids = [GameManager.RED_TEAM_ID, 2]
 
 	var main: Node3D = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(main)
 	await wait_physics_frames(2)
 
+	# Blue (the human) never auto-buys anything -- only run_ai_turn_if_needed()
+	# does, and only for is_human == false teams -- so resources > 0 is the
+	# right check there (nothing spends it back down). The two bot slots
+	# DO get an immediate AIController.take_turn() in the same _ready()
+	# chain right after on_activated() grants starting gold, which could
+	# by chance spend it back down to exactly 0 -- a non-empty roster is
+	# the robust signal there instead: it only happens at all if the team
+	# was funded (nothing is affordable at 0 gold).
 	assert_gt(GameManager.get_player(GameManager.BLUE_TEAM_ID).resources, 0, "the human's own team should be funded")
-	assert_gt(GameManager.get_player(GameManager.RED_TEAM_ID).resources, 0, "1st AI slot should be funded")
-	assert_gt(GameManager.get_player(2).resources, 0, "2nd AI slot should be funded")
-	assert_eq(GameManager.get_player(3).resources, 0, "team_count=3 means only 3 teams total -- the 4th+ should be unfunded")
+	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).roster.is_empty(), "1st bot slot should be funded and AI-controlled")
+	assert_false(GameManager.get_player(2).roster.is_empty(), "2nd bot slot should be funded and AI-controlled")
+	assert_eq(GameManager.get_player(3).resources, 0, "a team left off the bot list entirely should be unfunded")
+	assert_true(GameManager.get_player(3).roster.is_empty(), "an unfunded team should never buy anything")
 	assert_eq(GameManager.get_player(7).resources, 0)
 
 
 func test_team_count_defaults_to_every_registered_team_without_ai_opponent() -> void:
 	MenuSelection.start_with_tournament = true
-	MenuSelection.start_with_ai_opponent = false # no AI opponent -- team_count shouldn't restrict anything
+	MenuSelection.bot_team_ids.clear() # no bots picked -- nothing should restrict who's funded
 
 	var main: Node3D = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(main)

@@ -11,11 +11,10 @@
 ## doesn't check either, same trust-the-caller split
 ## GameManager.buy_upgrade()/sell_unit() already use for ownership.
 ##
-## Buys into player.roster/roster_upgrades (data) rather than spawning
-## live Units or applying Effects directly -- Main._begin_staggered_deployment()/
-## _deploy_next_pending_slot() is what actually deploys a roster and
-## applies its upgrades once BATTLE starts, the same as a human's
-## purchases.
+## Buys via GameManager.buy_roster_slot()/sync_courtyard_to_roster(), the
+## same path a human's HUD purchase goes through -- a bought slot appears
+## as a live squad standing in this player's lineup courtyard immediately,
+## not just recorded as data.
 class_name AIController
 extends RefCounted
 
@@ -48,10 +47,10 @@ func take_turn(player: Player) -> void:
 	var affordable := _affordable_units(player)
 	while not affordable.is_empty() and added < _MAX_NEW_UNITS_PER_TURN:
 		var stats: UnitStats = affordable[randi() % affordable.size()]
-		player.roster.append(stats)
-		player.spend(stats.cost)
+		GameManager.buy_roster_slot(player, stats) # same gate the human buy path goes through -- see GameManager.buy_roster_slot()
 		added += 1
 		affordable = _affordable_units(player)
+	GameManager.sync_courtyard_to_roster(player)
 
 	_maybe_buy_an_upgrade(player)
 

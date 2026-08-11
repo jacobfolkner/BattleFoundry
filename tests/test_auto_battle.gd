@@ -90,11 +90,11 @@ func test_auto_battle_blocks_manual_stop_and_hold_hotkeys() -> void:
 	unit.current_order = null
 
 	var key_event := InputEventKey.new()
-	key_event.keycode = KEY_S
+	key_event.keycode = KEY_X
 	key_event.pressed = true
 	_main._handle_key(key_event)
 
-	assert_null(unit.current_order, "S (Stop) should be a no-op during auto-battle")
+	assert_null(unit.current_order, "X (Stop) should be a no-op during auto-battle")
 
 
 func test_auto_battle_blocks_manual_ability_casts() -> void:

@@ -206,7 +206,7 @@ func order_follow(target_unit: Unit, queue: bool = false) -> void:
 			unit.order_follow(target_unit, queue)
 
 
-## Casts ability slot `index` (0/1/2, the Q/W/E hotkeys in Main.gd) on
+## Casts ability slot `index` (0/1/2, the Q/E/R hotkeys in Main.gd) on
 ## every selected unit that has one there, auto-targeting whatever each
 ## unit is already fighting (target_enemy), same as autoattacks do --
 ## NO_TARGET/PASSIVE/AURA ignore the concept of a target entirely. This is

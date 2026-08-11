@@ -88,31 +88,27 @@ func test_a_drafted_pick_is_visible_on_the_units_resolved_abilities_for_a_differ
 	assert_eq(hero.resolved_abilities[1], IRON_WILL)
 
 
-## End to end through the real Blood Tournament staggered-deployment
-## flow -- proves a drafted pick survives a round boundary "for free"
-## (Unit._resolve_abilities() runs inside setup(), which every spawn
-## path already calls, unlike hero_progress's restore_hero_progress()
-## which needed explicit wiring into 3 separate spawn call sites).
-## Same direct BloodTournamentController.deploy_next_pending_slot()
-## style test_heroes.gd's own round-boundary test uses, to stay
-## deterministic (Blood Tournament is auto-battle -- a real
-## GameManager.start_battle() could have the hero act on its own).
+## End to end through the real lineup-courtyard flow -- proves a drafted
+## pick survives a round boundary "for free" (Unit._resolve_abilities()
+## runs inside setup(), which every spawn path already calls, unlike
+## hero_progress's restore_hero_progress() which needed explicit wiring
+## into GameManager.sync_courtyard_to_roster()). Same direct
+## sync_courtyard_to_roster() style test_heroes.gd's own round-boundary
+## test uses, to stay deterministic (Blood Tournament is auto-battle -- a
+## real GameManager.start_battle() could have the hero act on its own).
 func test_a_drafted_pick_survives_a_round_boundary_redeployment() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	blue.roster = [HERO_STATS]
 	GameManager.pick_hero_ability(blue, HERO_STATS, 0, 1) # Battle Cry
-	var bt_controller: BloodTournamentController = _main._bt_controller
 
-	bt_controller._pending_deployments[blue.id] = [HERO_STATS]
-	bt_controller.deploy_next_pending_slot(blue.id)
-	var round_one_hero: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+	GameManager.sync_courtyard_to_roster(blue)
+	var round_one_hero: Unit = blue.courtyard_units[0][0]
 	assert_eq(round_one_hero.resolved_abilities[0], BATTLE_CRY)
 
 	GameManager.reset_battle()
-	bt_controller._pending_deployments[blue.id] = [HERO_STATS]
-	bt_controller.deploy_next_pending_slot(blue.id)
-	var round_two_hero: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+	GameManager.sync_courtyard_to_roster(blue)
+	var round_two_hero: Unit = blue.courtyard_units[0][0]
 
 	assert_ne(round_two_hero, round_one_hero, "sanity check: this really is a fresh Unit instance")
 	assert_eq(round_two_hero.resolved_abilities[0], BATTLE_CRY, "the drafted pick should carry over into the next round's redeployment")

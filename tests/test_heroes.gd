@@ -174,33 +174,30 @@ func test_restore_hero_progress_is_a_no_op_for_a_non_hero_unit() -> void:
 	assert_eq(tank.xp, 0.0)
 
 
-## End-to-end through the real Blood Tournament staggered-deployment
-## flow, not a direct restore_hero_progress() call -- proves
-## BloodTournamentController.deploy_next_pending_slot() actually wires
-## Player.hero_progress into a freshly-deployed hero, across a real
-## round boundary (GameManager.reset_battle() frees the old hero Unit
-## entirely, same as it would between any two Blood Tournament rounds).
-## Drives BloodTournamentController.deploy_next_pending_slot() directly
-## rather than GameManager.start_battle() -- Blood Tournament is
-## is_auto_battle(), so a real battle would have the hero autonomously
-## fight and possibly land a kill (Unit.XP_PER_KILL), making the exact
-## XP numbers this test asserts on non-deterministic for a reason
-## entirely unrelated to what's actually being tested here.
+## End-to-end through the real lineup-courtyard flow, not a direct
+## restore_hero_progress() call -- proves
+## GameManager.sync_courtyard_to_roster() actually wires
+## Player.hero_progress into a freshly-spawned courtyard hero, across a
+## real round boundary (GameManager.reset_battle() frees the old hero
+## Unit entirely, same as it would between any two Blood Tournament
+## rounds). Drives sync_courtyard_to_roster() directly rather than
+## GameManager.start_battle() -- Blood Tournament is is_auto_battle(), so
+## a real battle would have the hero autonomously fight and possibly land
+## a kill (Unit.XP_PER_KILL), making the exact XP numbers this test
+## asserts on non-deterministic for a reason entirely unrelated to what's
+## actually being tested here.
 func test_a_hero_that_leveled_up_keeps_its_level_after_the_next_rounds_redeployment() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	blue.roster = [HERO_STATS]
-	var bt_controller: BloodTournamentController = _main._bt_controller
 
-	bt_controller._pending_deployments[blue.id] = [HERO_STATS]
-	bt_controller.deploy_next_pending_slot(blue.id)
-	var round_one_hero: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+	GameManager.sync_courtyard_to_roster(blue)
+	var round_one_hero: Unit = blue.courtyard_units[0][0]
 	round_one_hero.gain_xp(250.0) # level 1 -> 2, 150 XP left over
 
 	GameManager.reset_battle() # frees round_one_hero entirely, same as a real round boundary
-	bt_controller._pending_deployments[blue.id] = [HERO_STATS]
-	bt_controller.deploy_next_pending_slot(blue.id)
-	var round_two_hero: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+	GameManager.sync_courtyard_to_roster(blue)
+	var round_two_hero: Unit = blue.courtyard_units[0][0]
 
 	assert_ne(round_two_hero, round_one_hero, "sanity check: this really is a fresh Unit instance, not the same one surviving")
 	assert_eq(round_two_hero.level, 2, "the hero's level should carry over into the next round's redeployment")

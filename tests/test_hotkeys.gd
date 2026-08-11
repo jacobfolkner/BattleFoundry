@@ -9,7 +9,7 @@ func after_each() -> void:
 	# Several tests below rebind more than one action (conflict-detection
 	# needs two real actions to collide) -- reset_to_defaults() restores
 	# every one of them at once, so no other test file (which all assume
-	# Hotkeys.DEFAULT_BINDINGS' own defaults, e.g. S = order_stop) is
+	# Hotkeys.DEFAULT_BINDINGS' own defaults, e.g. X = order_stop) is
 	# affected by run order, the same cross-test-pollution risk already on
 	# file for every other persistent-autoload-owned piece of state in
 	# this project.
@@ -23,26 +23,26 @@ func test_every_default_binding_is_registered_as_a_real_inputmap_action() -> voi
 
 func test_a_default_bound_key_event_matches_its_action() -> void:
 	var event := InputEventKey.new()
-	event.keycode = KEY_S
+	event.keycode = KEY_X
 	event.pressed = true
 	assert_true(event.is_action_pressed("order_stop"),
-		"the default S keycode should match the order_stop action Hotkeys registers")
+		"the default X keycode should match the order_stop action Hotkeys registers")
 
 
 func test_rebind_replaces_the_actions_bound_key_rather_than_adding_a_second_one() -> void:
-	Hotkeys.rebind("order_stop", KEY_X)
+	Hotkeys.rebind("order_stop", KEY_Y)
 
 	var old_key_event := InputEventKey.new()
-	old_key_event.keycode = KEY_S
+	old_key_event.keycode = KEY_X
 	old_key_event.pressed = true
 	assert_false(old_key_event.is_action_pressed("order_stop"),
-		"the old S binding should no longer trigger order_stop after rebinding")
+		"the old X binding should no longer trigger order_stop after rebinding")
 
 	var new_key_event := InputEventKey.new()
-	new_key_event.keycode = KEY_X
+	new_key_event.keycode = KEY_Y
 	new_key_event.pressed = true
 	assert_true(new_key_event.is_action_pressed("order_stop"),
-		"the new X binding should trigger order_stop after rebinding")
+		"the new Y binding should trigger order_stop after rebinding")
 
 
 func test_every_default_binding_has_a_display_name() -> void:
@@ -59,9 +59,9 @@ func test_find_conflicting_action_reports_the_other_action_holding_that_key() ->
 
 
 func test_find_conflicting_action_excludes_the_action_being_rebound_itself() -> void:
-	# order_stop already holds KEY_S by default -- rebinding it to the key
+	# order_stop already holds KEY_X by default -- rebinding it to the key
 	# it already has shouldn't read as a conflict with itself.
-	assert_eq(Hotkeys.find_conflicting_action("order_stop", KEY_S), "")
+	assert_eq(Hotkeys.find_conflicting_action("order_stop", KEY_X), "")
 
 
 func test_reset_to_defaults_restores_every_action_after_rebinding_several() -> void:

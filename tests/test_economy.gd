@@ -15,7 +15,10 @@ extends GutTest
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
+const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
 const IRON_ARMOR_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/IronArmorUpgrade.tres")
+const HEROIC_VIGOR_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/HeroicVigorUpgrade.tres")
+const HEROIC_MIGHT_UPGRADE: UnitUpgrade = preload("res://Resources/Upgrades/HeroicMightUpgrade.tres")
 
 var _main: Node3D
 
@@ -56,6 +59,36 @@ func test_player_gold_ledger() -> void:
 
 	player.spend(40)
 	assert_eq(player.resources, 60)
+
+
+func test_exchanging_gold_for_blood_points_spends_gold_and_grants_blood_points_at_the_fixed_rate() -> void:
+	var player := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	player.add_gold(Player.EXCHANGE_GOLD_PER_CLICK)
+
+	assert_true(player.exchange_gold_for_blood_points())
+	assert_eq(player.resources, 0)
+	assert_eq(player.blood_points, Player.EXCHANGE_BLOOD_PER_CLICK)
+
+
+func test_exchanging_blood_points_for_gold_spends_blood_points_and_grants_gold_at_the_fixed_rate() -> void:
+	var player := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	player.add_blood_points(Player.EXCHANGE_BLOOD_PER_CLICK)
+
+	assert_true(player.exchange_blood_points_for_gold())
+	assert_eq(player.blood_points, 0)
+	assert_eq(player.resources, Player.EXCHANGE_GOLD_PER_CLICK)
+
+
+func test_exchange_fails_and_spends_nothing_when_unaffordable() -> void:
+	var player := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+
+	assert_false(player.exchange_gold_for_blood_points())
+	assert_eq(player.resources, 0)
+	assert_eq(player.blood_points, 0)
+
+	assert_false(player.exchange_blood_points_for_gold())
+	assert_eq(player.resources, 0)
+	assert_eq(player.blood_points, 0)
 
 
 func test_classic_mode_does_not_use_economy_but_blood_tournament_does() -> void:
@@ -104,13 +137,19 @@ func test_classic_mode_placement_stays_free_regardless_of_gold() -> void:
 func test_blood_tournament_placement_is_blocked_when_unaffordable_and_spends_when_affordable() -> void:
 	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD (300)
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var camera: Camera3D = _main.get_node("Camera3D")
+	var target := CrossArenaMap.get_courtyard_unit_anchor(GameManager.BLUE_TEAM_ID)
+	camera._focus_point = Vector3(target.x, 0, target.z)
+	camera._update_transform()
 	blue.resources = TANK_STATS.cost - 1
 
-	_main._on_unit_type_selected(TANK_STATS)
-	assert_true(blue.roster.is_empty(), "one gold short of Tank's cost should block the purchase")
+	_main._on_unit_type_selected(TANK_STATS) # arms the ghost regardless of affordability -- the real gate is at confirm time
+	_main._try_left_click_at(camera.unproject_position(target))
+	assert_true(blue.roster.is_empty(), "one gold short of Tank's cost should block the purchase even once confirmed")
 
 	blue.resources = TANK_STATS.cost
 	_main._on_unit_type_selected(TANK_STATS)
+	_main._try_left_click_at(camera.unproject_position(target))
 	assert_eq(blue.roster, [TANK_STATS], "exactly enough gold should buy the slot")
 	assert_eq(blue.resources, 0, "the Tank's cost should be spent")
 
@@ -147,7 +186,6 @@ func test_selling_only_works_during_placement() -> void:
 
 func test_right_click_on_owned_unit_sells_it_during_placement() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
-	GameManager.set_mode(BloodTournamentMode.new())
 	var unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(-3, 0, 0))
 	await wait_physics_frames(1) # let the physics server register the new collision shape before raycasting it
 	var camera: Camera3D = _main.get_node("Camera3D")
@@ -156,7 +194,37 @@ func test_right_click_on_owned_unit_sells_it_during_placement() -> void:
 	_main._try_sell_unit_at(camera.unproject_position(unit.global_position))
 
 	assert_true(unit.is_queued_for_deletion())
-	assert_eq(blue.resources, gold_before + int(TANK_STATS.cost * GameManager.SELL_REFUND_FRACTION))
+	assert_eq(blue.resources, gold_before, "classic mode (no economy active) should never refund anything")
+
+
+## Lineup-courtyard model: a roster slot's live squad is standing in the
+## courtyard the moment it's bought -- right-clicking ANY one of its
+## members must sell the WHOLE squad, not just the unit actually clicked,
+## and remove exactly one roster entry (see
+## PlayerInputController.try_sell_unit_at()'s courtyard branch /
+## GameManager.sell_roster_slot()).
+func test_right_click_on_a_courtyard_unit_sells_its_whole_squad() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.resources = TANK_STATS.cost # squad_size 3
+	var camera: Camera3D = _main.get_node("Camera3D")
+	var target := CrossArenaMap.get_courtyard_unit_anchor(GameManager.BLUE_TEAM_ID)
+	camera._focus_point = Vector3(target.x, 0, target.z)
+	camera._update_transform()
+	_main._on_unit_type_selected(TANK_STATS) # arms the ghost
+	_main._try_left_click_at(camera.unproject_position(target)) # confirms it
+	await wait_physics_frames(1) # let the physics server register the new collision shapes before raycasting
+	var squad: Array = blue.courtyard_units[0]
+	var clicked_unit: Unit = squad[0]
+	var gold_before := blue.resources
+
+	_main._try_sell_unit_at(camera.unproject_position(clicked_unit.global_position))
+
+	assert_true(blue.roster.is_empty(), "the roster slot should be removed")
+	assert_true(blue.courtyard_units.is_empty())
+	assert_eq(blue.resources, gold_before + int(TANK_STATS.cost * GameManager.SELL_REFUND_FRACTION), "refund should happen exactly once per slot, not once per squad member")
+	for unit in squad:
+		assert_true(unit.is_queued_for_deletion(), "every squad member should be freed, not just the one clicked")
 
 
 func test_buy_upgrade_spends_blood_points_and_applies_a_permanent_effect() -> void:
@@ -219,6 +287,71 @@ func test_buy_roster_upgrade_fails_outside_blood_tournament_and_without_enough_b
 	assert_true(blue.roster_upgrades.is_empty())
 
 
+func test_heroes_only_upgrade_hotkeys_buy_the_right_resource() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = HEROIC_VIGOR_UPGRADE.cost
+
+	var key_event := InputEventKey.new()
+	key_event.keycode = KEY_O
+	key_event.pressed = true
+	_main._handle_placement_key(key_event)
+
+	assert_eq(blue.roster_upgrades, [HEROIC_VIGOR_UPGRADE])
+	assert_eq(blue.blood_points, 0)
+
+	blue.blood_points = HEROIC_MIGHT_UPGRADE.cost
+	key_event.keycode = KEY_L
+	_main._handle_placement_key(key_event)
+
+	assert_eq(blue.roster_upgrades, [HEROIC_VIGOR_UPGRADE, HEROIC_MIGHT_UPGRADE])
+	assert_eq(blue.blood_points, 0)
+
+
+## Buying a heroes_only upgrade while both a hero squad and a non-hero
+## squad are already live in the courtyard should only buff the hero.
+func test_heroes_only_upgrade_applies_only_to_a_live_hero_squad() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = HEROIC_VIGOR_UPGRADE.cost
+	blue.roster = [HERO_STATS, TANK_STATS]
+	GameManager.sync_courtyard_to_roster(blue)
+	var hero: Unit = blue.courtyard_units[0][0]
+	var tank: Unit = blue.courtyard_units[1][0]
+	var hero_health_before := hero.stat_block.max_health()
+	var tank_health_before := tank.stat_block.max_health()
+
+	assert_true(GameManager.buy_roster_upgrade(blue, HEROIC_VIGOR_UPGRADE))
+
+	assert_almost_eq(hero.stat_block.max_health(), hero_health_before + HEROIC_VIGOR_UPGRADE.ability.effect_stat_value, 0.01)
+	assert_almost_eq(tank.stat_block.max_health(), tank_health_before, 0.01, "a heroes_only upgrade must not touch a non-hero squad")
+
+
+## A heroes_only upgrade bought before any hero is on the roster must
+## still stay inert for existing non-hero squads and only apply once a
+## hero squad is actually spawned afterward -- the deferred-application
+## half of the same account-wide model test_staggered_deployment_applies_roster_upgrades_to_every_squad_member()
+## already covers for the non-filtered case.
+func test_heroes_only_upgrade_bought_before_a_hero_exists_applies_once_one_is_spawned() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = HEROIC_VIGOR_UPGRADE.cost
+	blue.roster = [TANK_STATS]
+	GameManager.sync_courtyard_to_roster(blue)
+	var tank: Unit = blue.courtyard_units[0][0]
+	var tank_health_before := tank.stat_block.max_health()
+
+	assert_true(GameManager.buy_roster_upgrade(blue, HEROIC_VIGOR_UPGRADE))
+	assert_almost_eq(tank.stat_block.max_health(), tank_health_before, 0.01, "no hero squad exists yet -- nothing to apply to")
+
+	blue.roster.append(HERO_STATS)
+	GameManager.sync_courtyard_to_roster(blue)
+	var hero: Unit = blue.courtyard_units[1][0]
+
+	assert_almost_eq(hero.stat_block.max_health(), HERO_STATS.max_health + HEROIC_VIGOR_UPGRADE.ability.effect_stat_value, 0.01)
+	assert_almost_eq(tank.stat_block.max_health(), tank_health_before, 0.01, "still untouched")
+
+
 ## The deferred-application half of the account-wide upgrade model: an
 ## upgrade bought during PLACEMENT (when nothing is alive to apply it to)
 ## gets applied to every member of every squad deployed afterward, not
@@ -248,8 +381,13 @@ func test_staggered_deployment_applies_roster_upgrades_to_every_squad_member() -
 func test_buying_a_unit_appends_it_to_the_players_roster() -> void:
 	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var camera: Camera3D = _main.get_node("Camera3D")
+	var target := CrossArenaMap.get_courtyard_unit_anchor(GameManager.BLUE_TEAM_ID)
+	camera._focus_point = Vector3(target.x, 0, target.z)
+	camera._update_transform()
 
-	_main._on_unit_type_selected(TANK_STATS)
+	_main._on_unit_type_selected(TANK_STATS) # arms the ghost
+	_main._try_left_click_at(camera.unproject_position(target)) # confirms it
 
 	assert_eq(blue.roster, [TANK_STATS], "buying a unit type should append it to the roster")
 
@@ -372,19 +510,24 @@ func test_spawn_squad_of_one_spawns_exactly_one_unit_at_the_anchor() -> void:
 	assert_eq(squad[0].global_position, Vector3(3, 0, 3))
 
 
-## Buying under Blood Tournament is a data-only roster append now -- see
-## Main._on_unit_type_selected()/_try_buy_for_roster() -- nothing spawns
-## until the staggered deployment queue runs at battle start (see
-## test_staggered_deployment_deploys_the_full_squad_for_a_purchased_slot()
-## below).
-func test_buying_a_squad_unit_only_charges_gold_and_records_one_roster_slot() -> void:
+## Lineup-courtyard model: confirming a ghost placement charges gold once
+## and records one roster slot, and spawns the full squad standing at the
+## clicked spot (see PlayerInputController.begin_build_placement()/
+## resolve_build_placement()/GameManager.buy_roster_slot_at()) -- visible
+## before battle even starts, not deferred to a deployment queue.
+func test_confirming_a_squad_purchase_charges_gold_once_and_spawns_the_full_squad() -> void:
 	GameManager.set_mode(BloodTournamentMode.new()) # grants STARTING_GOLD
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var camera: Camera3D = _main.get_node("Camera3D")
+	var target := CrossArenaMap.get_courtyard_unit_anchor(GameManager.BLUE_TEAM_ID)
+	camera._focus_point = Vector3(target.x, 0, target.z)
+	camera._update_transform()
 	var gold_before := blue.resources
 
-	_main._on_unit_type_selected(FIGHTER_STATS) # squad_size 5
+	_main._on_unit_type_selected(FIGHTER_STATS) # squad_size 5 -- arms the ghost
+	_main._try_left_click_at(camera.unproject_position(target)) # confirms it
 
-	assert_eq(GameManager.get_all_units().size(), 0, "buying should not spawn anything during PLACEMENT under the staging-area model")
+	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size, "the full squad should stand at the clicked spot")
 	assert_eq(blue.resources, gold_before - FIGHTER_STATS.cost, "cost is charged once per purchase, not once per squad member")
 	assert_eq(blue.roster, [FIGHTER_STATS], "the roster should record one slot, not one entry per squad member")
 
@@ -397,11 +540,12 @@ func test_classic_mode_placement_still_deploys_a_single_unit_regardless_of_squad
 	assert_eq(GameManager.get_all_units().size(), 1, "classic mode should never deploy a squad, regardless of UnitStats.squad_size")
 
 
-## Exercises Main._begin_staggered_deployment()/_physics_process()/
-## _deploy_next_pending_slot() end to end: a purchased roster slot only
-## becomes live Units once BATTLE starts, and deploys the full squad in
-## one go for that slot (see GameManager.spawn_squad()).
-func test_staggered_deployment_deploys_the_full_squad_for_a_purchased_slot() -> void:
+## Exercises GameManager.start_battle()'s sync_courtyard_to_roster()
+## safety net + BloodTournamentController.begin_march() end to end: a
+## roster slot set directly (bypassing buy_roster_slot() entirely, same
+## as this test does) still ends up as a live squad on the field once
+## battle starts.
+func test_starting_battle_deploys_the_full_squad_for_a_purchased_slot() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
@@ -414,20 +558,49 @@ func test_staggered_deployment_deploys_the_full_squad_for_a_purchased_slot() -> 
 	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size + TANK_STATS.squad_size, "both teams' single roster slot should have marched out in full")
 
 
-## The staggered queue pops one roster slot per _DEPLOY_INTERVAL, not all
-## at once -- deploy order is purchase order reversed (most-recently-bought
-## -- the "rightmost" slot -- marches out first, see
-## Main._begin_staggered_deployment()), so with Fighter bought before Tank,
-## Tank's squad should be the only one on the field right after battle
-## starts.
-func test_staggered_deployment_deploys_one_roster_slot_at_a_time_rightmost_first() -> void:
+## Every roster slot's squad marches out simultaneously at battle start --
+## no staggering, since nothing is being "produced" anymore, it's
+## already-trained troops in the courtyard together (see
+## BloodTournamentController.begin_march()).
+func test_every_roster_slot_marches_out_simultaneously_not_staggered() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	blue.roster = [FIGHTER_STATS, TANK_STATS] # bought in this order: Fighter first, Tank last (rightmost)
+	blue.roster = [FIGHTER_STATS, TANK_STATS] # two roster slots
 	red.roster = [TANK_STATS] # can_start_battle() needs a second team's roster non-empty
 
 	GameManager.start_battle()
 	await wait_physics_frames(1)
 
-	assert_eq(GameManager.get_all_units().size(), TANK_STATS.squad_size + TANK_STATS.squad_size, "only Tank's slot (bought last, deploys first) should have marched out for Blue so far, alongside Red's single slot")
+	var blue_fighters := GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue and u.stats == FIGHTER_STATS)
+	var blue_tanks := GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue and u.stats == TANK_STATS)
+	assert_eq(blue_fighters.size(), FIGHTER_STATS.squad_size, "both of Blue's roster slots should be on the field already")
+	assert_eq(blue_tanks.size(), TANK_STATS.squad_size)
+
+
+## Blue/Red default to sharing the North arm (SPAWN_POINTS[0]/[1]) when
+## assign_random_spawn_points() hasn't run -- begin_march() should order
+## each marching unit to attack-move toward its same-arm rival's spawn
+## point FIRST, with the center-push order only queued behind it, not
+## active -- this is the fix for the "mess in the middle" bug (squads
+## used to walk straight to the literal map center and only converge
+## right at the destination instead of clashing at the arm ends).
+func test_marching_squads_engage_the_same_arm_rival_before_the_queued_center_push() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	blue.roster = [TANK_STATS]
+	red.roster = [TANK_STATS]
+
+	GameManager.start_battle()
+	await wait_physics_frames(1)
+
+	var blue_unit: Unit = GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue)[0]
+	assert_eq(blue_unit.current_order.target_position, CrossArenaMap.SPAWN_POINTS[GameManager.RED_TEAM_ID], "should attack-move toward the same-arm rival's spawn point first")
+	assert_eq(blue_unit._order_queue.size(), 1, "the center-push order should be queued, not active yet")
+	assert_eq(blue_unit._order_queue[0].target_position, Vector3.ZERO, "queued order should still push to the true map center once the arm fight resolves")
+
+
+func test_arm_rival_anchor_returns_null_for_an_unrecognized_position() -> void:
+	var controller := BloodTournamentController.new(autofree(Control.new()), Callable())
+	assert_null(controller._arm_rival_anchor(GameManager.BLUE_TEAM_ID, Vector3(999, 0, 999)))

@@ -30,7 +30,7 @@ func _key_event(keycode: Key) -> InputEventKey:
 func test_builds_one_row_per_default_binding_showing_its_current_key() -> void:
 	assert_eq(_menu._key_labels.size(), Hotkeys.DEFAULT_BINDINGS.size())
 	var stop_label: Label = _menu._key_labels["order_stop"]
-	assert_eq(stop_label.text, OS.get_keycode_string(KEY_S))
+	assert_eq(stop_label.text, OS.get_keycode_string(KEY_X))
 
 
 func test_begin_rebind_shows_a_listening_prompt_for_that_row_only() -> void:
@@ -58,10 +58,10 @@ func test_pressing_a_key_already_claimed_by_another_action_is_refused() -> void:
 
 	_menu._handle_rebind_key(_key_event(KEY_H)) # order_hold's default key
 
-	assert_eq(InputMap.action_get_events("order_stop")[0].keycode, KEY_S, "order_stop should keep its old binding")
+	assert_eq(InputMap.action_get_events("order_stop")[0].keycode, KEY_X, "order_stop should keep its old binding")
 	assert_ne(_menu._status_label.text, "", "should show a warning explaining the conflict")
 	var stop_label: Label = _menu._key_labels["order_stop"]
-	assert_eq(stop_label.text, OS.get_keycode_string(KEY_S), "should fall back out of listening mode")
+	assert_eq(stop_label.text, OS.get_keycode_string(KEY_X), "should fall back out of listening mode")
 
 
 func test_pressing_escape_cancels_a_pending_rebind_without_changing_anything() -> void:
@@ -69,9 +69,9 @@ func test_pressing_escape_cancels_a_pending_rebind_without_changing_anything() -
 
 	_menu._handle_rebind_key(_key_event(KEY_ESCAPE))
 
-	assert_eq(InputMap.action_get_events("order_stop")[0].keycode, KEY_S)
+	assert_eq(InputMap.action_get_events("order_stop")[0].keycode, KEY_X)
 	var stop_label: Label = _menu._key_labels["order_stop"]
-	assert_eq(stop_label.text, OS.get_keycode_string(KEY_S))
+	assert_eq(stop_label.text, OS.get_keycode_string(KEY_X))
 
 
 func test_reset_button_restores_every_binding() -> void:
@@ -79,9 +79,9 @@ func test_reset_button_restores_every_binding() -> void:
 
 	_menu._on_reset_pressed()
 
-	assert_eq(InputMap.action_get_events("order_stop")[0].keycode, KEY_S)
+	assert_eq(InputMap.action_get_events("order_stop")[0].keycode, KEY_X)
 	var stop_label: Label = _menu._key_labels["order_stop"]
-	assert_eq(stop_label.text, OS.get_keycode_string(KEY_S))
+	assert_eq(stop_label.text, OS.get_keycode_string(KEY_X))
 
 
 ## Doesn't exercise _on_back_pressed() itself (it calls

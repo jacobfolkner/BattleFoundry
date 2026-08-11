@@ -67,8 +67,8 @@ const ARENA_HALF_EXTENT := 20.0
 ## Main.ARM_SPAWN_POINTS) -- the 8-team Blood Tournament map. Unit's arena
 ## clamp (_clamp_to_arena()) branches between this shape's math and the
 ## plain square's, since a cross isn't a square.
-const CROSS_ARM_HALF_WIDTH := 8.0 ## Half-width of the center square and of every arm.
-const CROSS_ARM_OUTER_EXTENT := 32.0 ## Distance from the map center to each arm's outer (spawn) edge.
+const CROSS_ARM_HALF_WIDTH := 10.0 ## Half-width of the center square and of every arm.
+const CROSS_ARM_OUTER_EXTENT := 40.0 ## Distance from the map center to each arm's outer (spawn) edge.
 
 ## No damage dealt anywhere on the field for this long during BATTLE means
 ## neither side can actually reach/hurt the other (e.g. an all-flying vs.
@@ -162,9 +162,23 @@ func can_start_battle() -> bool:
 
 
 ## PLACEMENT -> BATTLE. No-ops if can_start_battle() is false.
+##
+## sync_courtyard_to_roster() runs here, for every registered player,
+## before the state transition -- the one call site every path (the real
+## Start Battle button via BloodTournamentController.start_battle_pressed(),
+## a test calling this directly, a future caller) always goes through, so
+## it's the right place for the final safety net that makes Player.roster
+## the durable truth regardless of how it got mutated (a human/AI buy
+## already synced immediately for visual feedback, but plenty of existing
+## tests set player.roster directly without ever calling
+## buy_roster_slot()). Harmless to call for every player in every mode --
+## a roster that's stayed empty the whole time (classic mode, always) is
+## just a no-op.
 func start_battle() -> void:
 	if not can_start_battle():
 		return
+	for player in players.values():
+		sync_courtyard_to_roster(player)
 	_seconds_since_last_damage = 0.0
 	_transition_to(BattleState.BATTLE)
 	current_mode.on_battle_started()
@@ -218,9 +232,15 @@ func _process(delta: float) -> void:
 ## No survivor-carryover option here (an earlier version of this method
 ## had one) -- Blood Tournament doesn't have permadeath: what persists
 ## between rounds is each Player's `roster` (purchased archetypes, data),
-## not literal surviving Unit nodes. Main._advance_to_next_round() is what
-## respawns a round's full roster fresh after calling this -- see
-## Main._respawn_rosters().
+## not literal surviving Unit nodes. sync_courtyard_to_roster() is what
+## respawns a round's full roster fresh into each team's lineup courtyard
+## after this runs.
+##
+## Also clears every registered Player's `courtyard_units` -- those live
+## Unit references are among what the sweep above just freed, so leaving
+## the array itself non-empty would make sync_courtyard_to_roster() wrongly
+## believe those slots are already populated (it only fills slots the
+## array doesn't yet have an entry for) and skip respawning them entirely.
 func reset_battle() -> void:
 	for unit in _all_units:
 		if is_instance_valid(unit):
@@ -228,6 +248,8 @@ func reset_battle() -> void:
 
 	_all_units.clear()
 	_units_by_team.clear()
+	for player in players.values():
+		player.courtyard_units.clear()
 
 	_transition_to(BattleState.PLACEMENT)
 
@@ -313,10 +335,14 @@ func get_team_display_name(team_id: int) -> String:
 
 ## Instantiates a Unit at the given position, registers it, and returns
 ## it. Under an auto-battle mode (GameMode.is_auto_battle()), a unit
-## spawned mid-BATTLE (staggered deployment, a goblin boss round, a
-## bracket matchup -- every Blood Tournament spawn happens this way, see
-## Main._begin_staggered_deployment()) gets an immediate ATTACK_MOVE order
-## toward the arena center: with no player able to issue manual orders
+## spawned mid-BATTLE (a goblin boss round or bracket matchup deploying
+## directly via spawn_squad() -- normal Blood Tournament combat units
+## don't take this branch at all anymore, since they're spawned into a
+## team's lineup courtyard during PLACEMENT via sync_courtyard_to_roster(),
+## then just repositioned+reordered at battle start by
+## BloodTournamentController.begin_march(), never re-spawned) gets an
+## immediate ATTACK_MOVE order toward the arena center: with no player
+## able to issue manual orders
 ## during auto-battle (see Main._try_cast_or_target()/_on_right_click()),
 ## nothing would otherwise make it converge on/engage the enemy at all --
 ## default autonomous AI only reacts to what's already within
@@ -339,6 +365,28 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 	return unit
 
 
+## Spawns a permanent, non-combat courtyard fixture (Blood Tournament's
+## Builder NPC -- Resources/Units/BuilderStats.tres) -- deliberately NOT
+## the same as spawn_unit() above: no _units_by_team/_all_units
+## registration, no died/damaged signal connections. This is load-bearing,
+## not an oversight -- a Builder must survive every reset_battle() call
+## (created once per team for the whole match, in
+## BloodTournamentMode.on_activated(), not respawned each round) and must
+## never count toward BloodTournamentMode.check_victory()'s
+## GameManager.team_is_empty() check, which a normal spawn_unit() Unit
+## sitting in _units_by_team forever would silently break (a team would
+## never read as eliminated). Verified every get_all_units()/_units_by_team
+## consumer (aura/AoE sweeps, camera hero-follow, drag-select, exact
+## squad-size-sum test assertions) is correctly indifferent to -- or
+## actively depends on -- the Builder being uncounted.
+func spawn_courtyard_fixture(stats: UnitStats, player: Player, spawn_position: Vector3) -> Unit:
+	var unit: Unit = UNIT_SCENE.instantiate()
+	units_container.add_child(unit)
+	unit.global_position = spawn_position
+	unit.setup(stats, player)
+	return unit
+
+
 ## Spawns stats.squad_size Units for one purchased/roster slot, spread
 ## along X around `anchor_position` so squad members don't land exactly
 ## stacked on each other -- the shared entry point every "this was
@@ -350,11 +398,79 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 ## their own like any other unit.
 func spawn_squad(stats: UnitStats, player: Player, anchor_position: Vector3) -> Array[Unit]:
 	var squad: Array[Unit] = []
-	var spacing := stats.collision_radius * 2.5 + 0.3
 	for i in stats.squad_size:
-		var offset := Vector3((i - (stats.squad_size - 1) * 0.5) * spacing, 0, 0)
-		squad.append(spawn_unit(stats, player, anchor_position + offset))
+		squad.append(spawn_unit(stats, player, anchor_position + _squad_formation_offset(stats, i)))
 	return squad
+
+
+## Member i's offset from a squad's anchor -- a fixed world-X row, spread
+## by collision_radius so members don't land stacked. Shared by
+## spawn_squad() and reposition_courtyard_squad() below (dragging a
+## courtyard squad to a new spot reforms it the same way it was
+## originally spawned).
+func _squad_formation_offset(stats: UnitStats, i: int) -> Vector3:
+	var spacing := stats.collision_radius * 2.5 + 0.3
+	return Vector3((i - (stats.squad_size - 1) * 0.5) * spacing, 0, 0)
+
+
+## Moves every live member of player.courtyard_units[squad_index] to
+## reform around new_center -- used both to commit a courtyard
+## drag-to-reorder (PlayerInputController._resolve_courtyard_drag()) and,
+## called with the squad's pre-drag center, to revert an invalid drop.
+func reposition_courtyard_squad(player: Player, squad_index: int, new_center: Vector3) -> void:
+	var squad: Array = player.courtyard_units[squad_index]
+	var stats: UnitStats = player.roster[squad_index]
+	for i in squad.size():
+		var unit = squad[i]
+		if is_instance_valid(unit):
+			unit.global_position = new_center + _squad_formation_offset(stats, i)
+
+
+## Keeps Player.roster's order matching the courtyard's visual
+## front-to-back arrangement after a drag -- purely organizational,
+## battle deployment is simultaneous so roster order has no mechanical
+## effect. Ranks each slot by its squad's centroid projected onto
+## CrossArenaMap.get_courtyard_inward_direction() (closer to the
+## arm/front sorts first), tie-broken by current index so slots that
+## haven't been dragged (e.g. several spawned at the same default
+## anchor by sync_courtyard_to_roster()) never visibly reshuffle on
+## their own -- Array.sort_custom() isn't guaranteed stable. Rebuilds
+## both roster and courtyard_units from the same sorted index list in
+## one pass so they stay index-paired atomically.
+func reorder_roster_by_courtyard_depth(player: Player) -> void:
+	if player.roster.size() <= 1:
+		return
+	var inward := CrossArenaMap.get_courtyard_inward_direction(player.team_id)
+	var indices := range(player.roster.size())
+	indices.sort_custom(func(a, b):
+		var proj_a := Vector2(_squad_centroid(player.courtyard_units[a]).x, _squad_centroid(player.courtyard_units[a]).z).dot(inward)
+		var proj_b := Vector2(_squad_centroid(player.courtyard_units[b]).x, _squad_centroid(player.courtyard_units[b]).z).dot(inward)
+		if proj_a == proj_b:
+			return a < b
+		return proj_a > proj_b
+	)
+	var new_roster: Array[UnitStats] = []
+	var new_courtyard_units: Array = []
+	for i in indices:
+		new_roster.append(player.roster[i])
+		new_courtyard_units.append(player.courtyard_units[i])
+	player.roster = new_roster
+	player.courtyard_units = new_courtyard_units
+
+
+## Average position of a squad's currently-live members -- by
+## construction (_squad_formation_offset()'s offsets are zero-mean along
+## local X) this exactly recovers the anchor the squad was spawned/
+## repositioned around, regardless of squad_size, rather than any one
+## member's own (X-skewed) position.
+func _squad_centroid(squad: Array) -> Vector3:
+	var total := Vector3.ZERO
+	var count := 0
+	for unit in squad:
+		if is_instance_valid(unit):
+			total += unit.global_position
+			count += 1
+	return total / count
 
 
 ## Fraction of UnitStats.cost refunded by sell_unit() -- only meaningful
@@ -383,22 +499,132 @@ func sell_unit(unit: Unit) -> void:
 	unit.queue_free()
 
 
-## The "line-up" half of selling, for the literal-staging-area placement
-## model: roster entries (Player.roster) aren't spawned as live Units
-## until BATTLE start (see Main._begin_staggered_deployment()), so
-## there's nothing live to click/right-click during PLACEMENT to sell --
-## this removes roster[index] directly instead, refunding the same
-## SELL_REFUND_FRACTION as sell_unit(). PLACEMENT-only, same reasoning as
-## sell_unit(). Returns whether it actually removed something, so a
-## caller can tell a no-op (bad index, wrong phase) from a real sale.
+## The "line-up" half of selling, for the lineup-courtyard model: a
+## roster slot is now a real, potentially multi-unit squad standing in
+## the courtyard (Player.courtyard_units[index]), not just a data entry,
+## so this frees every unit in that squad -- not only whichever one was
+## actually clicked (see PlayerInputController.try_sell_unit_at()'s own
+## courtyard branch) -- alongside removing the data entries. Mirrors
+## sell_unit()'s own _units_by_team/_all_units bookkeeping per unit freed.
+## PLACEMENT-only, same reasoning as sell_unit(). Returns whether it
+## actually removed something, so a caller can tell a no-op (bad index,
+## wrong phase) from a real sale.
 func sell_roster_slot(player: Player, index: int) -> bool:
 	if not is_placement_phase() or index < 0 or index >= player.roster.size():
 		return false
 	var stats: UnitStats = player.roster[index]
 	player.roster.remove_at(index)
+	if index < player.courtyard_units.size():
+		var squad: Array = player.courtyard_units[index]
+		for unit in squad:
+			if is_instance_valid(unit):
+				_units_by_team[unit.player.team_id].erase(unit)
+				_all_units.erase(unit)
+				unit.queue_free()
+		player.courtyard_units.remove_at(index)
 	if current_mode.uses_economy():
 		player.add_gold(int(stats.cost * SELL_REFUND_FRACTION))
 	return true
+
+
+## Single gate both the human buy flow (PlayerInputController.begin_build_placement()/
+## resolve_build_placement(), via buy_roster_slot_at() below) and the AI
+## (AIController.take_turn()) go through -- mirrors
+## buy_roster_upgrade()'s existing shape. Only the data/ledger side
+## (afford-check, spend, append) -- sync_courtyard_to_roster() below is
+## what actually realizes the new slot as a live squad standing in the
+## courtyard; kept separate rather than folded in here so a caller could
+## batch several buys before syncing once (today's two callers each sync
+## immediately after, for responsive visual feedback).
+func buy_roster_slot(player: Player, stats: UnitStats) -> bool:
+	if not player.can_afford(stats.cost):
+		return false
+	player.spend(stats.cost)
+	player.roster.append(stats)
+	return true
+
+
+## Makes Player.roster the durable source of truth and Player.courtyard_units
+## a derived cache that's always correct by the time it's actually read --
+## called after a successful buy/sell (immediate visual feedback), once
+## per team right after reset_battle() at round start (which already
+## clears courtyard_units itself -- see its own doc comment for why), and
+## again as a final safety net right before start_battle_pressed()
+## actually flips battle_state. That last call is what keeps every
+## existing test that sets player.roster directly (the dominant
+## test-setup idiom in this codebase) working unmodified, without
+## courtyard_units needing to be hand-maintained at every possible
+## roster-mutation call site.
+func sync_courtyard_to_roster(player: Player) -> void:
+	while player.courtyard_units.size() > player.roster.size():
+		var extra: Array = player.courtyard_units.pop_back()
+		for unit in extra:
+			if is_instance_valid(unit):
+				_units_by_team[unit.player.team_id].erase(unit)
+				_all_units.erase(unit)
+				unit.queue_free()
+
+	for i in range(player.courtyard_units.size(), player.roster.size()):
+		var stats: UnitStats = player.roster[i]
+		_spawn_roster_squad_at(player, stats, CrossArenaMap.get_courtyard_unit_anchor(player.team_id))
+
+
+## Spawns one roster slot's squad at `position`, applying every
+## account-wide roster upgrade and restoring hero progress -- the shared
+## per-slot body sync_courtyard_to_roster()'s loop above and
+## buy_roster_slot_at() below both use, so the two call sites (default
+## courtyard anchor vs. a player-chosen ghost-placement point) can't
+## silently drift apart on what "realizing a roster slot" actually means.
+func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3) -> void:
+	var squad := spawn_squad(stats, player, position)
+	for upgrade in player.roster_upgrades:
+		if upgrade.heroes_only and not stats.is_hero:
+			continue
+		for unit in squad:
+			upgrade.ability.cast_unit_target(unit, unit)
+	if stats.is_hero and player.hero_progress.has(stats):
+		var saved: Dictionary = player.hero_progress[stats]
+		for unit in squad:
+			unit.restore_hero_progress(saved.level, saved.xp)
+	player.courtyard_units.append(squad)
+
+
+## The ghost-placement confirm path (PlayerInputController.resolve_build_placement()) --
+## buys the slot (same GameManager.buy_roster_slot() gate the human
+## click-a-build-menu-button path and the AI both go through) and spawns
+## its squad at the player-CHOSEN position instead of the default
+## get_courtyard_unit_anchor() sync_courtyard_to_roster() always uses.
+## Only ever the newest slot (player.roster.size() - 1 after the buy
+## succeeds) -- there's nothing to reconcile here the way
+## sync_courtyard_to_roster() does, since a placement click only ever
+## concerns the one slot just bought.
+func buy_roster_slot_at(player: Player, stats: UnitStats, position: Vector3) -> bool:
+	if not buy_roster_slot(player, stats):
+		return false
+	_spawn_roster_squad_at(player, stats, position)
+	return true
+
+
+## Frees every Unit currently in player.courtyard_units without touching
+## player.roster itself. GoblinBossRound/FinalTournamentBracket deploy a
+## team's roster directly via spawn_squad() at their own bespoke anchors,
+## bypassing the courtyard/march flow entirely -- but both also call
+## GameManager.start_battle() first (to get the auto-battle convergence
+## order flowing before anyone spawns), which runs
+## sync_courtyard_to_roster() for every registered player as its own
+## safety net. Without this, that safety net would realize a normal
+## courtyard squad for the SAME roster right before the boss-round/bracket
+## code spawns a second, separate combat squad -- a real double-spawn, not
+## just a stale-looking duplicate. Both callers use this immediately after
+## start_battle(), before their own direct spawn_squad() loop.
+func clear_courtyard_units(player: Player) -> void:
+	for squad in player.courtyard_units:
+		for unit in squad:
+			if is_instance_valid(unit):
+				_units_by_team[unit.player.team_id].erase(unit)
+				_all_units.erase(unit)
+				unit.queue_free()
+	player.courtyard_units.clear()
 
 
 ## The "shop" half of Blood Tournament's economy: spends blood points
@@ -421,15 +647,14 @@ func buy_upgrade(unit: Unit, upgrade: UnitUpgrade) -> bool:
 	return true
 
 
-## The actual PLACEMENT-time shop purchase path under the staging-area
-## deployment model (see Main._begin_staggered_deployment()) -- nothing
-## is a living Unit during PLACEMENT for buy_upgrade() above to target
-## anymore, so this spends blood points against the player's account and
-## records the upgrade on Player.roster_upgrades instead of applying it
-## immediately. Main._deploy_next_pending_slot() applies every recorded
-## upgrade to every unit in every squad this player deploys from then on
-## -- account-wide, not scoped to whichever roster slot was selected when
-## it was bought, since nothing exists yet to scope it to.
+## The account-wide shop upgrade path: spends blood points and records
+## the upgrade on Player.roster_upgrades (applied to every FUTURE squad
+## sync_courtyard_to_roster() spawns into the courtyard from now on -- not
+## scoped to whichever roster slot was selected when it was bought, since
+## upgrades were always meant to apply account-wide, not per-unit), plus
+## applies it immediately to every unit CURRENTLY standing in the
+## courtyard, for visible instant feedback rather than a purchase that
+## silently does nothing until the next buy.
 func buy_roster_upgrade(player: Player, upgrade: UnitUpgrade) -> bool:
 	if not is_placement_phase() or not current_mode.uses_economy():
 		return false
@@ -438,6 +663,11 @@ func buy_roster_upgrade(player: Player, upgrade: UnitUpgrade) -> bool:
 
 	player.spend_blood_points(upgrade.cost)
 	player.roster_upgrades.append(upgrade)
+	for i in player.courtyard_units.size():
+		if upgrade.heroes_only and not player.roster[i].is_hero:
+			continue
+		for unit in player.courtyard_units[i]:
+			upgrade.ability.cast_unit_target(unit, unit)
 	return true
 
 
@@ -537,19 +767,25 @@ func _on_unit_died(unit: Unit, killer: Unit) -> void:
 			_declare_draw()
 
 
-## See UnitStats.revive_as_on_death/split_into_on_death's doc comments --
-## both null for every normal archetype, so this is a no-op for the rest
-## of the game. Runs unconditionally (not gated on is_battle_active())
-## since it's replacing this specific death, not deciding the battle's
-## outcome.
+## See UnitStats.revive_as_on_death/split_into_on_death/
+## split_into_self_on_death's doc comments -- all null/false for every
+## normal archetype, so this is a no-op for the rest of the game. Runs
+## unconditionally (not gated on is_battle_active()) since it's replacing
+## this specific death, not deciding the battle's outcome.
 func _spawn_death_escalation(unit: Unit) -> void:
 	if unit.stats.revive_as_on_death != null:
 		spawn_unit(unit.stats.revive_as_on_death, unit.player, unit.global_position)
 	elif unit.stats.split_into_on_death != null:
-		var spacing := unit.stats.split_into_on_death.collision_radius * 2.5 + 0.3
-		for i in unit.stats.split_count:
-			var offset := Vector3((i - (unit.stats.split_count - 1) * 0.5) * spacing, 0, 0)
-			spawn_unit(unit.stats.split_into_on_death, unit.player, unit.global_position + offset)
+		_spawn_split(unit, unit.stats.split_into_on_death)
+	elif unit.stats.split_into_self_on_death:
+		_spawn_split(unit, unit.stats)
+
+
+func _spawn_split(unit: Unit, split_stats: UnitStats) -> void:
+	var spacing := split_stats.collision_radius * 2.5 + 0.3
+	for i in unit.stats.split_count:
+		var offset := Vector3((i - (unit.stats.split_count - 1) * 0.5) * spacing, 0, 0)
+		spawn_unit(split_stats, unit.player, unit.global_position + offset)
 
 
 func _on_unit_damaged(_unit: Unit, _instance: DamageInstance, _damage_dealt: float) -> void:

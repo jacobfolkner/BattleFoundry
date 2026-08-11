@@ -36,6 +36,7 @@ signal all_rounds_finished
 ## GameManager.all_team_ids() rather than two hardcoded team_ids, for the
 ## 8-team cross map.
 const STARTING_GOLD := 300
+const BUILDER_STATS: UnitStats = preload("res://Resources/Units/BuilderStats.tres")
 ## Every registered team gets exactly this much every round, win, lose,
 ## or draw -- deliberately flat/equal for everyone (no win bonus).
 ## Winning a round shouldn't buy more army than losing one; that's what
@@ -162,10 +163,35 @@ func can_start_battle() -> bool:
 
 
 ## See GameMode.on_activated()'s doc comment for why starting gold is
-## granted here and not from _init() or on_battle_started().
+## granted here and not from _init() or on_battle_started(). Each active
+## team's lineup-courtyard Builder fixture is spawned here too, for the
+## exact same reason: a permanent, once-per-match fixture (not once per
+## round -- GameManager.reset_battle() never touches it, see
+## GameManager.spawn_courtyard_fixture()'s own doc comment), so it needs
+## to exist before round 1's PLACEMENT even opens, same as starting gold.
+##
+## Guarded per-player against running twice -- nothing outside this class
+## enforces "exactly once per match" (a fresh BloodTournamentMode every
+## real activation, per Main._on_tournament_toggled(), makes it once in
+## practice, but that's convention, not an actual constraint). Used to be
+## reachable twice for real via a mid-match HUD toggle that could
+## reactivate an already-active mode; removed entirely for exactly this
+## reason (see UI/HUD.gd's own doc comment), but this guard stays as a
+## second line of defense against double gold grants/Builder fixtures.
 func on_activated() -> void:
 	for team_id in get_active_team_ids():
-		GameManager.get_player(team_id).add_gold(STARTING_GOLD)
+		var player := GameManager.get_player(team_id)
+		if _has_builder(player):
+			continue
+		player.add_gold(STARTING_GOLD)
+		GameManager.spawn_courtyard_fixture(BUILDER_STATS, player, CrossArenaMap.get_courtyard_position(team_id))
+
+
+func _has_builder(player: Player) -> bool:
+	for child in GameManager.units_container.get_children():
+		if child is Unit and child.player == player and child.stats.is_builder:
+			return true
+	return false
 
 
 ## N-team elimination: whichever of the 8 registered teams still have a

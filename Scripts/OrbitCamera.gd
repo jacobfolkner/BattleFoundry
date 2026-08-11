@@ -1,28 +1,25 @@
 ## Orbit camera: scroll to zoom, right-click-drag to orbit, arrow keys or
-## edge-pan to move the focus point around the arena, Space to jump to
-## your own hero. Self-contained -- Main.gd doesn't touch the camera at
-## all, including for jump-to-hero (queries GameManager/SelectionManager
-## directly, both autoloads).
+## WASD or edge-pan to move the focus point around the arena, Space to
+## jump to your own hero. Self-contained -- Main.gd doesn't touch the
+## camera at all, including for jump-to-hero (queries
+## GameManager/SelectionManager directly, both autoloads).
 extends Camera3D
 
-## Arrow keys, not WASD -- W/A/S/D are already claimed by this project's
-## own hotkeys (W = ability slot 1, S = Stop, see Main._handle_key()).
-## Panning with W would also fire that ability once on the initial
-## keydown (InputEventKey.echo only suppresses repeats, not the first
-## press) -- arrow keys avoid the collision entirely, at the cost of not
-## matching the "WASD" wording in the roadmap's original generic phrasing
-## (written before this project had its own Q/W/E/S/H scheme).
+## Both arrow keys and WASD pan the camera (see _key_pan_direction()) --
+## ability/order hotkeys were moved to Q/E/R + X specifically so W/A/S/D
+## have zero collision with a real in-battle action (see Hotkeys.gd's
+## own doc comment).
 const _ZOOM_STEP := 2.0
 const _MIN_DISTANCE := 8.0
 const _MAX_DISTANCE := 45.0
 const _MIN_PITCH := deg_to_rad(15.0)
 const _MAX_PITCH := deg_to_rad(85.0)
 const _ORBIT_SENSITIVITY := 0.005
-## Generous enough to cover the 8-team cross map's arms (Main.ARM_SPAWN_POINTS
-## reach roughly +-30) without this camera needing to know which arena
-## shape is active -- panning a little past the smaller square arena's
-## edge into empty space is harmless.
-const _PAN_BOUND := 36.0
+## Generous enough to cover the 8-team cross map's arms
+## (CrossArenaMap.SPAWN_POINTS reach roughly +-32) without this camera
+## needing to know which arena shape is active -- panning a little past
+## the smaller square arena's edge into empty space is harmless.
+const _PAN_BOUND := 44.0
 const _PAN_SPEED := 24.0 ## Meters per second, arrow keys and edge-pan alike.
 const _EDGE_PAN_MARGIN := 12.0 ## Pixels from the viewport edge that starts edge-pan.
 
@@ -61,19 +58,25 @@ func _unhandled_input(event: InputEvent) -> void:
 ## drift the camera every physics frame, corrupting any test's
 ## screen-to-world raycasts (_camera.project_ray_origin()/project_ray_normal(),
 ## used throughout click-to-place/select/drag-reposition tests) in a way
-## that would misdiagnose as an unrelated failure. Arrow-key panning
-## doesn't need the same guard -- Input.is_key_pressed() correctly reads
-## false with no real input device under headless.
+## that would misdiagnose as an unrelated failure. Key-based panning
+## (arrows or WASD) doesn't need the same guard -- Input.is_action_pressed()
+## correctly reads false with no real input device under headless.
 func _process(delta: float) -> void:
-	var pan_direction := _arrow_key_pan_direction()
+	var pan_direction := _key_pan_direction()
 	if DisplayServer.get_name() != "headless":
 		pan_direction += _edge_pan_direction()
 	if pan_direction == Vector2.ZERO:
 		return
 
 	pan_direction = pan_direction.normalized()
-	var forward := Vector3(sin(_yaw), 0.0, cos(_yaw))
-	var right := Vector3(forward.z, 0.0, -forward.x)
+	# _update_transform() places the camera on the +forward side of
+	# _focus_point (looking back at it), so the vector pointing away from
+	# the camera into the screen -- "up"/"forward" panning -- is the
+	# negation of the (yaw-only) direction the camera itself sits along.
+	# right stays the old (unnegated) sin/cos pairing -- deliberately not
+	# re-derived from the corrected forward, or left/right would flip too.
+	var forward := Vector3(-sin(_yaw), 0.0, -cos(_yaw))
+	var right := Vector3(cos(_yaw), 0.0, -sin(_yaw))
 	var movement := (right * pan_direction.x + forward * pan_direction.y) * _PAN_SPEED * delta
 	_focus_point = Vector3(
 		clampf(_focus_point.x + movement.x, -_PAN_BOUND, _PAN_BOUND),
@@ -83,15 +86,18 @@ func _process(delta: float) -> void:
 	_update_transform()
 
 
-func _arrow_key_pan_direction() -> Vector2:
+## Arrows and their WASD alternates (Hotkeys.gd's camera_pan_*_alt
+## actions) both drive the same direction -- either (or both held at
+## once) pans.
+func _key_pan_direction() -> Vector2:
 	var direction := Vector2.ZERO
-	if Input.is_action_pressed("camera_pan_up"):
+	if Input.is_action_pressed("camera_pan_up") or Input.is_action_pressed("camera_pan_up_alt"):
 		direction.y += 1.0
-	if Input.is_action_pressed("camera_pan_down"):
+	if Input.is_action_pressed("camera_pan_down") or Input.is_action_pressed("camera_pan_down_alt"):
 		direction.y -= 1.0
-	if Input.is_action_pressed("camera_pan_right"):
+	if Input.is_action_pressed("camera_pan_right") or Input.is_action_pressed("camera_pan_right_alt"):
 		direction.x += 1.0
-	if Input.is_action_pressed("camera_pan_left"):
+	if Input.is_action_pressed("camera_pan_left") or Input.is_action_pressed("camera_pan_left_alt"):
 		direction.x -= 1.0
 	return direction
 

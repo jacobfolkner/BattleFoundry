@@ -1,5 +1,5 @@
 ## Tests for the goblin-boss-round death-escalation mechanic (see
-## UnitStats.revive_as_on_death/split_into_on_death,
+## UnitStats.revive_as_on_death/split_into_on_death/split_into_self_on_death,
 ## GameManager._spawn_death_escalation()) -- a normal kill (die() ->
 ## GameManager._on_unit_died()) that, for these specific archetypes, gets
 ## replaced by a fresh bigger unit or a fan of smaller ones instead of a
@@ -55,14 +55,26 @@ func test_killing_the_enraged_goblin_splits_it_into_two_runts() -> void:
 	assert_ne(runts[0].global_position, runts[1].global_position, "the two runts shouldn't spawn stacked on the same point")
 
 
-func test_killing_a_goblin_runt_ends_the_escalation() -> void:
+## Runts split into MORE runts (UnitStats.split_into_self_on_death) --
+## the escalation deliberately never terminates, so the goblin boss round
+## always ends in the competing team's own units wiping (see
+## BloodTournamentMode.check_victory()'s own doc comment), not in the
+## goblin side running out of reinforcements once the human team clears
+## the base goblin/Enraged Goblin/first pair of runts.
+func test_killing_a_goblin_runt_spawns_two_more_runts() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var runt := GameManager.spawn_unit(GOBLIN_SPLIT_STATS, blue, Vector3(1, 0, 1))
-	var units_before := GameManager.get_all_units().size()
 
 	runt.take_damage(DamageInstance.new(runt.stat_block.max_health() + 100.0))
 
-	assert_eq(GameManager.get_all_units().size(), units_before, "a runt's death is final -- no further spawn")
+	# The original runt is still is_instance_valid() (GameManager.get_all_units()'s
+	# own filter) right up until its Node is actually freed -- die()/decay
+	# hasn't queue_free()'d it yet at this point in the same frame -- so
+	# it has to be excluded explicitly, not just filtered by stats, or it
+	# outnumbers the two genuinely new runts by one.
+	var runts := _units_with_stats(GOBLIN_SPLIT_STATS).filter(func(u: Unit) -> bool: return u != runt)
+	assert_eq(runts.size(), GOBLIN_SPLIT_STATS.split_count, "killing a runt should spawn split_count more runts")
+	assert_ne(runts[0].global_position, runts[1].global_position, "the two new runts shouldn't spawn stacked on the same point")
 
 
 ## Full chain, one continuous kill count: base goblin -> Enraged Goblin ->

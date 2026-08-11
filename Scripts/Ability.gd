@@ -22,6 +22,7 @@ extends Resource
 enum CastType { NO_TARGET, UNIT_TARGET, PASSIVE, ON_HIT, AURA }
 
 @export var ability_name: String = "Ability"
+@export var icon: Texture2D ## Shown on the ability hotbar and the buff row (via the Effect it applies -- see Effect.source). Null is fine, just renders with no icon.
 @export var cast_type: CastType = CastType.NO_TARGET
 @export var range: float = 0.0 ## UNIT_TARGET only -- max distance (beyond the caster's own collision edge) to a legal target.
 @export var cooldown: float = 0.0 ## Seconds. Ignored by PASSIVE/ON_HIT.

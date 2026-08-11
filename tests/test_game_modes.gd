@@ -118,8 +118,8 @@ func test_blood_tournament_draw_increments_round_but_not_wins() -> void:
 	assert_eq(mode.get_wins(GameManager.RED_TEAM_ID), 0)
 
 
-## Integration: goes through Main._on_tournament_toggled() (what HUD's
-## Blood Tournament button actually calls), not a hand-built
+## Integration: goes through Main._on_tournament_toggled() (the real
+## mode-activation path the main menu's lobby drives), not a hand-built
 ## BloodTournamentMode + GameManager.set_mode() pair, so this also
 ## proves the deferred auto-reset (_advance_to_next_round(), deferred to
 ## avoid a same-frame signal-ordering hazard with GameManager.battle_ended
@@ -165,11 +165,13 @@ func test_reset_battle_always_frees_every_unit_dead_or_alive() -> void:
 ## that DIES in round 1 must still stay on the roster for round 2 (no
 ## permadeath), and a unit that survived gets no special treatment over
 ## one that died -- both are just "on the roster," and neither literal
-## Unit node survives the round transition. Under the staggered/staging-
-## area deployment model (Main._begin_staggered_deployment()), the roster
-## only becomes live Units again once BATTLE actually starts for round 2
-## -- reopening PLACEMENT alone does not respawn anything, unlike the
-## earlier instant-respawn design this superseded.
+## Unit node survives the round transition (reset_battle() frees
+## everyone, courtyard units included). Under the lineup-courtyard model,
+## the roster becomes live courtyard units again immediately once
+## PLACEMENT reopens for round 2 -- BloodTournamentController.advance_to_next_round()
+## calls GameManager.sync_courtyard_to_roster() for every team right after
+## reset_battle(), so a fresh squad is already standing there, not waiting
+## for BATTLE to start again.
 func test_blood_tournament_round_transition_keeps_the_full_roster_no_permadeath() -> void:
 	_main._on_tournament_toggled(true)
 
@@ -178,7 +180,7 @@ func test_blood_tournament_round_transition_keeps_the_full_roster_no_permadeath(
 	blue.roster = [TANK_STATS]
 	red.roster = [FIGHTER_STATS]
 	GameManager.start_battle()
-	await wait_physics_frames(2) # let the staggered deployment queue spawn round 1's squads
+	await wait_physics_frames(2) # let the sync_courtyard_to_roster() safety net inside start_battle() spawn round 1's squads
 
 	var round_1_units := GameManager.get_all_units() # TANK_STATS/FIGHTER_STATS both deploy multi-unit squads (squad_size 3/5)
 	_kill_team(GameManager.RED_TEAM_ID)
@@ -189,8 +191,10 @@ func test_blood_tournament_round_transition_keeps_the_full_roster_no_permadeath(
 	assert_true(GameManager.is_placement_phase())
 	assert_eq(blue.roster, [TANK_STATS], "Blue's roster should persist into round 2 -- no permadeath")
 	assert_eq(red.roster, [FIGHTER_STATS], "Red's roster should persist despite dying last round -- no permadeath")
-	assert_true(GameManager.team_is_empty(GameManager.BLUE_TEAM_ID), "nothing spawns live again until the next battle actually starts -- see Main._begin_staggered_deployment()")
-	assert_true(GameManager.team_is_empty(GameManager.RED_TEAM_ID))
+	var blue_courtyard_units := GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == blue and u.stats == TANK_STATS)
+	var red_courtyard_units := GameManager.get_all_units().filter(func(u: Unit) -> bool: return u.player == red and u.stats == FIGHTER_STATS)
+	assert_eq(blue_courtyard_units.size(), TANK_STATS.squad_size, "a fresh squad should already be standing in Blue's courtyard for round 2, no purchase needed")
+	assert_eq(red_courtyard_units.size(), FIGHTER_STATS.squad_size, "Red's courtyard should be repopulated too, despite dying last round")
 
 
 ## A surviving unit sitting in PLACEMENT can be picked up and moved by a

@@ -102,6 +102,13 @@ func _play_next_match() -> void:
 	# anchors sit well beyond acquisition_range on their own, so spawning
 	# first would leave both sides just standing there forever.
 	GameManager.start_battle()
+	# start_battle() just realized a normal courtyard squad for every
+	# team's current roster (its own sync_courtyard_to_roster() safety
+	# net) -- clear it before this loop spawns its own separate combat
+	# squad below, or the same roster ends up deployed twice. See
+	# GameManager.clear_courtyard_units()'s own doc comment.
+	for team_id_to_clear in GameManager.all_team_ids():
+		GameManager.clear_courtyard_units(GameManager.get_player(team_id_to_clear))
 	for team_id in pair:
 		var player := GameManager.get_player(team_id)
 		var anchor := _TEAM_A_ANCHOR if team_id == pair[0] else _TEAM_B_ANCHOR
@@ -110,10 +117,9 @@ func _play_next_match() -> void:
 			for upgrade in player.roster_upgrades:
 				for unit in squad:
 					upgrade.ability.cast_unit_target(unit, unit)
-			# See BloodTournamentController.deploy_next_pending_slot()'s own
-			# comment -- a bracket matchup deploys the whole roster
-			# directly rather than through the normal staggered-deployment
-			# path, so a hero needs this same restoration here too.
+			# A bracket matchup deploys the whole roster directly rather
+			# than through the normal courtyard/march flow, so a hero
+			# needs this same restoration here too.
 			if stats.is_hero and player.hero_progress.has(stats):
 				var saved: Dictionary = player.hero_progress[stats]
 				for unit in squad:

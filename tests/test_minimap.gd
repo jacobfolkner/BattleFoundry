@@ -51,3 +51,51 @@ func test_half_extent_uses_the_plain_square_arena_bound_under_classic_mode() -> 
 func test_half_extent_uses_the_wider_cross_map_bound_under_blood_tournament() -> void:
 	GameManager.current_mode = BloodTournamentMode.new()
 	assert_eq(_minimap._current_half_extent(), GameManager.CROSS_ARM_OUTER_EXTENT)
+
+
+## The view-footprint overlay (drawn as an outline in _draw(), not
+## directly pixel-inspectable, same reasoning this file's own header
+## comment already gives for the dots) -- covered here at the level that
+## IS testable: the 4 ground-intersection points its shape is built from.
+func test_camera_view_corners_on_ground_returns_4_points_at_the_default_camera_pose() -> void:
+	var corners := _minimap._camera_view_corners_on_ground()
+
+	assert_eq(corners.size(), 4, "OrbitCamera's default pitch/distance should see ground on all 4 screen corners")
+
+
+## The camera's own focus point (what it's actually centered on) should
+## always land inside the quadrilateral its 4 corners describe -- a cheap,
+## robust sanity check that the ground-intersection math isn't wildly
+## wrong (e.g. corners on the wrong side of the camera), without needing
+## real pixel inspection.
+func test_camera_focus_point_falls_within_its_own_view_corners_bounding_box() -> void:
+	var camera: Camera3D = _main.get_node("Camera3D")
+	var corners := _minimap._camera_view_corners_on_ground()
+	assert_eq(corners.size(), 4)
+
+	var min_x := corners[0].x
+	var max_x := corners[0].x
+	var min_z := corners[0].z
+	var max_z := corners[0].z
+	for corner in corners:
+		min_x = minf(min_x, corner.x)
+		max_x = maxf(max_x, corner.x)
+		min_z = minf(min_z, corner.z)
+		max_z = maxf(max_z, corner.z)
+
+	assert_true(camera._focus_point.x >= min_x and camera._focus_point.x <= max_x)
+	assert_true(camera._focus_point.z >= min_z and camera._focus_point.z <= max_z)
+
+
+## Before this fix, a single missed corner ray (e.g. a top-of-screen ray
+## pointing above the horizon at OrbitCamera's shallowest pitch) made
+## _camera_view_corners_on_ground() return [] entirely and the overlay
+## vanish. Now a partial hit still produces something to draw a box from.
+func test_camera_view_corners_on_ground_still_returns_something_at_shallow_pitch() -> void:
+	var camera: Camera3D = _main.get_node("Camera3D")
+	camera._pitch = deg_to_rad(15.0) # OrbitCamera's own _MIN_PITCH
+	camera._update_transform()
+
+	var corners := _minimap._camera_view_corners_on_ground()
+
+	assert_false(corners.is_empty(), "a partial hit should still produce a usable box instead of vanishing")

@@ -23,21 +23,27 @@ var _back_button: Button
 
 
 func _ready() -> void:
+	# Explicit size from the viewport rect, not anchors alone -- same
+	# "scene root loaded from a .tscn never resolves a real size from
+	# set_anchors_preset(FULL_RECT) alone" issue MainMenu.gd hit and
+	# documents in its own _ready(); everything here was rendering
+	# jammed at the top-left corner for the same reason.
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	size = get_viewport_rect().size
 
 	var background := ColorRect.new()
 	background.color = Color(0.08, 0.09, 0.08)
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
+	background.size = size
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 
 	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.size = size
 	add_child(center)
 
 	var column := VBoxContainer.new()
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", 8)
+	column.add_theme_constant_override("separation", 12)
 	center.add_child(column)
 
 	var title := Label.new()
@@ -46,20 +52,39 @@ func _ready() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 
-	_add_spacer(column, 12)
+	# Same dark-card treatment as UI/HUD.gd's placement screen and
+	# Scripts/MainMenu.gd -- previously a bare column of labels with no
+	# visual grouping at all, one of the screens flagged as inconsistent
+	# with the rest of the game's UI.
+	var keybinds_card := _wrap_in_card(column, "")
+	# Fixed-height scroll instead of letting the row list grow the whole
+	# screen taller than the viewport -- already close to the 1080px
+	# ceiling with today's 21 actions before adding any card padding, and
+	# this stays correct if a future session adds more.
+	var scroll := ScrollContainer.new()
+	# Width matches one full row's natural size (220 name + 150 key + 100
+	# Rebind button + 2x16 separation = 502) plus room for the vertical
+	# scrollbar -- too narrow clips the Rebind column off entirely
+	# instead of wrapping/scrolling it into view.
+	scroll.custom_minimum_size = Vector2(540, 500)
+	keybinds_card.add_child(scroll)
+	var rows_column := VBoxContainer.new()
+	rows_column.add_theme_constant_override("separation", 8)
+	scroll.add_child(rows_column)
+
 	for action_name in Hotkeys.DEFAULT_BINDINGS:
-		_build_row(column, action_name)
-	_add_spacer(column, 8)
+		_build_row(rows_column, action_name)
 
 	_status_label = Label.new()
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status_label.add_theme_color_override("font_color", Color(1, 0.5, 0.4))
 	column.add_child(_status_label)
 
+	var actions_card := _wrap_in_card(column, "")
 	var button_row := HBoxContainer.new()
 	button_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	button_row.add_theme_constant_override("separation", 12)
-	column.add_child(button_row)
+	actions_card.add_child(button_row)
 
 	_reset_button = Button.new()
 	_reset_button.text = "Reset to Defaults"
@@ -76,10 +101,31 @@ func _ready() -> void:
 	button_row.add_child(_back_button)
 
 
-func _add_spacer(parent: Control, height: float) -> void:
-	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, height)
-	parent.add_child(spacer)
+## Same pattern as Scripts/MainMenu.gd's own _wrap_in_card() (itself
+## copied from UI/HUD.gd's) -- kept as a 3rd private copy rather than a
+## shared helper since none of these 3 classes share a common ancestor
+## worth introducing just for this, matching this codebase's existing
+## tolerance for a few duplicated lines over a premature abstraction.
+func _wrap_in_card(parent: Control, title: String) -> VBoxContainer:
+	var card := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.08, 0.1, 0.75)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(12)
+	card.add_theme_stylebox_override("panel", style)
+	parent.add_child(card)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	card.add_child(content)
+
+	if title != "":
+		var header := Label.new()
+		header.text = title
+		header.add_theme_font_size_override("font_size", 16)
+		content.add_child(header)
+
+	return content
 
 
 func _build_row(parent: Control, action_name: String) -> void:

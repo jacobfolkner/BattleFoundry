@@ -159,3 +159,39 @@ func test_ai_opponent_takes_a_new_turn_every_round() -> void:
 	assert_true(GameManager.is_placement_phase())
 	assert_false(blue.roster.is_empty(), "Blue's roster should still carry the Tank into round 2 -- no permadeath")
 	assert_false(red.roster.is_empty(), "the AI should have re-populated Red's roster for round 2")
+
+
+# ---------------------------------------------------------------------
+# Mid-match HUD toggle visibility
+# ---------------------------------------------------------------------
+
+## Blood Tournament now decides every slot's human/bot status entirely at
+## the main menu's per-slot lobby (see UI/MainMenu.gd) -- there's only
+## ever one human team the whole match, so the mid-match "AI Opponent"
+## toggle and the Blue/Red team-select buttons have nothing left to do
+## once it's active. Hidden as soon as round 1's PLACEMENT opens, not
+## only "once underway" -- see HUD.refresh_match_toggles_visibility().
+func test_blue_red_and_ai_toggle_hide_once_blood_tournament_activates() -> void:
+	assert_true(_main._hud._blue_team_button.visible, "sanity check: visible in classic mode")
+	assert_true(_main._hud._red_team_button.visible)
+	assert_true(_main._hud._ai_toggle.visible)
+
+	_main._on_tournament_toggled(true)
+
+	assert_false(_main._hud._blue_team_button.visible)
+	assert_false(_main._hud._red_team_button.visible)
+	assert_false(_main._hud._ai_toggle.visible)
+
+
+## Classic mode (and, by extension, Hero Footies -- neither uses_economy())
+## keeps all three, unchanged -- still useful for local hotseat-style
+## manual testing.
+func test_blue_red_and_ai_toggle_stay_visible_in_classic_mode() -> void:
+	_main._on_tournament_toggled(true)
+	assert_false(_main._hud._blue_team_button.visible, "sanity check: hidden once Blood Tournament is on")
+
+	_main._on_tournament_toggled(false)
+
+	assert_true(_main._hud._blue_team_button.visible)
+	assert_true(_main._hud._red_team_button.visible)
+	assert_true(_main._hud._ai_toggle.visible)

@@ -544,7 +544,7 @@ func _on_level_up() -> void:
 	_health_bar.set_fraction(1.0)
 
 
-## Triggers resolved_abilities[index] (Q/W/E in Main.gd's input wiring) --
+## Triggers resolved_abilities[index] (Q/E/R in Main.gd's input wiring) --
 ## a hero's own drafted pick if it has one for this slot (see
 ## Player.hero_ability_picks/_resolve_abilities()), otherwise identical
 ## to stats.abilities[index]. Returns false (and does nothing) if the
@@ -582,7 +582,7 @@ func cast_ability(index: int, target: Unit = null) -> bool:
 
 
 ## Auto-battle only (see GameMode.is_auto_battle()) -- Blood Tournament
-## units have no player pressing Q/W/E, so ability use has to happen on
+## units have no player pressing Q/E/R, so ability use has to happen on
 ## its own. Deliberately simple, matching this project's "prove the
 ## mechanic, not a smart AI" scope elsewhere: tries every equipped
 ## ability slot in order whenever this unit has an enemy actively
@@ -835,7 +835,15 @@ func _clamp_to_arena() -> void:
 ## diagonally outside both arms -- gets pulled onto whichever bar it's
 ## already closer to (the axis with the smaller magnitude is the one
 ## pulled in to half_width; the other is just capped at outer_extent).
+## One deliberate exception: the 8 lineup courtyards (CrossArenaMap._courtyard_center())
+## are themselves "dead corners" by this same definition -- without the
+## early-out below, a unit standing in one would get yanked back onto an
+## arm every single physics frame, starting the instant it's positioned
+## there.
 func _clamp_to_cross_arena() -> void:
+	if CrossArenaMap.is_in_any_courtyard(global_position):
+		return
+
 	var half_width := GameManager.CROSS_ARM_HALF_WIDTH
 	var outer := GameManager.CROSS_ARM_OUTER_EXTENT
 	var x := global_position.x

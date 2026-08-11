@@ -39,25 +39,30 @@ var blood_points: int = 0
 ## roster/roster_upgrades already have.
 var kills: int = 0
 ## Ordered list of purchased archetypes (UnitStats), one entry per
-## purchased "slot" -- what actually persists between Blood Tournament
-## rounds (see GameManager.reset_battle()). Blood Tournament has no
-## permadeath: a slot stays on the roster until the player explicitly
-## sells it (GameManager.sell_roster_slot()), regardless of whether that
-## round's copy died in battle. Nothing spawns live during PLACEMENT --
-## roster stays data-only until BATTLE starts, then deploys as a
-## staggered queue, most-recently-bought slot first (see
-## Main._begin_staggered_deployment()). Unused (stays empty) for a plain
-## single-battle match, same as `resources`.
+## purchased "slot" -- the durable source of truth for what this player
+## owns, persisting across every Blood Tournament round (see
+## GameManager.reset_battle()). No permadeath: a slot stays on the roster
+## until the player explicitly sells it (GameManager.sell_roster_slot()),
+## regardless of whether that round's copy died in battle. Unused (stays
+## empty) for a plain single-battle match, same as `resources`.
 var roster: Array[UnitStats] = []
+## Index-aligned with `roster` -- courtyard_units[i] is the live Array[Unit]
+## squad currently standing in this team's lineup courtyard for roster[i]
+## (see CrossArenaMap.get_courtyard_position()). Purely a derived,
+## ephemeral cache: GameManager.sync_courtyard_to_roster() is what keeps
+## it matching `roster`, and GameManager.reset_battle() clears it every
+## round (the Units themselves are freed there too) -- `roster` is always
+## the thing that actually persists, this is just its live-instance
+## reflection whenever any exist.
+var courtyard_units: Array = []
 ## Blood-point-cost upgrades bought during PLACEMENT (see
 ## GameManager.buy_roster_upgrade()) -- account-wide, not tied to one
-## roster slot: nothing is alive to target during PLACEMENT under the
-## staging-area model, so an upgrade is recorded here and applied to
-## every unit in every squad this player deploys from then on (see
-## Main._deploy_next_pending_slot()), not just whatever was purchased
-## most recently. Persists the same way `roster` does -- reset_battle()
-## never clears it, only an explicit sell would (no sell exists for this
-## yet, matching the "buy an upgrade" shop having no refund path either).
+## roster slot: applied to every unit in every squad
+## sync_courtyard_to_roster() spawns into the courtyard from then on, not
+## just whatever was purchased most recently. Persists the same way
+## `roster` does -- reset_battle() never clears it, only an explicit sell
+## would (no sell exists for this yet, matching the "buy an upgrade" shop
+## having no refund path either).
 var roster_upgrades: Array[UnitUpgrade] = []
 ## UnitStats (a hero archetype, e.g. HeroStats.tres) -> {"level": int,
 ## "xp": float} -- persists a hero's level/XP across Blood Tournament
@@ -132,3 +137,27 @@ func spend_blood_points(amount: int) -> void:
 
 func add_blood_points(amount: int) -> void:
 	blood_points += amount
+
+
+const EXCHANGE_GOLD_PER_CLICK := 50
+const EXCHANGE_BLOOD_PER_CLICK := 25
+
+## Unlike spend()/spend_blood_points(), these two are self-guarding
+## (false on failure) -- each click should give unambiguous
+## success/fail feedback rather than needing a separate affordability
+## check first. Symmetric 2:1 rate both directions, so round-tripping
+## nets zero.
+func exchange_gold_for_blood_points() -> bool:
+	if not can_afford(EXCHANGE_GOLD_PER_CLICK):
+		return false
+	spend(EXCHANGE_GOLD_PER_CLICK)
+	add_blood_points(EXCHANGE_BLOOD_PER_CLICK)
+	return true
+
+
+func exchange_blood_points_for_gold() -> bool:
+	if not can_afford_blood_points(EXCHANGE_BLOOD_PER_CLICK):
+		return false
+	spend_blood_points(EXCHANGE_BLOOD_PER_CLICK)
+	add_gold(EXCHANGE_GOLD_PER_CLICK)
+	return true

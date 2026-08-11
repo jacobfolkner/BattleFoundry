@@ -1,20 +1,26 @@
-## Owns Blood Tournament's round-to-round orchestration: staggered
-## deployment, random per-round spawn points, AI-turn-triggering,
-## scoreboard text, and the boss-round/bracket-tournament hand-offs
-## (GoblinBossRound/FinalTournamentBracket, both unchanged, still their
-## own sibling controllers).
+## Owns Blood Tournament's round-to-round orchestration: marching each
+## team's lineup-courtyard squads onto the arena at battle start, random
+## per-round spawn points, AI-turn-triggering, scoreboard text, and the
+## boss-round/bracket-tournament hand-offs (GoblinBossRound/FinalTournamentBracket,
+## both unchanged, still their own sibling controllers).
+##
+## A roster slot's live squad already exists, standing in that team's
+## lineup courtyard (GameManager.sync_courtyard_to_roster()), by the time
+## a battle starts -- see begin_march() below. This controller doesn't
+## spawn anything itself; it only repositions+reorders already-alive
+## units.
 ##
 ## Constructed once, unconditionally, in Main._ready() -- not lazily when
 ## Blood Tournament activates. This mirrors how Player.roster/
 ## Player.resources already exist and simply stay unused/inert for a
-## classic-mode match: this controller's own state (round_spawn_points,
-## the staggered-deployment queues) is exactly the same shape -- always
-## present, functionally a no-op whenever GameManager.current_mode
-## doesn't populate any Player.roster. Constructing it unconditionally
-## (rather than only when the tournament toggle is on) is also what lets
-## several tests poke round_spawn_points/mode directly without going
-## through the normal activation flow at all -- see their own comments
-## below for exactly which fields that applies to.
+## classic-mode match: this controller's own state (round_spawn_points)
+## is exactly the same shape -- always present, functionally a no-op
+## whenever GameManager.current_mode doesn't populate any Player.roster.
+## Constructing it unconditionally (rather than only when the tournament
+## toggle is on) is also what lets several tests poke round_spawn_points/
+## mode directly without going through the normal activation flow at all
+## -- see their own comments below for exactly which fields that applies
+## to.
 ##
 ## `mode` is null until Main._on_tournament_toggled(true) sets it (via
 ## Main._tournament_mode's forwarding property -- see Main.gd) -- several
@@ -27,11 +33,6 @@
 ## established for the identical need.
 class_name BloodTournamentController
 extends RefCounted
-
-## Seconds between one roster slot's squad marching out and the next --
-## not a balance number, just enough to actually read as a staggered
-## arrival rather than everyone appearing on the same frame.
-const _DEPLOY_INTERVAL := 1.0
 
 var _hud: Control
 var _ai := AIController.new()
@@ -47,13 +48,6 @@ var _boss_round: GoblinBossRound = null
 ## -- one instance for the whole bracket (unlike _boss_round, which is
 ## one per boss round), discarded once champion_decided fires.
 var _bracket: FinalTournamentBracket = null
-
-## Player.id -> Array[UnitStats], the still-to-deploy remainder of that
-## player's roster, reversed (see begin_staggered_deployment()) so it
-## pops right-to-left. Player.id -> float in _deploy_timers is seconds
-## remaining until that player's next entry deploys.
-var _pending_deployments: Dictionary = {}
-var _deploy_timers: Dictionary = {}
 
 ## Team_id -> this round's cross-map arm anchor -- confirmed design:
 ## spawn locations are randomized every round ("to give everyone a fair
@@ -75,10 +69,9 @@ func _init(hud: Control, refresh_gold_display: Callable) -> void:
 ## Shuffles the 8 cross-map arm anchors across GameManager.all_team_ids()
 ## -- always all 8, regardless of how many teams are actually active
 ## this match (BloodTournamentMode.active_team_ids); an inactive team's
-## assigned anchor is simply never read, since nothing ever deploys for
-## it (see deploy_next_pending_slot()/GoblinBossRound's own separate
-## anchors, unaffected -- this only applies to normal PvP round
-## deployment).
+## assigned anchor is simply never read, since nothing ever marches for
+## it (see begin_march()/GoblinBossRound's own separate anchors,
+## unaffected -- this only applies to normal PvP round deployment).
 func assign_random_spawn_points() -> void:
 	var arms := CrossArenaMap.SPAWN_POINTS.duplicate()
 	arms.shuffle()
@@ -100,7 +93,7 @@ func start_battle_pressed() -> void:
 		_boss_round.boss_round_finished.connect(_on_boss_round_finished)
 		_boss_round.start(mode)
 	else:
-		GameManager.start_battle()
+		GameManager.start_battle() # sync_courtyard_to_roster()'s safety net runs inside start_battle() itself -- see its own doc comment for why that's the one call site every path (button, test, AI) always goes through
 
 
 ## GoblinBossRound itself never touches round scoring (see its class doc
@@ -169,9 +162,11 @@ func on_round_ended(round_number: int, _winning_team_id: int, _is_draw: bool) ->
 
 
 func advance_to_next_round() -> void:
-	GameManager.reset_battle() # no permadeath -- every unit is freed; roster entries stay data-only until the next battle's staggered deployment
+	GameManager.reset_battle() # no permadeath -- every unit is freed, including anyone standing in a courtyard (reset_battle() clears Player.courtyard_units itself -- see its own doc comment)
 	_hud.reset_for_new_round()
 	assign_random_spawn_points()
+	for team_id in GameManager.all_team_ids():
+		GameManager.sync_courtyard_to_roster(GameManager.get_player(team_id)) # repopulate each team's courtyard from their persisted roster the instant PLACEMENT reopens, not only once they next buy something
 	run_ai_turn_if_needed()
 
 
@@ -202,82 +197,93 @@ func scoreboard_text() -> String:
 	return " : ".join(parts)
 
 
-## Literal separate staging area, not an instant respawn: Player.roster
-## entries are never spawned as live Units during PLACEMENT -- they only
-## become real Units once BATTLE actually starts, marching out from each
-## player's pen one slot at a time. "Rightmost deploys first, leftmost
-## deploys last" (per the reference genre) is expressed as *purchase
-## order, reversed*: buying appends to the end of Player.roster, so the
-## most recently bought slot -- the "rightmost" one in the line-up --
-## pops first here.
-func begin_staggered_deployment() -> void:
+## Connected to GameManager.battle_started -- marches every team's
+## lineup-courtyard squads onto the arena, all at once (not staggered:
+## nothing is being "produced" anymore, it's already-trained troops
+## marching out together). Repositions each already-alive Unit instance
+## (GameManager.sync_courtyard_to_roster() already spawned them, inside
+## GameManager.start_battle() itself, before this signal even fires) to
+## this round's assigned arm anchor and issues an ATTACK_MOVE toward
+## center -- mirrors exactly what GameManager.spawn_unit() already does
+## for a mid-battle auto-battle spawn, just applied to a pre-existing
+## Unit instead of a freshly created one. Deliberately march-only:
+## roster_upgrades/hero_progress were already applied at courtyard-spawn
+## time (see sync_courtyard_to_roster()) -- re-applying them here risks a
+## double-application depending on the specific upgrade's
+## Effect.stack_rule, so nothing in this method calls
+## Ability.cast_unit_target()/Unit.restore_hero_progress() at all.
+func begin_march() -> void:
+	# Reads GameManager.current_mode directly, NOT this controller's own
+	# `mode` field -- current_mode is the actual authority GameManager
+	# itself uses everywhere else, whereas `mode` is only kept in sync
+	# with it by Main._on_tournament_toggled()'s real activation flow. A
+	# caller that does GameManager.set_mode(BloodTournamentMode.new())
+	# directly (several tests, including GoblinBossRound/FinalTournamentBracket's
+	# own, do exactly this) leaves `mode` null/stale -- since this method
+	# runs synchronously as part of GameManager.start_battle() itself (via
+	# the battle_started signal, before a caller like FinalTournamentBracket
+	# gets control back to run its own GameManager.clear_courtyard_units()
+	# cleanup), a null `mode` here would silently march EVERY team's
+	# courtyard units, not just the ones actually meant to fight this
+	# turn/matchup.
+	var current_mode := GameManager.current_mode as BloodTournamentMode
 	# A goblin boss round's own controller (GoblinBossRound) deploys just
-	# the one team currently taking its turn directly -- the normal
-	# every-registered-team staggered flow below would double-deploy that
-	# same roster a second time (and also try to deploy every OTHER
-	# team's roster, which shouldn't appear during a solo PvE turn at
-	# all) if it ran too. Same reasoning for a bracket matchup
-	# (FinalTournamentBracket) -- it deploys exactly the two paired teams
-	# itself.
-	if mode != null and (mode.current_boss_team_id != -1 or mode.in_bracket_match):
+	# the one team currently taking its turn directly, and a bracket
+	# matchup (FinalTournamentBracket) deploys exactly its two paired
+	# teams itself -- both bypass the courtyard/roster model entirely
+	# (see their own class doc comments), so nothing here should run
+	# during either.
+	if current_mode != null and (current_mode.current_boss_team_id != -1 or current_mode.in_bracket_match):
 		return
 
-	_pending_deployments.clear()
-	_deploy_timers.clear()
 	for team_id in GameManager.all_team_ids():
 		var player := GameManager.get_player(team_id)
-		if player.roster.is_empty():
+		if player.courtyard_units.is_empty():
 			continue
-		var queue := player.roster.duplicate()
-		queue.reverse()
-		_pending_deployments[player.id] = queue
-		_deploy_timers[player.id] = 0.0 # the first slot marches out immediately, not after a full interval's wait
+		var anchor: Vector3 = round_spawn_points.get(team_id, CrossArenaMap.SPAWN_POINTS[team_id])
+		var rival_anchor: Variant = _arm_rival_anchor(team_id, anchor)
+		for squad in player.courtyard_units:
+			if squad.is_empty():
+				continue
+			# Same spread formula GameManager.spawn_squad() uses, applied
+			# around the arm anchor instead of the courtyard anchor --
+			# reused rather than a plain stack-everyone-at-one-point
+			# teleport, so a marching squad doesn't need move_and_slide()
+			# to shove itself apart from scratch.
+			var stats: UnitStats = squad[0].stats
+			var spacing := stats.collision_radius * 2.5 + 0.3
+			for i in squad.size():
+				var offset := Vector3((i - (squad.size() - 1) * 0.5) * spacing, 0, 0)
+				squad[i].global_position = anchor + offset
+				# Engage the same-arm rival first (matches the roadmap's
+				# documented design: same-arm opponents fight at the arm
+				# ends before survivors converge) -- walking to that spot
+				# and finding nothing there (rival already eliminated, or
+				# the defensive null case below) is harmless, the queued
+				# center-push order still runs right after either way.
+				if rival_anchor != null:
+					squad[i].order_attack_move(rival_anchor)
+				squad[i].order_attack_move(Vector3.ZERO, true) # queued -- runs once the arm fight resolves
+		player.courtyard_units.clear()
 
 
-## Called from Main._physics_process() every physics frame, unconditionally
-## -- matches every other piece of game-logic timing in this codebase
-## (HUD's own _process() is the one exception, but that's a pure UI
-## refresh, not gameplay timing) and guarantees this actually advances
-## during GUT's wait_physics_frames(), which is specifically tied to
-## physics frames. Only does anything while there's an active staggered
-## deployment queue for at least one player -- a no-op every other
-## physics frame of the game's life, including all of PLACEMENT and any
-## battle with an empty roster (classic mode, always).
-func tick(delta: float) -> void:
-	if _pending_deployments.is_empty():
-		return
-	for player_id in _pending_deployments.keys().duplicate(): # duplicated: deploy_next_pending_slot() below may erase from the dict mid-iteration
-		_deploy_timers[player_id] -= delta
-		if _deploy_timers[player_id] <= 0.0:
-			deploy_next_pending_slot(player_id)
-
-
-## Applies every account-wide upgrade the player bought during PLACEMENT
-## (see GameManager.buy_roster_upgrade()) to every unit in the squad that
-## just deployed -- upgrades were recorded rather than applied at
-## purchase time specifically because nothing was alive yet to apply them
-## to, so this is where that deferred application actually happens. Also
-## restores a hero's level/XP from a previous round, if this archetype
-## has any recorded (see Player.hero_progress/Unit.restore_hero_progress()) --
-## "heroes spawn alongside units," not via a separate mid-battle respawn
-## timer, so this is the one place a fresh hero Unit and its carried-over
-## progress actually meet.
-func deploy_next_pending_slot(player_id: int) -> void:
-	var queue: Array = _pending_deployments[player_id]
-	var stats: UnitStats = queue.pop_front()
-	var player := GameManager.get_player(player_id)
-	var anchor: Vector3 = round_spawn_points.get(player.team_id, CrossArenaMap.SPAWN_POINTS[player.team_id])
-	var squad := GameManager.spawn_squad(stats, player, anchor)
-	for upgrade in player.roster_upgrades:
-		for unit in squad:
-			upgrade.ability.cast_unit_target(unit, unit)
-	if stats.is_hero and player.hero_progress.has(stats):
-		var saved: Dictionary = player.hero_progress[stats]
-		for unit in squad:
-			unit.restore_hero_progress(saved.level, saved.xp)
-
-	if queue.is_empty():
-		_pending_deployments.erase(player_id)
-		_deploy_timers.erase(player_id)
-	else:
-		_deploy_timers[player_id] = _DEPLOY_INTERVAL
+## The arm-end position team_id's same-arm rival is marching from this
+## round (round_spawn_points reassigns SPAWN_POINTS' 8 positions across
+## team_ids each round -- see CrossArenaMap.arm_partner_index()'s own
+## doc comment). All 8 team_ids always hold some position (active or
+## not, per assign_random_spawn_points()'s own doc comment) so this is
+## effectively never null in practice -- the null return is defensive
+## only, for an `anchor` that somehow isn't a recognized SPAWN_POINTS
+## value at all.
+func _arm_rival_anchor(team_id: int, anchor: Vector3) -> Variant:
+	var my_index := CrossArenaMap.SPAWN_POINTS.find(anchor)
+	if my_index == -1:
+		return null
+	var partner_position := CrossArenaMap.SPAWN_POINTS[CrossArenaMap.arm_partner_index(my_index)]
+	for other_id in GameManager.all_team_ids():
+		if other_id == team_id:
+			continue
+		var other_anchor: Vector3 = round_spawn_points.get(other_id, CrossArenaMap.SPAWN_POINTS[other_id])
+		if other_anchor == partner_position:
+			return partner_position
+	return null

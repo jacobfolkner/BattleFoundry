@@ -1,5 +1,7 @@
 ## Top-down dot map, bottom-right corner: one colored dot per living unit
-## (Player.color), redrawn every frame. A hand-drawn Control._draw(),
+## (Player.color), redrawn every frame, plus a gray outline showing the
+## current OrbitCamera's own view footprint on the ground (see
+## _camera_view_corners_on_ground()). A hand-drawn Control._draw(),
 ## not a SubViewport-rendered camera -- this project's whole visual style
 ## is still primitive meshes/flat colors (see BattleFoundry-Roadmap.md's
 ## Phase 9), so a second real 3D render target would be pure cost for no
@@ -17,6 +19,14 @@ extends Control
 const _SIZE := 160.0
 const _MARGIN := 16.0
 const _DOT_RADIUS := 3.0
+const _VIEW_BOX_COLOR := Color(0.9, 0.9, 0.9, 0.7)
+const _VIEW_BOX_WIDTH := 1.5
+const _GROUND_PLANE := Plane(Vector3.UP, 0.0)
+## Lighter than _background -- reads as "walkable ground" against the
+## dark surrounding void, same reason _draw_arena_shape() exists at all
+## (a blank square with only dots on it gives no sense of where you are
+## relative to the actual playable area).
+const _ARENA_SHAPE_COLOR := Color(0.22, 0.24, 0.2, 1.0)
 
 var _background: ColorRect
 
@@ -64,8 +74,91 @@ func _world_to_map(world_position: Vector3, half_extent: float) -> Vector2:
 	return Vector2((normalized_x * 0.5 + 0.5) * _SIZE, (normalized_z * 0.5 + 0.5) * _SIZE)
 
 
+## The 4 viewport-corner rays, intersected against the ground plane (y=0).
+## The actual visible-on-the-ground area for an OrbitCamera looking down
+## at an angle is a trapezoid (the far edge of the view covers more
+## ground per pixel than the near edge), but the overlay this feeds
+## (_draw()) deliberately draws an upright rectangle instead of that raw
+## shape -- simple full-coverage from a birds-eye read, not perspective
+## accuracy. Skips (rather than aborts on) any corner ray that doesn't
+## hit the ground plane at all -- can happen at OrbitCamera's shallowest
+## pitch, where a ray toward the top of the screen points above the
+## horizon -- so a partial hit still produces a usable, if smaller, box
+## instead of the overlay vanishing entirely. Empty only if literally
+## none of the 4 hit.
+func _camera_view_corners_on_ground() -> Array[Vector3]:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return []
+	var viewport_size := get_viewport().get_visible_rect().size
+	var screen_corners := [Vector2.ZERO, Vector2(viewport_size.x, 0), viewport_size, Vector2(0, viewport_size.y)]
+	var world_corners: Array[Vector3] = []
+	for screen_corner in screen_corners:
+		var from := camera.project_ray_origin(screen_corner)
+		var direction := camera.project_ray_normal(screen_corner)
+		var hit = _GROUND_PLANE.intersects_ray(from, direction)
+		if hit != null:
+			world_corners.append(hit)
+	return world_corners
+
+
+## Fills in the actual arena footprint (a plain square for classic mode,
+## the cross's center-plus-4-arms shape for Blood Tournament) so the
+## minimap reads as "a map" rather than an undifferentiated dark square
+## with dots on it -- drawn first, everything else layers on top.
+func _draw_arena_shape() -> void:
+	if GameManager.current_mode.uses_cross_map():
+		_draw_cross_arena_shape()
+	else:
+		draw_rect(Rect2(Vector2.ZERO, Vector2(_SIZE, _SIZE)), _ARENA_SHAPE_COLOR)
+
+
+## 5 filled rects (center square + 4 arms), the same footprint
+## CrossArenaMap.build() lays out as 5 nav-mesh quads -- mapped through
+## _world_to_map() and Rect2(...).expand(...) the same way the view-box
+## overlay already does, robust regardless of which world axis maps to
+## which minimap-local sign.
+func _draw_cross_arena_shape() -> void:
+	var half_extent := _current_half_extent()
+	var w := GameManager.CROSS_ARM_HALF_WIDTH
+	var o := GameManager.CROSS_ARM_OUTER_EXTENT
+	var pieces: Array = [
+		[Vector3(-w, 0, -w), Vector3(w, 0, w)],  # center
+		[Vector3(-w, 0, -o), Vector3(w, 0, -w)], # north arm
+		[Vector3(-w, 0, w), Vector3(w, 0, o)],   # south arm
+		[Vector3(w, 0, -w), Vector3(o, 0, w)],   # east arm
+		[Vector3(-o, 0, -w), Vector3(-w, 0, w)], # west arm
+	]
+	for piece in pieces:
+		var mapped_min := _world_to_map(piece[0], half_extent)
+		var mapped_max := _world_to_map(piece[1], half_extent)
+		draw_rect(Rect2(mapped_min, Vector2.ZERO).expand(mapped_max), _ARENA_SHAPE_COLOR)
+
+
 func _draw() -> void:
 	var half_extent := _current_half_extent()
+
+	_draw_arena_shape()
+
+	var view_corners := _camera_view_corners_on_ground()
+	if not view_corners.is_empty():
+		var min_x := view_corners[0].x
+		var max_x := view_corners[0].x
+		var min_z := view_corners[0].z
+		var max_z := view_corners[0].z
+		for corner in view_corners:
+			min_x = minf(min_x, corner.x)
+			max_x = maxf(max_x, corner.x)
+			min_z = minf(min_z, corner.z)
+			max_z = maxf(max_z, corner.z)
+		# Rect2(...).expand(...), not a raw min/max pairing -- robust
+		# regardless of which world axis maps to which minimap-local
+		# sign (same idiom HUD.gd's own drag box uses).
+		var mapped_min := _world_to_map(Vector3(min_x, 0, min_z), half_extent)
+		var mapped_max := _world_to_map(Vector3(max_x, 0, max_z), half_extent)
+		var rect := Rect2(mapped_min, Vector2.ZERO).expand(mapped_max)
+		draw_rect(rect, _VIEW_BOX_COLOR, false, _VIEW_BOX_WIDTH)
+
 	for unit in GameManager.get_all_units():
 		if unit.life_state != Unit.LifeState.ALIVE:
 			continue

@@ -38,11 +38,16 @@ const _DEFAULT_UNIT_STATS: UnitStats = preload("res://Resources/Units/TankStats.
 const _UPGRADES: Array[UnitUpgrade] = [
 	preload("res://Resources/Upgrades/IronArmorUpgrade.tres"),
 	preload("res://Resources/Upgrades/WhetstoneUpgrade.tres"),
+	preload("res://Resources/Upgrades/HeroicVigorUpgrade.tres"),
+	preload("res://Resources/Upgrades/HeroicMightUpgrade.tres"),
 ]
+
+const _UPGRADE_ACTIONS: Array[String] = ["buy_upgrade_0", "buy_upgrade_1", "buy_upgrade_2", "buy_upgrade_3"]
 
 var _camera: Camera3D
 var _hud: Control
 var _refresh_gold_display: Callable
+var _ghost: PlacementGhost
 
 var selected_stats: UnitStats
 ## Set here in _init(), not a field initializer -- a field initializer
@@ -61,11 +66,21 @@ var _is_left_dragging: bool = false
 ## Non-null only while PLACEMENT's left-mouse-down landed on a unit
 ## selected_player already owns -- lets it be repositioned instead of
 ## only ever placing a brand-new unit on click. See
-## try_start_unit_drag()/drag_unit_to(). Only ever finds anything under
-## classic mode now: Blood Tournament's roster (Player.roster) isn't
-## spawned as live Units during PLACEMENT anymore, so there's nothing on
-## the field to drag until BATTLE actually starts.
+## try_start_unit_drag()/drag_unit_to(). Under classic mode this just
+## repositions a placed unit freely. Under Blood Tournament
+## (uses_economy()), courtyard squads ARE live Units during PLACEMENT
+## (see GameManager.buy_roster_slot_at()) -- dragging one there reorders
+## Player.roster to match where it's dropped (see
+## _resolve_courtyard_drag()/GameManager.reorder_roster_by_courtyard_depth()),
+## gated to only the Builder-owner's own courtyard.
 var dragging_unit: Unit = null
+
+## Set alongside dragging_unit only when the drag is a Blood Tournament
+## courtyard squad (-1 otherwise, including all of classic mode) -- the
+## squad's roster/courtyard_units index and its centroid before the drag
+## started (used to revert an invalid drop). See try_start_unit_drag().
+var _drag_source_squad_index: int = -1
+var _drag_source_center: Vector3 = Vector3.ZERO
 
 ## -1 means no ability is awaiting a target. Set only for a UNIT_TARGET
 ## ability slot (see try_cast_or_target()) -- the next left-click resolves
@@ -83,11 +98,21 @@ var pending_ability_target: int = -1
 ## doesn't build.
 var pending_patrol: bool = false
 
+## Non-null only while the Blood Tournament build menu's "click a unit
+## type, then click where to place it" flow is awaiting a placement
+## click -- see begin_build_placement()/resolve_build_placement()/
+## cancel_build_placement(). Same two-step shape pending_ability_target/
+## pending_patrol already establish, just confirmed by any left-click
+## rather than only a unit/ground-specific one, and only ever armed
+## during PLACEMENT (build-menu buttons only exist there).
+var _pending_build_stats: UnitStats = null
 
-func _init(camera: Camera3D, hud: Control, refresh_gold_display: Callable) -> void:
+
+func _init(camera: Camera3D, hud: Control, refresh_gold_display: Callable, ghost: PlacementGhost) -> void:
 	_camera = camera
 	_hud = hud
 	_refresh_gold_display = refresh_gold_display
+	_ghost = ghost
 	selected_player = GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	selected_stats = _DEFAULT_UNIT_STATS
 
@@ -114,6 +139,8 @@ func handle_mouse_button(event: InputEventMouseButton) -> void:
 			cancel_pending_ability_target()
 		elif pending_patrol:
 			cancel_pending_patrol()
+		elif _pending_build_stats != null:
+			cancel_build_placement()
 		elif GameManager.battle_state == GameManager.BattleState.PLACEMENT:
 			try_sell_unit_at(event.position)
 		else:
@@ -121,6 +148,9 @@ func handle_mouse_button(event: InputEventMouseButton) -> void:
 
 
 func handle_mouse_motion(event: InputEventMouseMotion) -> void:
+	if _pending_build_stats != null:
+		_update_ghost_at(event.position)
+		return
 	if not (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
 		return
 	if dragging_unit != null:
@@ -143,8 +173,15 @@ func on_left_release(event: InputEventMouseButton) -> void:
 		resolve_pending_patrol(event.position)
 		return
 
+	if _pending_build_stats != null:
+		resolve_build_placement(event.position)
+		return
+
 	if dragging_unit != null:
+		if GameManager.current_mode.uses_economy() and _drag_source_squad_index != -1:
+			_resolve_courtyard_drag(event.position)
 		dragging_unit = null
+		_drag_source_squad_index = -1
 		return
 
 	if _is_left_dragging:
@@ -156,6 +193,15 @@ func on_left_release(event: InputEventMouseButton) -> void:
 	_is_left_dragging = false
 
 	if DebugInspector.try_select_at(_camera, event.position):
+		var unit := DebugInspector.selected_unit
+		# WC3-style "click the building, a build menu appears" -- only for
+		# your own Builder (same ownership check try_sell_unit_at() already
+		# uses for its is_builder guard); clicking an opponent's Builder is
+		# inspection-only, same as clicking any other enemy unit.
+		if unit.stats.is_builder and unit.player == selected_player and GameManager.battle_state == GameManager.BattleState.PLACEMENT:
+			_hud.show_build_menu()
+			return
+		_hud.hide_build_menu() # clicking any other unit closes the build menu, same as clicking away
 		# Debug-inspecting a unit and being able to command it shouldn't
 		# need two separate clicks -- select_single() is a no-op if the
 		# hit unit isn't SelectionManager.local_player's, so this is
@@ -164,6 +210,7 @@ func on_left_release(event: InputEventMouseButton) -> void:
 			SelectionManager.select_single(DebugInspector.selected_unit, Input.is_key_pressed(KEY_SHIFT))
 		return
 
+	_hud.hide_build_menu() # clicking empty ground or dragging also closes it
 	if GameManager.battle_state == GameManager.BattleState.PLACEMENT:
 		try_place_unit(event.position)
 	elif GameManager.battle_state == GameManager.BattleState.BATTLE:
@@ -203,15 +250,15 @@ func on_right_click(event: InputEventMouseButton) -> void:
 		SelectionManager.order_attack_move(hit_position, queue)
 
 
-## S = Stop, H = Hold Position, P = Patrol (enters click-to-target mode
+## X = Stop, H = Hold Position, P = Patrol (enters click-to-target mode
 ## for a destination, same shape as a UNIT_TARGET ability -- see
-## begin_patrol_targeting()), Q/W/E = cast ability slot 0/1/2 (see
+## begin_patrol_targeting()), Q/E/R = cast ability slot 0/1/2 (see
 ## UnitStats.abilities -- a NO_TARGET/PASSIVE/AURA slot casts immediately
 ## same as always; a UNIT_TARGET slot enters click-to-target mode instead
 ## of auto-targeting, see try_cast_or_target()), Escape cancels a pending
 ## target/patrol, plain 1-9 = recall a control group, Ctrl+1-9 = assign
-## the current selection to one. S/H/P specifically become no-ops during
-## auto-battle (GameMode.is_auto_battle()) -- Q/W/E stay reachable since
+## the current selection to one. X/H/P specifically become no-ops during
+## auto-battle (GameMode.is_auto_battle()) -- Q/E/R stay reachable since
 ## try_cast_or_target() has its own auto-battle guard, and 1-9 group
 ## recall is selection/inspection, not commanding, so it's never gated at
 ## all.
@@ -222,6 +269,12 @@ func handle_key(event: InputEventKey) -> void:
 			return
 		if pending_patrol:
 			cancel_pending_patrol()
+			return
+		if _pending_build_stats != null:
+			cancel_build_placement()
+			return
+		if _hud.is_build_menu_open():
+			_hud.hide_build_menu()
 			return
 	if GameManager.battle_state == GameManager.BattleState.PLACEMENT:
 		handle_placement_key(event)
@@ -259,7 +312,7 @@ func handle_key(event: InputEventKey) -> void:
 ## SelectionManager.cast_ability() has (it just casts whatever each unit
 ## happens to have there), not something this feature needs to solve
 ## first. Also the target for HUD's clickable hotbar buttons (see
-## ability_slot_pressed), not just the Q/W/E hotkeys. A no-op entirely
+## ability_slot_pressed), not just the Q/E/R hotkeys. A no-op entirely
 ## during auto-battle, mid-BATTLE -- see GameMode.is_auto_battle().
 func try_cast_or_target(index: int) -> void:
 	if GameManager.is_battle_active() and GameManager.current_mode.is_auto_battle():
@@ -334,13 +387,11 @@ func cancel_pending_patrol() -> void:
 ## replaced, there's no legal target to check ownership of at purchase
 ## time at all.
 func handle_placement_key(event: InputEventKey) -> void:
-	var is_slot_0 := event.is_action_pressed("buy_upgrade_0")
-	var is_slot_1 := event.is_action_pressed("buy_upgrade_1")
-	if not is_slot_0 and not is_slot_1:
-		return
-	var index := 0 if is_slot_0 else 1
-	if index < _UPGRADES.size() and GameManager.buy_roster_upgrade(selected_player, _UPGRADES[index]):
-		_refresh_gold_display.call()
+	for index in _UPGRADE_ACTIONS.size():
+		if event.is_action_pressed(_UPGRADE_ACTIONS[index]):
+			if index < _UPGRADES.size() and GameManager.buy_roster_upgrade(selected_player, _UPGRADES[index]):
+				_refresh_gold_display.call()
+			return
 
 
 ## PLACEMENT-only pickup for a unit selected_player already owns (see
@@ -352,12 +403,25 @@ func handle_placement_key(event: InputEventKey) -> void:
 ## one that's already there.
 func try_start_unit_drag(screen_position: Vector2) -> void:
 	dragging_unit = null
+	_drag_source_squad_index = -1
 	if GameManager.battle_state != GameManager.BattleState.PLACEMENT:
 		return
 	if not DebugInspector.try_select_at(_camera, screen_position):
 		return
-	if DebugInspector.selected_unit.player == selected_player:
-		dragging_unit = DebugInspector.selected_unit
+	var unit := DebugInspector.selected_unit
+	if unit.player != selected_player:
+		return
+
+	if GameManager.current_mode.uses_economy():
+		if unit.stats.is_builder:
+			return
+		var index := _find_courtyard_slot_index(unit)
+		if index == -1:
+			return
+		_drag_source_squad_index = index
+		_drag_source_center = _squad_centroid(selected_player.courtyard_units[index])
+
+	dragging_unit = unit
 
 
 ## Teleports dragging_unit under the cursor every frame the drag continues.
@@ -392,22 +456,82 @@ func try_place_unit(screen_position: Vector2) -> void:
 	GameManager.spawn_unit(selected_stats, selected_player, hit_position)
 
 
-## PLACEMENT-only: right-click on a unit selected_player owns sells it
-## (see GameManager.sell_unit()) instead of the BATTLE right-click's
-## attack/follow/attack-move routing, which only makes sense once a battle
-## is actually running. Also removes the matching entry from the
-## player's roster (Array.erase() removes the first match, a harmless
-## no-op if it isn't there -- e.g. outside Blood Tournament, where
-## nothing ever gets appended to begin with) -- otherwise a sold unit
-## would just respawn again next round regardless of being sold.
+## PLACEMENT-only: right-click on a unit selected_player owns sells it,
+## instead of the BATTLE right-click's attack/follow/attack-move routing,
+## which only makes sense once a battle is actually running.
+##
+## Under Blood Tournament (uses_economy()), the clicked unit is one member
+## of a live courtyard squad standing in for one roster slot -- selling
+## has to free the WHOLE squad and remove that one roster entry (see
+## GameManager.sell_roster_slot()), not just the single unit actually
+## clicked, or the rest of the squad would be orphaned (still alive,
+## still registered, but belonging to no roster slot at all). The Builder
+## fixture is never sellable -- it's a permanent per-team fixture, not a
+## roster slot. Classic mode (no courtyard, nothing ever spawns before
+## BATTLE) keeps its original single-unit GameManager.sell_unit() path,
+## unchanged, plus its own matching roster.erase() (a harmless no-op
+## there since nothing is ever appended to roster outside Blood Tournament).
 func try_sell_unit_at(screen_position: Vector2) -> void:
 	if not DebugInspector.try_select_at(_camera, screen_position):
 		return
 	var unit := DebugInspector.selected_unit
-	if unit.player == selected_player:
+	if unit.player != selected_player:
+		return
+	if unit.stats.is_builder:
+		return
+
+	if GameManager.current_mode.uses_economy():
+		var index := _find_courtyard_slot_index(unit)
+		if index != -1:
+			GameManager.sell_roster_slot(selected_player, index)
+			_refresh_gold_display.call()
+	else:
 		unit.player.roster.erase(unit.stats)
 		GameManager.sell_unit(unit)
 		_refresh_gold_display.call()
+
+
+## Which of selected_player.courtyard_units[i] a clicked courtyard unit
+## belongs to -- -1 if it isn't in any of them (shouldn't happen for a
+## unit that passed the ownership check above, under Blood Tournament).
+func _find_courtyard_slot_index(unit: Unit) -> int:
+	for i in selected_player.courtyard_units.size():
+		if selected_player.courtyard_units[i].has(unit):
+			return i
+	return -1
+
+
+## Average position of a squad's currently-live members -- used as the
+## drag's revert-to center rather than the specific member that happened
+## to get clicked, since a non-center member's own position isn't the
+## squad's formation center (see GameManager._squad_formation_offset()).
+func _squad_centroid(squad: Array) -> Vector3:
+	var total := Vector3.ZERO
+	var count := 0
+	for unit in squad:
+		if is_instance_valid(unit):
+			total += unit.global_position
+			count += 1
+	return total / count
+
+
+## Resolves a Blood Tournament courtyard drag on release: repositions the
+## whole squad (GameManager.reposition_courtyard_squad()) to reform
+## around the drop point if it's inside selected_player's own courtyard,
+## then reorders Player.roster to match the new front-to-back
+## arrangement -- otherwise reverts the squad to _drag_source_center
+## (its pre-drag position) with no reorder, same "can't place somewhere
+## invalid, stay put" convention _update_ghost_at()'s courtyard check
+## established for build placement.
+func _resolve_courtyard_drag(screen_position: Vector2) -> void:
+	var ray_origin := _camera.project_ray_origin(screen_position)
+	var ray_direction := _camera.project_ray_normal(screen_position)
+	var hit_position = GROUND_PLANE.intersects_ray(ray_origin, ray_direction)
+	if hit_position == null or not CrossArenaMap.is_in_teams_courtyard(selected_player.team_id, hit_position):
+		GameManager.reposition_courtyard_squad(selected_player, _drag_source_squad_index, _drag_source_center)
+		return
+	GameManager.reposition_courtyard_squad(selected_player, _drag_source_squad_index, hit_position)
+	GameManager.reorder_roster_by_courtyard_depth(selected_player)
 
 
 ## Under Blood Tournament, clicking a unit-type button doesn't just pick
@@ -419,15 +543,59 @@ func try_sell_unit_at(screen_position: Vector2) -> void:
 func on_unit_type_selected(stats: UnitStats) -> void:
 	selected_stats = stats
 	if GameManager.current_mode.uses_economy():
-		try_buy_for_roster(stats)
+		begin_build_placement(stats)
 
 
-func try_buy_for_roster(stats: UnitStats) -> void:
-	if not selected_player.can_afford(stats.cost):
+## Arms the ghost-preview click-to-place flow instead of buying
+## immediately -- see _pending_build_stats' own doc comment. The actual
+## purchase only happens once resolve_build_placement() confirms a
+## legal spot; affordability is re-checked there too (via
+## GameManager.buy_roster_slot_at()), this is just what makes the ghost
+## appear. Only reachable while _hud's build menu is open (its buttons
+## are the only thing that calls this), i.e. only during PLACEMENT.
+func begin_build_placement(stats: UnitStats) -> void:
+	_pending_build_stats = stats
+	_ghost.show_for(stats, selected_player.color)
+
+
+## Raycasts the ground plane under the cursor and moves the ghost there,
+## tinting it invalid (red) once outside selected_player's own courtyard
+## -- confirming there would be a no-op, not a cancel, so the tint is the
+## only feedback the player gets that a given spot won't work.
+func _update_ghost_at(screen_position: Vector2) -> void:
+	var ray_origin := _camera.project_ray_origin(screen_position)
+	var ray_direction := _camera.project_ray_normal(screen_position)
+	var hit_position = GROUND_PLANE.intersects_ray(ray_origin, ray_direction)
+	if hit_position == null:
 		return
-	selected_player.spend(stats.cost)
-	selected_player.roster.append(stats)
+	_ghost.move_to(hit_position)
+	var valid := CrossArenaMap.is_in_teams_courtyard(selected_player.team_id, hit_position)
+	_ghost.set_valid(valid, selected_player.color)
+
+
+## Confirms the ghost-armed purchase at the clicked ground position, only
+## if it's inside selected_player's own courtyard -- an out-of-bounds
+## click is a silent no-op (stays armed) rather than a cancel, matching
+## "can't place somewhere invalid" RTS convention. Disarms on a
+## successful buy; a second squad means clicking the build-menu button
+## again (no shift-queue in this pass).
+func resolve_build_placement(screen_position: Vector2) -> void:
+	var ray_origin := _camera.project_ray_origin(screen_position)
+	var ray_direction := _camera.project_ray_normal(screen_position)
+	var hit_position = GROUND_PLANE.intersects_ray(ray_origin, ray_direction)
+	if hit_position == null:
+		return
+	if not CrossArenaMap.is_in_teams_courtyard(selected_player.team_id, hit_position):
+		return
+	if not GameManager.buy_roster_slot_at(selected_player, _pending_build_stats, hit_position):
+		return
 	_refresh_gold_display.call()
+	cancel_build_placement()
+
+
+func cancel_build_placement() -> void:
+	_pending_build_stats = null
+	_ghost.hide_ghost()
 
 
 ## Doubles as "which side am I playing as" for this single-machine

@@ -20,22 +20,34 @@ extends Node
 
 ## action_name -> the InputEventKey default this project ships with.
 ## Matches PlayerInputController.gd's/OrbitCamera.gd's existing key
-## layout exactly -- see each one's own doc comment for why a specific
-## key was picked (e.g. arrow keys over WASD for camera pan, to avoid
-## colliding with W = ability slot 1).
+## layout exactly -- see each one's own doc comment for details. Ability
+## slots are Q/E/R and Stop is X (not the W/S a WASD scheme would
+## suggest) specifically so camera_pan_*_alt below can claim W/A/S/D
+## with zero same-key collision against a real in-battle action.
 const DEFAULT_BINDINGS := {
-	"order_stop": KEY_S,
+	"order_stop": KEY_X,
 	"order_hold": KEY_H,
 	"order_patrol": KEY_P,
 	"ability_slot_0": KEY_Q,
-	"ability_slot_1": KEY_W,
-	"ability_slot_2": KEY_E,
+	"ability_slot_1": KEY_E,
+	"ability_slot_2": KEY_R,
 	"buy_upgrade_0": KEY_U,
 	"buy_upgrade_1": KEY_I,
+	"buy_upgrade_2": KEY_O,
+	"buy_upgrade_3": KEY_L,
 	"camera_pan_up": KEY_UP,
 	"camera_pan_down": KEY_DOWN,
 	"camera_pan_left": KEY_LEFT,
 	"camera_pan_right": KEY_RIGHT,
+	## WASD alternates for the 4 arrow-key pan actions above -- separate,
+	## independently-rebindable actions (not a 2nd event merged onto the
+	## arrow actions) so the settings menu's one-key-per-row remap UI
+	## needs no changes; OrbitCamera._key_pan_direction() checks both
+	## per direction.
+	"camera_pan_up_alt": KEY_W,
+	"camera_pan_down_alt": KEY_S,
+	"camera_pan_left_alt": KEY_A,
+	"camera_pan_right_alt": KEY_D,
 	"jump_to_hero": KEY_SPACE,
 }
 
@@ -51,10 +63,16 @@ const ACTION_DISPLAY_NAMES := {
 	"ability_slot_2": "Ability Slot 3",
 	"buy_upgrade_0": "Buy Upgrade 1",
 	"buy_upgrade_1": "Buy Upgrade 2",
+	"buy_upgrade_2": "Buy Upgrade 3",
+	"buy_upgrade_3": "Buy Upgrade 4",
 	"camera_pan_up": "Camera Pan Up",
 	"camera_pan_down": "Camera Pan Down",
 	"camera_pan_left": "Camera Pan Left",
 	"camera_pan_right": "Camera Pan Right",
+	"camera_pan_up_alt": "Camera Pan Up (WASD)",
+	"camera_pan_down_alt": "Camera Pan Down (WASD)",
+	"camera_pan_left_alt": "Camera Pan Left (WASD)",
+	"camera_pan_right_alt": "Camera Pan Right (WASD)",
 	"jump_to_hero": "Jump to Hero",
 }
 

@@ -13,3 +13,7 @@ extends Resource
 @export var upgrade_name: String = "Upgrade"
 @export var cost: int = 0
 @export var ability: Ability
+## When true, GameManager.buy_roster_upgrade()/_spawn_roster_squad_at()
+## only apply this to squads whose UnitStats.is_hero is true, instead of
+## every squad in the roster.
+@export var heroes_only: bool = false

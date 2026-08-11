@@ -20,15 +20,25 @@ extends ArenaMap
 ## on the built scene nodes at all -- callers can read get_spawn_points()
 ## without this map ever having been built.
 const SPAWN_POINTS: Array[Vector3] = [
-	Vector3(-4, 0, -26), # 0 Blue -- North arm, west half
-	Vector3(4, 0, -26),  # 1 Red -- North arm, east half
-	Vector3(26, 0, -4),  # 2 Green -- East arm, north half
-	Vector3(26, 0, 4),   # 3 Yellow -- East arm, south half
-	Vector3(4, 0, 26),   # 4 Purple -- South arm, east half
-	Vector3(-4, 0, 26),  # 5 Orange -- South arm, west half
-	Vector3(-26, 0, 4),  # 6 Cyan -- West arm, south half
-	Vector3(-26, 0, -4), # 7 Magenta -- West arm, north half
+	Vector3(-5, 0, -32), # 0 Blue -- North arm, west half
+	Vector3(5, 0, -32),  # 1 Red -- North arm, east half
+	Vector3(32, 0, -5),  # 2 Green -- East arm, north half
+	Vector3(32, 0, 5),   # 3 Yellow -- East arm, south half
+	Vector3(5, 0, 32),   # 4 Purple -- South arm, east half
+	Vector3(-5, 0, 32),  # 5 Orange -- South arm, west half
+	Vector3(-32, 0, 5),  # 6 Cyan -- West arm, south half
+	Vector3(-32, 0, -5), # 7 Magenta -- West arm, north half
 ]
+
+## SPAWN_POINTS' index within an arm's pair -- entries 0/1 share the
+## North arm, 2/3 East, 4/5 South, 6/7 West, so XOR-1 toggles within a
+## pair regardless of which half of that pair `index` is. Used by
+## BloodTournamentController.begin_march() to find which team_id
+## currently shares a marching squad's arm (see round_spawn_points,
+## which reassigns SPAWN_POINTS' 8 positions across team_ids each round
+## -- the pairing is a property of the position values, not team_id).
+static func arm_partner_index(index: int) -> int:
+	return index ^ 1
 
 
 func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
@@ -71,6 +81,128 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, arm_length), Vector3(0, 0, arm_center))) # south
 	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(arm_length, full), Vector3(-arm_center, 0, 0))) # west
 
+	# The 8 lineup courtyards, one per team, in the diagonal gaps between
+	# arms -- deliberately separate ground pieces, not part of the 5
+	# nav-mesh-connected polygons above (see _courtyard_center()'s own
+	# doc comment for why no corridor geometry is needed).
+	var courtyard_size := Vector2(COURTYARD_HALF_EXTENT, COURTYARD_HALF_EXTENT) * 2.0
+	for team_id in GameManager.all_team_ids():
+		_ground_pieces.append(build_ground_piece(ground_parent, courtyard_size, _courtyard_center(team_id)))
+
 
 func get_spawn_points() -> Array[Vector3]:
 	return SPAWN_POINTS
+
+
+## Half-extent of each team's lineup-courtyard footprint -- must clear the
+## widest existing squad spread (Fighter, squad_size 5, spacing
+## collision_radius*2.5+0.3 ~= 1.55m -> ~6.2m across) plus the Builder
+## standing apart from it (see _COURTYARD_ANCHOR_OFFSET below), and leave
+## room for a roster that grows over a long match. Needs real
+## playtesting, not just this reasoning.
+const COURTYARD_HALF_EXTENT := 6.5
+
+## How far a courtyard sits from center along its own arm's dominant
+## (depth) axis, and how far it's pushed along the lateral axis into the
+## diagonal gap between two arms -- deliberately NOT equal (depth <
+## lateral) so the two teams sharing one diagonal corner land well apart
+## from each other (~17m center-to-center) rather than converging near
+## the same point.
+const _COURTYARD_ARM_DEPTH := 17.0
+const _COURTYARD_LATERAL_REACH := 32.0
+
+## How far the Builder (get_courtyard_position()) and the unit spawn
+## anchor (get_courtyard_unit_anchor()) sit apart from the courtyard's
+## own center, pushed in opposite directions along the center-to-courtyard
+## diagonal (the Builder toward the outer/back wall, units toward the
+## inner/front edge facing the arm) -- both previously spawned at the
+## exact same point, fully overlapping. Comfortably inside
+## COURTYARD_HALF_EXTENT so neither anchor's own footprint clips the
+## courtyard's edge.
+const _COURTYARD_ANCHOR_OFFSET := 3.0
+
+
+## The center of team_id's lineup courtyard -- one of 8, in the diagonal
+## gaps between arms (verified outside all 5 nav-mesh polygons, with
+## margin). Deliberately NOT nav-mesh-connected -- courtyard units are
+## only ever teleport-positioned (GameManager.spawn_squad()'s existing
+## direct positioning, and a direct reposition at battle start), never
+## pathfound to/from, so no corridor geometry is needed to reach one.
+## Derived from SPAWN_POINTS[team_id] rather than 8 hand-picked
+## constants: reuses that point's own already-correct lateral sign
+## (whichever axis has the smaller magnitude) instead of re-deriving arm
+## orientation from scratch, and stays correct automatically if
+## SPAWN_POINTS/GameManager.CROSS_ARM_* ever change.
+static func _courtyard_center(team_id: int) -> Vector3:
+	var anchor := SPAWN_POINTS[team_id]
+	if absf(anchor.x) > absf(anchor.z):
+		# East/West arm: X is the dominant (depth) axis, Z is lateral.
+		return Vector3(signf(anchor.x) * _COURTYARD_ARM_DEPTH, 0, signf(anchor.z) * _COURTYARD_LATERAL_REACH)
+	else:
+		# North/South arm: Z is the dominant (depth) axis, X is lateral.
+		return Vector3(signf(anchor.x) * _COURTYARD_LATERAL_REACH, 0, signf(anchor.z) * _COURTYARD_ARM_DEPTH)
+
+
+## Direction from the map's own center out toward team_id's courtyard --
+## shared by get_courtyard_position()/get_courtyard_unit_anchor() (pushed
+## in opposite directions along it) and get_courtyard_inward_direction()
+## below (its negation).
+static func _courtyard_outward_direction(team_id: int) -> Vector2:
+	var center := _courtyard_center(team_id)
+	return Vector2(center.x, center.z).normalized()
+
+
+## The Builder's own spawn position -- the courtyard center pushed
+## _COURTYARD_ANCHOR_OFFSET further outward (away from the map center),
+## toward the courtyard's back wall. See get_courtyard_unit_anchor() for
+## where purchased squads spawn instead -- the two used to be the exact
+## same point, fully overlapping every squad with the Builder itself.
+static func get_courtyard_position(team_id: int) -> Vector3:
+	var center := _courtyard_center(team_id)
+	var outward := _courtyard_outward_direction(team_id)
+	return center + Vector3(outward.x, 0, outward.y) * _COURTYARD_ANCHOR_OFFSET
+
+
+## Where a purchased squad spawns -- the courtyard center pushed
+## _COURTYARD_ANCHOR_OFFSET inward (toward the map center / the arm this
+## courtyard belongs to), the opposite side of the Builder in
+## get_courtyard_position().
+static func get_courtyard_unit_anchor(team_id: int) -> Vector3:
+	var center := _courtyard_center(team_id)
+	var outward := _courtyard_outward_direction(team_id)
+	return center - Vector3(outward.x, 0, outward.y) * _COURTYARD_ANCHOR_OFFSET
+
+
+## "Front of the lineup" direction -- toward the map center / the arm
+## this courtyard belongs to (same direction get_courtyard_unit_anchor()
+## pushes into). Used by GameManager.reorder_roster_by_courtyard_depth()
+## to rank courtyard squads by how close to the front each one's been
+## dragged.
+static func get_courtyard_inward_direction(team_id: int) -> Vector2:
+	return -_courtyard_outward_direction(team_id)
+
+
+## Whether `position` falls inside ANY team's courtyard rectangle --
+## Unit._clamp_to_cross_arena() uses this as an early-out, since that
+## method runs unconditionally every physics frame and would otherwise
+## yank a courtyard-positioned unit back onto the nearest arm (a
+## courtyard sits in a "dead corner" diagonally outside both of the
+## cross's bars, exactly what that clamp exists to pull back in). Checked
+## against the courtyard's true center, not either anchor, so both the
+## Builder and unit spawn points (and anything moving between them) stay
+## covered.
+static func is_in_any_courtyard(position: Vector3) -> bool:
+	for team_id in GameManager.all_team_ids():
+		if is_in_teams_courtyard(team_id, position):
+			return true
+	return false
+
+
+## Whether `position` falls inside team_id's OWN courtyard specifically --
+## unlike is_in_any_courtyard() above (which only answers "courtyard-shaped
+## space in general," for the arena clamp's own purposes), the
+## ghost-placement flow (PlayerInputController) needs to know a clicked
+## point is inside THIS team's own pen, not just anyone's.
+static func is_in_teams_courtyard(team_id: int, position: Vector3) -> bool:
+	var center := _courtyard_center(team_id)
+	return absf(position.x - center.x) <= COURTYARD_HALF_EXTENT and absf(position.z - center.z) <= COURTYARD_HALF_EXTENT

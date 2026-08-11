@@ -16,12 +16,10 @@ extends Control
 signal unit_type_selected(stats: UnitStats)
 signal team_selected(team_id: int)
 signal start_battle_pressed
-signal tournament_mode_toggled(enabled: bool)
 signal ai_opponent_toggled(enabled: bool)
-signal hero_footies_mode_toggled(enabled: bool)
 ## Emitted when a hotbar slot button is clicked (see _build_ability_hotbar()) --
 ## Main.gd routes this through the exact same _try_cast_or_target() the
-## Q/W/E hotkeys use, so clicking and pressing the key are equivalent.
+## Q/E/R hotkeys use, so clicking and pressing the key are equivalent.
 signal ability_slot_pressed(index: int)
 ## Emitted when a roster line-up slot is clicked (see _build_roster_row())
 ## -- Main.gd routes this to GameManager.sell_roster_slot(), the
@@ -32,6 +30,11 @@ signal roster_slot_sold(index: int)
 ## GameManager.pick_hero_ability(). `stats` is the hero archetype (e.g.
 ## HeroStats.tres) the drafted slot belongs to.
 signal hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int)
+## Emitted by the two currency-exchange buttons next to the gold label
+## (see show_gold()) -- Main.gd routes these to
+## Player.exchange_gold_for_blood_points()/exchange_blood_points_for_gold().
+signal gold_exchange_requested
+signal blood_exchange_requested
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
@@ -43,11 +46,11 @@ const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
 var _start_button: Button
 var _winner_label: Label
 var _drag_box: ColorRect
-var _tournament_toggle: Button
 var _tournament_score_label: Label
 var _gold_label: Label
+var _gold_exchange_button: Button
+var _blood_exchange_button: Button
 var _ai_toggle: Button
-var _hero_footies_toggle: Button
 var _blue_team_button: Button
 var _red_team_button: Button
 ## Parallel to each other, built once in _build_unit_panel() -- lets
@@ -69,11 +72,21 @@ var _hero_draft_panel: VBoxContainer
 ## background/header visible as an empty box. See _wrap_in_card().
 var _hero_draft_card: PanelContainer
 
+## The build-menu popup (WC3-style "click the Builder, a build menu
+## appears") -- hidden by default, shown by show_build_menu()/hidden by
+## hide_build_menu() (see PlayerInputController.on_left_release()'s
+## is_builder branch). Unlike _hero_draft_card, its contents
+## (_build_unit_panel()'s 6 archetype buttons) are static -- built once
+## in _ready(), never rebuilt -- so only .visible needs toggling, not a
+## rebuild-children-from-scratch pass.
+var _build_menu_card: PanelContainer
+
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
 var _buff_row: HBoxContainer
 var _targeting_label: Label
 var _hero_level_label: Label
+var _hero_xp_bar: ProgressBar
 var _minimap: MiniMap
 ## Whichever unit SelectionManager last reported as selected (see
 ## track_unit()) -- the hotbar/buff row always reflect this one unit, not
@@ -96,9 +109,12 @@ func _ready() -> void:
 	add_child(root)
 
 	var shop_card := _wrap_in_card(root, "Shop")
-	_build_unit_panel(shop_card)
-	_add_spacer(shop_card, 8)
 	_build_roster_row(shop_card)
+
+	var build_menu_content := _wrap_in_card(root, "Build")
+	_build_menu_card = build_menu_content.get_parent() as PanelContainer
+	_build_menu_card.visible = false
+	_build_unit_panel(build_menu_content)
 
 	var hero_draft_content := _wrap_in_card(root, "Hero Ability Draft")
 	_hero_draft_card = hero_draft_content.get_parent() as PanelContainer
@@ -127,7 +143,7 @@ func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
-	_refresh_match_toggles_visibility()
+	refresh_match_toggles_visibility()
 
 
 ## Wraps a titled group of controls in a background PanelContainer, so
@@ -180,10 +196,63 @@ func _build_unit_panel(parent: Control) -> void:
 ## can afford at a glance -- only meaningful while economy is active, but
 ## shown unconditionally since it's just informational text; affordability
 ## itself is enforced by refresh_affordability() disabling the button.
+## tooltip_text is Godot's own built-in hover-tooltip rendering -- no
+## custom tooltip UI exists anywhere in this codebase, and none is needed.
 func _add_unit_type_button(parent: Control, group: ButtonGroup, stats: UnitStats, is_pressed: bool) -> void:
 	var button := _add_toggle_button(parent, "%s (%dg)" % [stats.unit_name, stats.cost], group, is_pressed, func(): unit_type_selected.emit(stats))
+	button.tooltip_text = _unit_tooltip_text(stats)
+	_set_button_icon(button, stats.icon)
 	_unit_type_buttons.append(button)
 	_unit_type_stats.append(stats)
+
+
+## Shared by every button-icon assignment in this file. Resources/Icons/*.svg
+## import at a small native size (svg/scale=0.0625, ~32x32) specifically so
+## a plain Button.icon assignment renders as a thumbnail already, with no
+## runtime scaling needed.
+func _set_button_icon(button: Button, icon: Texture2D) -> void:
+	button.icon = icon
+
+
+## The stat/cost summary shown on hover -- the fields most relevant to a
+## buy decision (per UnitStats.gd's own doc comments): cost/squad size
+## are already in the button label, so the tooltip covers the rest of
+## what a player would want to compare before buying. Ability names are
+## included when present; combat minutiae (turn_rate, splash_falloff,
+## armor_type multipliers, etc.) are deliberately left out -- this is a
+## quick-glance summary, not a full stat sheet.
+func _unit_tooltip_text(stats: UnitStats) -> String:
+	var lines: Array[String] = [
+		"%s -- %dg" % [stats.unit_name, stats.cost],
+		"Squad size: %d" % stats.squad_size,
+		"Health: %.0f    Armor: %.0f" % [stats.max_health, stats.armor],
+		"Damage: %.0f    Attack speed: %.1fs    Range: %.1f" % [stats.damage, stats.attack_interval, stats.attack_range],
+		"Move speed: %.1f" % stats.move_speed,
+	]
+	if stats.is_flying:
+		lines.append("Flying")
+	if not stats.abilities.is_empty():
+		var ability_names: Array[String] = []
+		for ability in stats.abilities:
+			ability_names.append(ability.ability_name)
+		lines.append("Abilities: " + ", ".join(ability_names))
+	return "\n".join(lines)
+
+
+## Shown when the player left-clicks their own Builder (see
+## PlayerInputController.on_left_release()) -- the always-hidden
+## build-menu card becomes visible. Buttons/tooltips are already built
+## (see _ready()); nothing to rebuild here, just the visibility flip.
+func show_build_menu() -> void:
+	_build_menu_card.visible = true
+
+
+func hide_build_menu() -> void:
+	_build_menu_card.visible = false
+
+
+func is_build_menu_open() -> bool:
+	return _build_menu_card.visible
 
 
 func _build_team_panel(parent: Control) -> void:
@@ -195,9 +264,7 @@ func _build_team_panel(parent: Control) -> void:
 	_red_team_button = _add_toggle_button(panel, "Red Team", group, false, func(): team_selected.emit(GameManager.RED_TEAM_ID))
 
 	_add_spacer(panel, 12)
-	_build_tournament_toggle(panel)
 	_build_ai_toggle(panel)
-	_build_hero_footies_toggle(panel)
 	_add_spacer(panel, 12)
 	_build_start_button(panel)
 
@@ -234,28 +301,6 @@ func _build_start_button(parent: Control) -> void:
 	parent.add_child(_start_button)
 
 
-## Off by default -- toggling swaps GameManager.current_mode between
-## ClassicEliminationMode (single battle, current default) and
-## BloodTournamentMode (best-of-N rounds, arena auto-resets between them)
-## via Main.gd. Not grouped with the Blue/Red buttons above -- it's an
-## independent on/off, not a third mutually-exclusive choice.
-func _build_tournament_toggle(parent: Control) -> void:
-	_tournament_toggle = Button.new()
-	_tournament_toggle.text = "Blood Tournament: Off"
-	_tournament_toggle.custom_minimum_size = Vector2(140, 36)
-	_tournament_toggle.toggle_mode = true
-	_tournament_toggle.toggled.connect(_on_tournament_toggled)
-	_tournament_toggle.toggled.connect(func(_enabled: bool): Sfx.play_ui_click()) # "toggled" only fires from real interaction here -- every programmatic update elsewhere uses set_pressed_no_signal() specifically to avoid it
-	parent.add_child(_tournament_toggle)
-
-
-func _on_tournament_toggled(enabled: bool) -> void:
-	_tournament_toggle.text = "Blood Tournament: On" if enabled else "Blood Tournament: Off"
-	if not enabled:
-		hide_tournament_score()
-	tournament_mode_toggled.emit(enabled)
-
-
 ## Off by default -- Main.gd flips Red's Player.is_human accordingly and
 ## has AIController take Red's placement turns instead of a human clicking
 ## around (see Main._run_ai_turn_if_needed()). Locks the Red Team button
@@ -272,73 +317,40 @@ func _build_ai_toggle(parent: Control) -> void:
 	parent.add_child(_ai_toggle)
 
 
-## Off by default -- toggling swaps GameManager.current_mode between
-## ClassicEliminationMode and a fresh HeroFootiesMode (roadmap Phase 6:
-## wave-spawner + throne-HP win condition) via Main.gd. Mutually exclusive
-## with Blood Tournament (both claim GameManager.current_mode) -- Main.gd's
-## own handlers turn the other one off first, this button just needs its
-## own on/off text like the other two.
-func _build_hero_footies_toggle(parent: Control) -> void:
-	_hero_footies_toggle = Button.new()
-	_hero_footies_toggle.text = "Hero Footies: Off"
-	_hero_footies_toggle.custom_minimum_size = Vector2(140, 36)
-	_hero_footies_toggle.toggle_mode = true
-	_hero_footies_toggle.toggled.connect(_on_hero_footies_toggled)
-	_hero_footies_toggle.toggled.connect(func(_enabled: bool): Sfx.play_ui_click())
-	parent.add_child(_hero_footies_toggle)
-
-
-func _on_hero_footies_toggled(enabled: bool) -> void:
-	_hero_footies_toggle.text = "Hero Footies: On" if enabled else "Hero Footies: Off"
-	hero_footies_mode_toggled.emit(enabled)
-
-
-func set_hero_footies_toggle(enabled: bool) -> void:
-	_hero_footies_toggle.set_pressed_no_signal(enabled)
-	_on_hero_footies_toggled(enabled)
-
-
-## All three mode-switch toggles only make sense before a match has
-## actually gotten underway -- flipping "Blood Tournament: Off"/
-## "AI Opponent"/"Hero Footies" mid-match doesn't correspond to anything
-## sensible the active mode does with a mode/AI switch that late, so
-## they're just hidden rather than left clickable-but-confusing.
-## "Match underway" is either a Blood Tournament match past round 1's own
-## PLACEMENT (round_number > 0, or currently outside PLACEMENT at all --
-## either alone would miss one of the two windows), or a Hero Footies
-## battle that has actually started (outside PLACEMENT -- it has no
-## rounds, so there's only the one window to check).
-func _refresh_match_toggles_visibility() -> void:
+## Game mode (Blood Tournament / Hero Footies / classic) is chosen once,
+## on the main menu's lobby (UI/MainMenu.gd), before Play -- there is
+## deliberately no mid-match way to change it anymore. A mid-match
+## toggle used to exist here for quick dev testing, but re-activating an
+## already-active mode re-ran GameMode.on_activated() (e.g.
+## BloodTournamentMode spawning a fresh per-team Builder fixture) with
+## no awareness anything from a previous activation was already live,
+## silently duplicating those fixtures. `mode.uses_economy()` below is
+## still what actually matters for hiding the AI/team-select controls;
+## "is a Blood Tournament/Hero Footies match past its own first
+## PLACEMENT" still matters for the AI toggle specifically. Public (no
+## leading underscore) -- Main.gd calls this directly after a mode
+## change now that there's no button click to trigger it internally.
+func refresh_match_toggles_visibility() -> void:
 	var mode := GameManager.current_mode
 	var tournament_match_underway: bool = mode is BloodTournamentMode and (mode.round_number > 0 or not GameManager.is_placement_phase())
 	var hero_footies_match_underway: bool = mode is HeroFootiesMode and not GameManager.is_placement_phase()
 	var match_underway := tournament_match_underway or hero_footies_match_underway
-	_tournament_toggle.visible = not match_underway
-	_ai_toggle.visible = not match_underway
-	_hero_footies_toggle.visible = not match_underway
 
-
-## Called by Main.gd to apply UI/MainMenu.gd's pre-match selection --
-## set_pressed_no_signal() (not a plain button_pressed assignment) so this
-## has one deterministic effect: update the button's own visual state,
-## then invoke the exact same handler a real click would, exactly once.
-## A plain `button_pressed = enabled` would rely on Godot's own toggled-on-
-## script-set behavior, which this deliberately doesn't need to trust.
-func set_tournament_toggle(enabled: bool) -> void:
-	_tournament_toggle.set_pressed_no_signal(enabled)
-	_on_tournament_toggled(enabled)
-
-
-## Pure visual sync -- unlike set_tournament_toggle() above, does NOT
-## re-run _on_tournament_toggled()/emit tournament_mode_toggled. For a
-## caller (Main._apply_menu_selection()) that already drove the actual
-## mode change itself with data this button's own toggled signal has no
-## way to carry (active_team_ids -- see Main._on_tournament_toggled()'s
-## own doc comment) and just needs the button's look to match afterward,
-## without triggering a second, redundant activation.
-func sync_tournament_toggle_visual(enabled: bool) -> void:
-	_tournament_toggle.set_pressed_no_signal(enabled)
-	_tournament_toggle.text = "Blood Tournament: On" if enabled else "Blood Tournament: Off"
+	# Blood Tournament decides every slot's human/bot status entirely at
+	# the main menu's per-slot lobby now (see UI/MainMenu.gd) -- there's
+	# only ever one human team the whole match, so neither the mid-match
+	# "AI Opponent" toggle nor the Blue/Red team-select buttons have
+	# anything left to do once it's active. Hidden for the WHOLE match
+	# (not just "once underway" like the mode toggles above), since
+	# uses_economy() is already true from round 1's own PLACEMENT --
+	# waiting for match_underway would leave them visible-but-pointless
+	# through all of round 1's shopping phase. Classic mode (and Hero
+	# Footies, which also doesn't uses_economy()) keeps both, unchanged --
+	# still useful for local hotseat-style manual testing.
+	var hide_team_and_ai := mode.uses_economy()
+	_ai_toggle.visible = not match_underway and not hide_team_and_ai
+	_blue_team_button.visible = not hide_team_and_ai
+	_red_team_button.visible = not hide_team_and_ai
 
 
 func set_ai_toggle(enabled: bool) -> void:
@@ -392,6 +404,23 @@ func _build_winner_label() -> void:
 	_gold_label.add_theme_font_size_override("font_size", 18)
 	_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_gold_label)
+
+	# Positioned below _gold_label in show_gold() (parentless-Control
+	# manual positioning, same gotcha as every other bare Label/Button
+	# added directly to self here).
+	_gold_exchange_button = Button.new()
+	_gold_exchange_button.text = "Trade %dg -> %dbp" % [Player.EXCHANGE_GOLD_PER_CLICK, Player.EXCHANGE_BLOOD_PER_CLICK]
+	_gold_exchange_button.visible = false
+	_gold_exchange_button.pressed.connect(func(): gold_exchange_requested.emit())
+	_gold_exchange_button.pressed.connect(func(): Sfx.play_ui_click())
+	add_child(_gold_exchange_button)
+
+	_blood_exchange_button = Button.new()
+	_blood_exchange_button.text = "Trade %dbp -> %dg" % [Player.EXCHANGE_BLOOD_PER_CLICK, Player.EXCHANGE_GOLD_PER_CLICK]
+	_blood_exchange_button.visible = false
+	_blood_exchange_button.pressed.connect(func(): blood_exchange_requested.emit())
+	_blood_exchange_button.pressed.connect(func(): Sfx.play_ui_click())
+	add_child(_blood_exchange_button)
 
 
 ## A plain translucent fill, not a bordered rectangle (StyleBoxFlat's
@@ -470,19 +499,47 @@ func show_gold(blue_gold: int, red_gold: int, blue_blood_points: int, red_blood_
 	_gold_label.position = Vector2((viewport_width - _gold_label.size.x) * 0.5, 52)
 	_gold_label.visible = true
 
+	_gold_exchange_button.reset_size()
+	_blood_exchange_button.reset_size()
+	var button_y := _gold_label.position.y + _gold_label.size.y + 4
+	var total_width := _gold_exchange_button.size.x + _blood_exchange_button.size.x + 8
+	var start_x := (viewport_width - total_width) * 0.5
+	_gold_exchange_button.position = Vector2(start_x, button_y)
+	_blood_exchange_button.position = Vector2(start_x + _gold_exchange_button.size.x + 8, button_y)
+	_gold_exchange_button.visible = true
+	_blood_exchange_button.visible = true
+
 
 func hide_gold() -> void:
 	_gold_label.visible = false
+	_gold_exchange_button.visible = false
+	_blood_exchange_button.visible = false
 
 
 ## Called by Main.gd alongside every gold change/team switch -- greys out
 ## whichever unit-type buttons `player` can't currently afford. A no-op
 ## grey-out (never disables anything) while current_mode.uses_economy()
 ## is false, matching every other gold-gated behavior in this codebase.
+## Independent design-review feedback: the default theme's own
+## `.disabled` look barely reads against these already-dark cards --
+## side-by-side, an affordable and an unaffordable button look nearly
+## identical. `.disabled` still gates the actual click (kept, for the
+## real behavior), but `modulate` alpha is what actually carries the
+## visible "you can't afford this" signal now.
+const _UNAFFORDABLE_MODULATE := Color(1, 1, 1, 0.4)
+
 func refresh_affordability(player: Player) -> void:
 	var use_gold := GameManager.current_mode.uses_economy()
 	for i in _unit_type_buttons.size():
-		_unit_type_buttons[i].disabled = use_gold and not player.can_afford(_unit_type_stats[i].cost)
+		var unaffordable := use_gold and not player.can_afford(_unit_type_stats[i].cost)
+		_unit_type_buttons[i].disabled = unaffordable
+		_unit_type_buttons[i].modulate = _UNAFFORDABLE_MODULATE if unaffordable else Color.WHITE
+	var gold_unaffordable := use_gold and not player.can_afford(Player.EXCHANGE_GOLD_PER_CLICK)
+	_gold_exchange_button.disabled = gold_unaffordable
+	_gold_exchange_button.modulate = _UNAFFORDABLE_MODULATE if gold_unaffordable else Color.WHITE
+	var blood_unaffordable := use_gold and not player.can_afford_blood_points(Player.EXCHANGE_BLOOD_PER_CLICK)
+	_blood_exchange_button.disabled = blood_unaffordable
+	_blood_exchange_button.modulate = _UNAFFORDABLE_MODULATE if blood_unaffordable else Color.WHITE
 
 
 ## The "rectangle" -- a literal separate staging area's line-up display,
@@ -517,6 +574,7 @@ func refresh_roster_row(roster: Array[UnitStats]) -> void:
 		if i < roster.size():
 			var stats := roster[i]
 			button.text = "%s x%d" % [stats.unit_name, stats.squad_size] if stats.squad_size > 1 else stats.unit_name
+			_set_button_icon(button, stats.icon)
 			button.visible = true
 		else:
 			button.visible = false
@@ -588,7 +646,7 @@ func _build_ability_draft_row(stats: UnitStats, slot_index: int, choice_set: Abi
 			func(): hero_ability_picked.emit(stats, slot_index, candidate_index))
 
 
-## Bottom-center, one button per ability slot (Q/W/E). Fixed at 3 buttons
+## Bottom-center, one button per ability slot (Q/E/R). Fixed at 3 buttons
 ## always present (never added/removed) -- _refresh_ability_hotbar() just
 ## updates each one's text/disabled state in place every frame, so there's
 ## no node-churn/pooling concern the way the variable-length buff row has.
@@ -632,10 +690,12 @@ func _refresh_ability_hotbar() -> void:
 		var button := _ability_slot_buttons[i]
 		if not alive or i >= unit.resolved_abilities.size() or unit.resolved_abilities[i] == null:
 			button.text = "-"
+			button.icon = null
 			button.disabled = true
 			continue
 
 		var ability: Ability = unit.resolved_abilities[i]
+		_set_button_icon(button, ability.icon)
 		var locked := unit.stats.is_hero and i < unit.stats.ability_unlock_levels.size() and unit.level < unit.stats.ability_unlock_levels[i]
 		if locked:
 			button.text = "%s\n(Lv.%d)" % [ability.ability_name, unit.stats.ability_unlock_levels[i]]
@@ -663,13 +723,14 @@ func _build_buff_row() -> void:
 	add_child(_buff_row)
 
 
-## Grow-only Label pool (same pattern DebugInspector/SelectionManager use
-## for their 3D indicators, just for 2D Labels here) rather than
-## queue_free()-ing and rebuilding every frame -- a queue_free()'d child is
-## still present in the tree until end-of-frame idle cleanup, so measuring
-## this container's size again in the same frame (reset_size(), right
-## below) would double-count it. Hidden pool entries cost nothing: a
-## Container doesn't allocate layout space for an invisible child.
+## Grow-only pool of icon+label entries (same pattern DebugInspector/
+## SelectionManager use for their 3D indicators, just for 2D nodes here)
+## rather than queue_free()-ing and rebuilding every frame -- a
+## queue_free()'d child is still present in the tree until end-of-frame
+## idle cleanup, so measuring this container's size again in the same
+## frame (reset_size(), right below) would double-count it. Hidden pool
+## entries cost nothing: a Container doesn't allocate layout space for an
+## invisible child.
 func _refresh_buff_row() -> void:
 	var unit := _tracked_unit
 	var alive := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE
@@ -678,19 +739,34 @@ func _refresh_buff_row() -> void:
 		effects = unit.get_active_effects()
 
 	while _buff_row.get_child_count() < effects.size():
+		var entry := HBoxContainer.new()
+		entry.add_theme_constant_override("separation", 2)
+		var icon_rect := TextureRect.new()
+		icon_rect.custom_minimum_size = Vector2(16, 16)
+		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		entry.add_child(icon_rect)
 		var label := Label.new()
 		label.add_theme_font_size_override("font_size", 14)
-		_buff_row.add_child(label)
+		entry.add_child(label)
+		_buff_row.add_child(entry)
 
 	for i in _buff_row.get_child_count():
-		var label: Label = _buff_row.get_child(i)
+		var entry: HBoxContainer = _buff_row.get_child(i)
 		if i < effects.size():
 			var effect := effects[i]
 			var remaining := "%.1fs" % (effect.duration - effect.elapsed) if effect.duration > 0.0 else "perm"
+			var icon_rect: TextureRect = entry.get_child(0)
+			var label: Label = entry.get_child(1)
 			label.text = "%s (%s)" % [effect.id, remaining]
-			label.visible = true
+			# Effect.source is opaque (see its own doc comment) -- only
+			# read .icon off it when it's actually the Ability that
+			# created this Effect, same guard StatBlock.Modifier's own
+			# identity-only use of `source` implies.
+			icon_rect.texture = effect.source.icon if effect.source is Ability else null
+			entry.visible = true
 		else:
-			label.visible = false
+			entry.visible = false
 
 	_buff_row.reset_size()
 	var viewport_size := get_viewport_rect().size
@@ -723,12 +799,32 @@ func hide_targeting_prompt() -> void:
 	_targeting_label.visible = false
 
 
+const _XP_BAR_SIZE := Vector2(160, 10)
+
 func _build_hero_level_label() -> void:
 	_hero_level_label = Label.new()
 	_hero_level_label.visible = false
 	_hero_level_label.add_theme_font_size_override("font_size", 16)
 	_hero_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_hero_level_label)
+
+	# A ProgressBar, not just text -- independent design-review feedback:
+	# a plain "12 / 100 XP" number gives no at-a-glance sense of how
+	# close a level-up is. Exact numbers still available via tooltip_text
+	# on hover, not deleted, just not the primary always-visible readout.
+	_hero_xp_bar = ProgressBar.new()
+	_hero_xp_bar.visible = false
+	_hero_xp_bar.show_percentage = false
+	_hero_xp_bar.custom_minimum_size = _XP_BAR_SIZE
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.1, 0.1, 0.12, 0.85)
+	bg_style.set_corner_radius_all(3)
+	_hero_xp_bar.add_theme_stylebox_override("background", bg_style)
+	var fill_style := StyleBoxFlat.new()
+	fill_style.bg_color = Color(0.85, 0.7, 0.2)
+	fill_style.set_corner_radius_all(3)
+	_hero_xp_bar.add_theme_stylebox_override("fill", fill_style)
+	add_child(_hero_xp_bar)
 
 
 ## Hidden entirely for a non-hero tracked unit (or none selected) --
@@ -738,13 +834,21 @@ func _refresh_hero_level_label() -> void:
 	var alive := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE
 	if not alive or not unit.stats.is_hero:
 		_hero_level_label.visible = false
+		_hero_xp_bar.visible = false
 		return
 
-	_hero_level_label.text = "Level %d (%d / %d XP)" % [unit.level, int(unit.xp), int(unit.get_xp_to_next_level())]
-	_hero_level_label.reset_size()
 	var viewport_size := get_viewport_rect().size
-	_hero_level_label.position = Vector2((viewport_size.x - _hero_level_label.size.x) * 0.5, viewport_size.y - 128)
+
+	_hero_level_label.text = "Level %d" % unit.level
+	_hero_level_label.reset_size()
+	_hero_level_label.position = Vector2((viewport_size.x - _hero_level_label.size.x) * 0.5, viewport_size.y - 140)
 	_hero_level_label.visible = true
+
+	_hero_xp_bar.max_value = unit.get_xp_to_next_level()
+	_hero_xp_bar.value = unit.xp
+	_hero_xp_bar.tooltip_text = "%d / %d XP" % [int(unit.xp), int(unit.get_xp_to_next_level())]
+	_hero_xp_bar.position = Vector2((viewport_size.x - _XP_BAR_SIZE.x) * 0.5, viewport_size.y - 118)
+	_hero_xp_bar.visible = true
 
 
 func _build_minimap() -> void:
