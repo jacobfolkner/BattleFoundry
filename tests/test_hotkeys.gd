@@ -1,6 +1,6 @@
-## Tests for Scripts/Hotkeys.gd -- roadmap Phase 3's "rebindable
+## Tests for Scripts/Autoloads/Hotkeys.gd -- roadmap Phase 3's "rebindable
 ## hotkeys" item (registration/rebind()) and Phase 10's settings-screen
-## support added alongside Scripts/SettingsMenu.gd (display_name(),
+## support added alongside UI/SettingsMenu.gd (display_name(),
 ## find_conflicting_action(), reset_to_defaults()).
 extends GutTest
 

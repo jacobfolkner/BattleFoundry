@@ -1,8 +1,10 @@
 ## Orbit camera: scroll to zoom, right-click-drag to orbit, arrow keys or
 ## WASD or edge-pan to move the focus point around the arena, Space to
 ## jump to your own hero. Self-contained -- Main.gd doesn't touch the
-## camera at all, including for jump-to-hero (queries
+## camera at all beyond focus_and_zoom() (used to frame a fresh Blood
+## Tournament round), including for jump-to-hero (queries
 ## GameManager/SelectionManager directly, both autoloads).
+class_name OrbitCamera
 extends Camera3D
 
 ## Both arrow keys and WASD pan the camera (see _key_pan_direction()) --
@@ -131,6 +133,21 @@ func _jump_to_own_hero() -> void:
 			_focus_point = Vector3(unit.global_position.x, 0.0, unit.global_position.z)
 			_update_transform()
 			return
+
+
+## Recenters the focus point and sets zoom distance in one call -- used by
+## Main.gd to jump the camera onto a Blood Tournament round's actual
+## clash point the instant marching starts (see
+## Main._focus_camera_on_local_battle()). Default framing centers on the
+## map origin at a distance tuned for the older, smaller square arena;
+## against the cross map's larger reach (SPAWN_POINTS out near +-32) that
+## left the actual fight a tiny cluster near the frame's edge. `distance`
+## still gets clamped to the normal zoom bounds, so this can never leave
+## the camera somewhere the player's own scroll wheel couldn't reach.
+func focus_and_zoom(position: Vector3, distance: float) -> void:
+	_focus_point = Vector3(position.x, 0.0, position.z)
+	_distance = clampf(distance, _MIN_DISTANCE, _MAX_DISTANCE)
+	_update_transform()
 
 
 func _update_transform() -> void:

@@ -1,14 +1,14 @@
 ## Root controller for the prototype scene.
 ##
 ## Owns the arena (build/toggle only -- the shapes themselves live in
-## Scripts/ArenaMap.gd and subclasses) and wires input, HUD, and Blood
+## Scripts/Maps/ArenaMap.gd and subclasses) and wires input, HUD, and Blood
 ## Tournament round orchestration together. Actual input handling is
-## Scripts/PlayerInputController.gd's job (_input below) -- this class
+## Scripts/Core/PlayerInputController.gd's job (_input below) -- this class
 ## forwards events/calls to it and keeps a handful of same-named
 ## delegate methods so every existing "private" test call site
 ## (_main._try_place_unit(), etc.) keeps working unchanged. Main.gd
 ## otherwise knows nothing about selection bookkeeping, debug UI, or the
-## camera (self-managed by Scripts/OrbitCamera.gd) -- that's the whole
+## camera (self-managed by Scripts/Core/OrbitCamera.gd) -- that's the whole
 ## point of routing through those rather than handling it here.
 extends Node3D
 
@@ -50,7 +50,7 @@ var _pending_patrol: bool:
 	set(value): _input.pending_patrol = value
 
 ## Constructed unconditionally in _ready(), like _input -- see
-## Scripts/BloodTournamentController.gd's own class doc comment for why
+## Scripts/BloodTournament/BloodTournamentController.gd's own class doc comment for why
 ## this exists regardless of whether Blood Tournament is actually active
 ## (several tests poke its state directly without ever "activating" a
 ## tournament at all).
@@ -150,7 +150,7 @@ func _apply_menu_selection() -> void:
 
 ## Kept for backward compat (AIController and several tests read this
 ## directly) -- the real source of truth is now CrossArenaMap.SPAWN_POINTS
-## (Scripts/CrossArenaMap.gd), referenced here rather than duplicated
+## (Scripts/Maps/CrossArenaMap.gd), referenced here rather than duplicated
 ## (GDScript resolves another class's const at compile time, same
 ## pattern MenuSelection.human_team_id's own default already uses for
 ## GameManager.BLUE_TEAM_ID).
@@ -291,6 +291,27 @@ func _assign_random_spawn_points() -> void:
 
 func _begin_staggered_deployment() -> void:
 	_bt_controller.begin_march()
+	_focus_camera_on_local_battle()
+
+
+## Blood Tournament's default camera framing centers on the map origin at
+## a zoom tuned for the older, smaller square arena -- against the cross
+## map's larger reach that leaves the actual fight a tiny cluster near
+## the frame's edge (usability review, 2026-08-11). Recenter+zoom onto
+## the local human player's own arm anchor the instant marching starts,
+## since that's where their fight actually happens first -- the player
+## can still freely re-orbit/zoom afterward, this only sets where the
+## camera starts looking. A no-op outside the cross map (classic mode's
+## square arena already fits the default framing) or with no local human
+## player (AI-vs-AI/dev scenarios).
+func _focus_camera_on_local_battle() -> void:
+	if not GameManager.current_mode.uses_cross_map():
+		return
+	var local_player := SelectionManager.local_player
+	if local_player == null:
+		return
+	var anchor: Vector3 = _round_spawn_points.get(local_player.team_id, CrossArenaMap.SPAWN_POINTS[local_player.team_id])
+	(_camera as OrbitCamera).focus_and_zoom(anchor, 16.0)
 
 
 func _physics_process(delta: float) -> void:
@@ -348,7 +369,7 @@ func _on_blood_exchange_requested() -> void:
 		_refresh_gold_display()
 
 
-## Actual input handling lives in Scripts/PlayerInputController.gd (_input)
+## Actual input handling lives in Scripts/Core/PlayerInputController.gd (_input)
 ## -- every method below is a thin one-line delegate, kept under these
 ## exact names because several test files call them directly
 ## (_main._try_place_unit(), etc.) and HUD connects a few of them as

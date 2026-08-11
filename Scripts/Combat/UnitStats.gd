@@ -9,7 +9,7 @@ extends Resource
 
 @export var unit_name: String = "Unit"
 @export var icon: Texture2D ## Shown on the build-menu/roster-row buttons (HUD.gd). Null is fine, just renders with no icon.
-## Which named Faction (see Scripts/Faction.gd) this archetype belongs to --
+## Which named Faction (see Scripts/Players/Faction.gd) this archetype belongs to --
 ## purely cosmetic/organizational (HUD build-menu grouping, ground-ring
 ## accent color). Null (e.g. Builder/Throne/Goblin fixtures) means no
 ## grouping/accent at all, not an error.
@@ -120,7 +120,7 @@ extends Resource
 @export var armor: float = 0.0
 
 ## WC3-style attack-type x armor-type multiplier grid (see
-## Scripts/AttackArmorTable.gd), layered on top of the flat armor
+## Scripts/Combat/AttackArmorTable.gd), layered on top of the flat armor
 ## reduction above -- only for ATTACK damage (Unit.take_damage()); SPELL
 ## damage still only ever sees the flat armor reduction, matching WC3's
 ## own "the type table doesn't apply to spells" convention. NORMAL x
@@ -164,7 +164,7 @@ enum ArmorType { UNARMORED, LIGHT, MEDIUM, HEAVY, FORTIFIED, HERO }
 @export_group("Projectile")
 ## 0 (default) means this attack deals damage the instant the cooldown
 ## allows, exactly like every archetype before this system existed.
-## Above 0, Unit._attack() spawns a Projectile (Scripts/Projectile.gd)
+## Above 0, Unit._attack() spawns a Projectile (Scripts/Combat/Projectile.gd)
 ## instead, which delivers the hit -- damage and any knockback -- only
 ## once it actually arrives, via Unit.resolve_hit().
 @export var projectile_speed: float = 0.0

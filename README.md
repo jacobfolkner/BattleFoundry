@@ -46,7 +46,7 @@ of debug-feature toggles and a color legend, both off by default:
 - **Detailed Stats** — expands the top-right stats panel with distance,
   attack range/cooldown, position, and steering deviation
 
-To add a new toggle: add an entry to `Scripts/DebugSettings.gd`'s `_flags`
+To add a new toggle: add an entry to `Scripts/Autoloads/DebugSettings.gd`'s `_flags`
 and gate whatever it controls with `is_enabled(...)` — `UI/DebugMenu.gd`
 picks up the new checkbox automatically, no UI code to write. See that
 file's header comment for the full contract.
@@ -67,8 +67,8 @@ tests/      GUT test suite
 
 Architecture rationale (why a system is built the way it is, tradeoffs,
 gotchas) lives in that system's own doc-comments, not here — e.g. read
-`Scripts/GameManager.gd`'s header for the battle-lifecycle design, or
-`Scripts/Unit.gd`'s for avoidance/collision. The code is the source of
+`Scripts/Autoloads/GameManager.gd`'s header for the battle-lifecycle design, or
+`Scripts/Combat/Unit.gd`'s for avoidance/collision. The code is the source of
 truth; this file just orients you to where things live.
 
 ## Testing

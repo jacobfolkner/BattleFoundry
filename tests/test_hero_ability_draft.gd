@@ -74,7 +74,7 @@ func test_cast_ability_casts_the_drafted_ability_not_the_default() -> void:
 
 
 ## PlayerInputController.first_selected_ability() and HUD's hotbar both
-## read unit.resolved_abilities directly (see Scripts/PlayerInputController.gd
+## read unit.resolved_abilities directly (see Scripts/Core/PlayerInputController.gd
 ## and UI/HUD.gd's _refresh_ability_hotbar()) -- this confirms the
 ## underlying field they both read is actually populated with the
 ## drafted pick, without reaching into Main's private _input field

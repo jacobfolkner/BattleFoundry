@@ -1,11 +1,11 @@
 ## Tests for Blood Tournament's economy: starting gold, flat round income
 ## (equal for everyone, no win bonus), blood points from kills, unit cost,
 ## sell, and the no-permadeath roster (what actually persists between
-## rounds now -- see Scripts/Player.gd's `roster` field; round-transition
+## rounds now -- see Scripts/Players/Player.gd's `roster` field; round-transition
 ## integration for that lives in test_game_modes.gd) -- plus its shop
 ## upgrades (a blood-point-cost permanent Effect, reusing
 ## Ability.cast_unit_target() rather than a new framework -- see
-## Scripts/UnitUpgrade.gd). GameManager.buy_upgrade() applies one
+## Scripts/Combat/UnitUpgrade.gd). GameManager.buy_upgrade() applies one
 ## immediately to a living unit; GameManager.buy_roster_upgrade() is the
 ## real PLACEMENT-time shop path under the staging-area model -- it
 ## records the purchase account-wide on Player.roster_upgrades and

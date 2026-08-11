@@ -1,6 +1,6 @@
 ## Tests for HeroFootiesMode (roadmap Phase 6): thrones spawning at battle
 ## start, the throne-HP win/draw condition, and the automatic wave-spawner
-## (Scripts/HeroFootiesMode.gd).
+## (Scripts/GameModes/HeroFootiesMode.gd).
 extends GutTest
 
 const FOOTMAN_STATS: UnitStats = preload("res://Resources/Units/FootmanStats.tres")

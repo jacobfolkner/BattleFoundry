@@ -13,7 +13,7 @@ Do **not** add to README.md:
   guaranteed conflict on the same lines every time.
 - "Why we built it this way" rationale essays for a specific system.
   That belongs in the system's own doc-comment header (e.g.
-  `Scripts/GameManager.gd`'s top comment, `Scripts/Unit.gd`'s), which is
+  `Scripts/Autoloads/GameManager.gd`'s top comment, `Scripts/Combat/Unit.gd`'s), which is
   already the source of truth other agents/devs will read when touching
   that file. Duplicating it into README means keeping two places in
   sync for no reader benefit, and it's most of what caused past merge
@@ -102,3 +102,17 @@ lighting bug in the game itself.
   naming a field `_input` (or anything else that shadows a `Node`
   virtual — `_process`, `_ready`, `_draw`, ...) if it needs to be reached
   from outside the class.
+- **Moving a `.gd` file breaks every reference to it that isn't through
+  its `class_name`.** Every `.gd` script here has a matching `.gd.uid`
+  sidecar, but this project's `.tres`/`.tscn` `ext_resource` lines use a
+  plain `path=` attribute with no `uid=` — confirmed by moving a script
+  and reimporting, which threw cascading `File not found` errors until
+  every literal `res://Scripts/OldPath.gd` string (`.tres`/`.tscn` files,
+  `project.godot`'s `[autoload]` block, and any doc-comment prose citing
+  the old path) was rewritten by hand. A type reference via `class_name`
+  (e.g. `var x: SomeClass`) needs none of this and just keeps working —
+  but only if the moved script actually declares a `class_name` in the
+  first place; `Scripts/Core/OrbitCamera.gd` didn't for a long time, and
+  a first attempt to reference it by type (`as OrbitCamera`) failed with
+  `Could not find type "OrbitCamera" in the current scope"` until one was
+  added, followed by the usual reimport pass.

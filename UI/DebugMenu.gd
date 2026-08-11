@@ -1,4 +1,4 @@
-## Toggleable panel (backtick) with one checkbox per Scripts/DebugSettings.gd
+## Toggleable panel (backtick) with one checkbox per Scripts/Autoloads/DebugSettings.gd
 ## flag, built generically from get_flag_names() -- adding a new flag
 ## there is all a new toggle needs, no changes here. Backtick, not F1:
 ## F1 is commonly intercepted by the OS/window manager as "Help" before

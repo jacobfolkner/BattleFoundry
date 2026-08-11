@@ -1,5 +1,5 @@
 ## Tests for the goblin boss round's team-by-team sequencing controller
-## (Scripts/GoblinBossRound.gd) and the BloodTournamentMode/Main.gd
+## (Scripts/BloodTournament/GoblinBossRound.gd) and the BloodTournamentMode/Main.gd
 ## plumbing it depends on (is_boss_round(), current_boss_team_id-aware
 ## can_start_battle()/check_victory()/on_battle_ended(), finish_boss_round(),
 ## Main._on_start_battle_pressed()). The death-escalation mechanic itself

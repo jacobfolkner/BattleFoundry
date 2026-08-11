@@ -51,7 +51,7 @@ const DEFAULT_BINDINGS := {
 	"jump_to_hero": KEY_SPACE,
 }
 
-## Player-facing label for each action, shown by Scripts/SettingsMenu.gd
+## Player-facing label for each action, shown by UI/SettingsMenu.gd
 ## (Phase 10's remap screen) -- the snake_case action_name strings above
 ## are InputMap-internal, not fit to show a player directly.
 const ACTION_DISPLAY_NAMES := {
@@ -114,7 +114,7 @@ func display_name(action_name: String) -> String:
 ## ones this autoload ever registers), or "" if none claim it.
 ## `excluding_action` is the action actually being rebound -- rebinding
 ## it to the key it already holds shouldn't read as a conflict with
-## itself. Used by Scripts/SettingsMenu.gd to refuse a rebind that would
+## itself. Used by UI/SettingsMenu.gd to refuse a rebind that would
 ## silently make two actions fire off the same key, rather than letting
 ## InputMap.action_add_event() just add a second claimant with no warning.
 func find_conflicting_action(excluding_action: String, keycode: Key) -> String:
@@ -128,7 +128,7 @@ func find_conflicting_action(excluding_action: String, keycode: Key) -> String:
 
 
 ## Restores every action this autoload registers back to its
-## DEFAULT_BINDINGS keycode -- Scripts/SettingsMenu.gd's "Reset to
+## DEFAULT_BINDINGS keycode -- UI/SettingsMenu.gd's "Reset to
 ## Defaults" button.
 func reset_to_defaults() -> void:
 	for action_name in DEFAULT_BINDINGS:

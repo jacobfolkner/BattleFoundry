@@ -27,13 +27,13 @@ window/stretch/aspect="keep"
 
 [autoload]
 
-Hotkeys="*res://Scripts/Hotkeys.gd"
-GameManager="*res://Scripts/GameManager.gd"
-DebugInspector="*res://Scripts/DebugInspector.gd"
-DebugSettings="*res://Scripts/DebugSettings.gd"
-SelectionManager="*res://Scripts/SelectionManager.gd"
-MenuSelection="*res://Scripts/MenuSelection.gd"
-Sfx="*res://Scripts/Sfx.gd"
+Hotkeys="*res://Scripts/Autoloads/Hotkeys.gd"
+GameManager="*res://Scripts/Autoloads/GameManager.gd"
+DebugInspector="*res://Scripts/Autoloads/DebugInspector.gd"
+DebugSettings="*res://Scripts/Autoloads/DebugSettings.gd"
+SelectionManager="*res://Scripts/Autoloads/SelectionManager.gd"
+MenuSelection="*res://Scripts/Autoloads/MenuSelection.gd"
+Sfx="*res://Scripts/Autoloads/Sfx.gd"
 
 [layer_names]
 

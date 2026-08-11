@@ -1,6 +1,6 @@
 [gd_resource type="Resource" script_class="UnitStats" load_steps=5 format=3]
 
-[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+[ext_resource type="Script" path="res://Scripts/Combat/UnitStats.gd" id="1"]
 [ext_resource type="Resource" path="res://Resources/Abilities/WarStompAbility.tres" id="2"]
 [ext_resource type="Texture2D" path="res://Resources/Icons/Tank.svg" id="3"]
 [ext_resource type="Resource" path="res://Resources/Factions/OrcFaction.tres" id="4"]

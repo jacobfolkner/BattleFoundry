@@ -1,7 +1,7 @@
 ## Turns mouse/keyboard input into the right action for the current
 ## battle_state: unit placement during PLACEMENT, and selection/order-
-## issuing (SelectionManager, Scripts/SelectionManager.gd) during BATTLE.
-## A click first gets offered to DebugInspector (Scripts/DebugInspector.gd)
+## issuing (SelectionManager, Scripts/Autoloads/SelectionManager.gd) during BATTLE.
+## A click first gets offered to DebugInspector (Scripts/Autoloads/DebugInspector.gd)
 ## in case it landed on a unit; only an unclaimed click can place one or
 ## fall through to a box-select/deselect.
 ##

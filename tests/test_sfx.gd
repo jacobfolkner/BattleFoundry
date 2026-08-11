@@ -1,4 +1,4 @@
-## Tests for Scripts/Sfx.gd (roadmap Phase 9's "no audio" gap) -- both the
+## Tests for Scripts/Autoloads/Sfx.gd (roadmap Phase 9's "no audio" gap) -- both the
 ## procedural synthesis itself (each sound is a distinct non-empty buffer)
 ## and that real gameplay events actually trigger playback. Headless/no
 ## audio device means nothing here can assert a sound is literally

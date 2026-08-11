@@ -1,4 +1,4 @@
-## Tests for Scripts/OrbitCamera.gd's jump-to-hero (Space) -- roadmap
+## Tests for Scripts/Core/OrbitCamera.gd's jump-to-hero (Space) -- roadmap
 ## Phase 1's "jump-to-hero" item. Arrow-key/edge-pan movement itself isn't
 ## covered here (no clean way to simulate a held key or a real cursor
 ## position under GUT's headless run without a lot of input-simulation

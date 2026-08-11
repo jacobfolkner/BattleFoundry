@@ -1,4 +1,4 @@
-## Tests for Scripts/Projectile.gd and the projectile_speed/projectile_homing
+## Tests for Scripts/Combat/Projectile.gd and the projectile_speed/projectile_homing
 ## fields it reads off UnitStats -- Archer is the first archetype
 ## migrated onto it (see ArcherStats.tres), replacing its old instant
 ## ranged damage.

@@ -5,7 +5,7 @@
 ## win condition itself -- GameManager stays a mode-agnostic entity
 ## registry + lifecycle; what "winning" means is entirely up to the mode.
 ##
-## The default, ClassicEliminationMode (Scripts/ClassicEliminationMode.gd),
+## The default, ClassicEliminationMode (Scripts/GameModes/ClassicEliminationMode.gd),
 ## reproduces exactly the "team roster empty -> the other team wins"
 ## behavior this project always had, so a caller that never sets a mode
 ## sees no change at all.
@@ -107,7 +107,7 @@ func uses_cross_map() -> bool:
 	return false
 
 
-## Which ArenaMap (Scripts/ArenaMap.gd) this mode wants built -- replaces
+## Which ArenaMap (Scripts/Maps/ArenaMap.gd) this mode wants built -- replaces
 ## what used to be a bool-driven if/elif in Main.gd with a real OOP
 ## extension point: a new mode wanting a new map shape overrides this to
 ## return a new ArenaMap subclass instance, and Main.gd (see

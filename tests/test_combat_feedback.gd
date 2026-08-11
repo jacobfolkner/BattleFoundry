@@ -1,5 +1,5 @@
 ## Tests for roadmap Phase 9's first landed piece: floating combat text
-## (Scripts/DamagePopup.gd) and the hit flash (Unit._tick_hit_flash()) --
+## (Scripts/Indicators/DamagePopup.gd) and the hit flash (Unit._tick_hit_flash()) --
 ## both purely cosmetic, triggered from Unit.take_damage() whenever a hit
 ## actually lands.
 extends GutTest

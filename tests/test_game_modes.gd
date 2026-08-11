@@ -1,8 +1,8 @@
 ## Tests for the GameMode extraction (D3): GameManager delegating victory
 ## conditions to GameManager.current_mode instead of hardcoding
-## elimination itself (see Scripts/GameMode.gd, Scripts/ClassicEliminationMode.gd),
+## elimination itself (see Scripts/GameModes/GameMode.gd, Scripts/GameModes/ClassicEliminationMode.gd),
 ## and the first real mode built on top of it, BloodTournamentMode
-## (Scripts/BloodTournamentMode.gd) -- best-of-N rounds with the arena
+## (Scripts/GameModes/BloodTournamentMode.gd) -- best-of-N rounds with the arena
 ## auto-resetting between them.
 extends GutTest
 

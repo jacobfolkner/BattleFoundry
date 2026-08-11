@@ -610,7 +610,7 @@ func _tick_hit_flash(delta: float) -> void:
 	_body_material.albedo_color = player.color.lerp(_HIT_FLASH_COLOR, _hit_flash_remaining / _HIT_FLASH_DURATION)
 
 
-## Roadmap Phase 9's "floating combat text" -- one Scripts/DamagePopup.gd
+## Roadmap Phase 9's "floating combat text" -- one Scripts/Indicators/DamagePopup.gd
 ## instance per landed hit, parented into GameManager.units_container
 ## (same parent Projectile.gd uses) rather than as this Unit's own child,
 ## since it needs to keep rising/fading and free itself on its own
@@ -1191,7 +1191,7 @@ func _release_attack_at(target: Unit) -> void:
 		resolve_hit(target, global_position)
 
 
-## Instantiates a Projectile (Scripts/Projectile.gd) aimed at `target`,
+## Instantiates a Projectile (Scripts/Combat/Projectile.gd) aimed at `target`,
 ## carrying this Unit's stats forward so the hit -- resolve_hit() below --
 ## only lands once it actually arrives, instead of the instant the attack
 ## cooldown allows.
@@ -1329,7 +1329,7 @@ func die(killer: Unit = null) -> void:
 	died.emit(self, killer)
 
 
-## Read-only snapshot for Scripts/DebugInspector.gd / UI/DebugPanel.gd,
+## Read-only snapshot for Scripts/Autoloads/DebugInspector.gd / UI/DebugPanel.gd,
 ## shown regardless of debug-menu toggles. Everything here is derived by
 ## re-reading existing public state -- this method never sets anything,
 ## so it can't affect AI, combat, or targeting. Values are pre-formatted

@@ -1,9 +1,9 @@
 ## Keybind remapping screen -- closes roadmap Phase 10's "settings/
-## keybind remapping UI" item. Scripts/Hotkeys.gd already proves the
+## keybind remapping UI" item. Scripts/Autoloads/Hotkeys.gd already proves the
 ## underlying InputMap-rebind mechanism works (rebind(), tested by
 ## tests/test_hotkeys.gd) but had no player-facing screen calling into it
 ## before this. Built in code, same convention as UI/HUD.gd/
-## Scripts/MainMenu.gd -- reachable from MainMenu.gd's new "Settings"
+## UI/MainMenu.gd -- reachable from MainMenu.gd's new "Settings"
 ## button.
 ##
 ## Rebinding flow: pressing a row's own "Rebind" button puts that row
@@ -53,7 +53,7 @@ func _ready() -> void:
 	column.add_child(title)
 
 	# Same dark-card treatment as UI/HUD.gd's placement screen and
-	# Scripts/MainMenu.gd -- previously a bare column of labels with no
+	# UI/MainMenu.gd -- previously a bare column of labels with no
 	# visual grouping at all, one of the screens flagged as inconsistent
 	# with the rest of the game's UI.
 	var keybinds_card := _wrap_in_card(column, "")
@@ -101,7 +101,7 @@ func _ready() -> void:
 	button_row.add_child(_back_button)
 
 
-## Same pattern as Scripts/MainMenu.gd's own _wrap_in_card() (itself
+## Same pattern as UI/MainMenu.gd's own _wrap_in_card() (itself
 ## copied from UI/HUD.gd's) -- kept as a 3rd private copy rather than a
 ## shared helper since none of these 3 classes share a common ancestor
 ## worth introducing just for this, matching this codebase's existing

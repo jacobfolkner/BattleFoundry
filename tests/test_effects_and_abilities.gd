@@ -1,5 +1,5 @@
-## Tests for Scripts/Effect.gd (timed/permanent CC and stat-modifier
-## effects) and Scripts/Ability.gd (data-driven abilities cast via
+## Tests for Scripts/Combat/Effect.gd (timed/permanent CC and stat-modifier
+## effects) and Scripts/Combat/Ability.gd (data-driven abilities cast via
 ## Unit.cast_ability()) -- the roadmap's "Ability & Effect system,"
 ## v1 scope: three concrete abilities (War Stomp on Tank, Frost Bolt on
 ## Archer, Toughness on Fighter) plus Giant's knockback ported in as a

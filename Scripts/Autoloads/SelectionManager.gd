@@ -3,7 +3,7 @@
 ## stop/hold/patrol/follow orders (see Unit.order_*) to whatever's
 ## currently selected.
 ##
-## Separate from DebugInspector (Scripts/DebugInspector.gd), which is a
+## Separate from DebugInspector (Scripts/Autoloads/DebugInspector.gd), which is a
 ## read-only debug overlay for inspecting any one unit regardless of who
 ## owns it -- this is the actual gameplay selection a player commands
 ## units through, and it enforces ownership (see local_player), which

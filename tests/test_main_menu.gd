@@ -1,6 +1,6 @@
 ## Tests for UI/MainMenu.gd (the front screen before Scenes/Main.tscn,
 ## see project.godot's run/main_scene) and its hand-off to Main.gd via the
-## MenuSelection autoload (see Scripts/MenuSelection.gd,
+## MenuSelection autoload (see Scripts/Autoloads/MenuSelection.gd,
 ## Main._apply_menu_selection()).
 extends GutTest
 
@@ -30,7 +30,7 @@ func test_toggling_options_and_pressing_play_records_the_selection() -> void:
 
 ## Doesn't exercise _on_settings_pressed() itself (it calls
 ## change_scene_to_file(), which would tear down this test's own scene
-## tree) -- just confirms the button Scripts/SettingsMenu.gd's screen is
+## tree) -- just confirms the button UI/SettingsMenu.gd's screen is
 ## reachable through actually exists and is wired to the right handler.
 func test_settings_button_exists_and_is_wired_to_the_settings_scene() -> void:
 	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
@@ -73,7 +73,7 @@ func test_main_honors_menu_selection_and_clears_it_afterward() -> void:
 
 ## Both game-mode toggles claim GameManager.current_mode, so the menu itself
 ## (not just Main.gd's runtime handlers) must not let a player leave both
-## pressed -- see _build_options()'s toggle wiring in Scripts/MainMenu.gd.
+## pressed -- see _build_options()'s toggle wiring in UI/MainMenu.gd.
 func test_hero_footies_and_tournament_toggles_are_mutually_exclusive_in_the_menu() -> void:
 	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
 	add_child_autofree(menu)

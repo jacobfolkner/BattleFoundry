@@ -1,6 +1,6 @@
-## Tests for Scripts/SettingsMenu.gd (roadmap Phase 10's "settings/
+## Tests for UI/SettingsMenu.gd (roadmap Phase 10's "settings/
 ## keybind remapping UI" item) -- the screen that finally calls into
-## Scripts/Hotkeys.gd's already-tested rebind()/find_conflicting_action()/
+## Scripts/Autoloads/Hotkeys.gd's already-tested rebind()/find_conflicting_action()/
 ## reset_to_defaults(). Drives begin_rebind()/_handle_rebind_key()
 ## directly rather than routing a synthetic InputEvent through the whole
 ## SceneTree, matching this project's established style for anything a

@@ -1,5 +1,5 @@
 ## Tests for the bracket-style single-elimination final tournament
-## (Scripts/FinalTournamentBracket.gd), Stage D of the goblin boss round
+## (Scripts/BloodTournament/FinalTournamentBracket.gd), Stage D of the goblin boss round
 ## feature -- see BattleFoundry-Roadmap.md §1. Confirmed design: teams
 ## ranked by round wins (ties broken by total blood points earned) are
 ## paired adjacently by seed, an odd team out gets a bye (to the single

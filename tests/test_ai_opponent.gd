@@ -1,4 +1,4 @@
-## Tests for the Blood Tournament AI opponent: Scripts/AIController.gd
+## Tests for the Blood Tournament AI opponent: Scripts/BloodTournament/AIController.gd
 ## (spends a Player's gold on units/an upgrade during PLACEMENT) and its
 ## wiring into Main.gd (the "AI Opponent" HUD toggle flips Red's
 ## Player.is_human and triggers a turn at every PLACEMENT entry point).

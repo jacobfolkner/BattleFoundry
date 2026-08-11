@@ -1,4 +1,4 @@
-## Tests for the P/order_patrol hotkey (Scripts/PlayerInputController.gd's
+## Tests for the P/order_patrol hotkey (Scripts/Core/PlayerInputController.gd's
 ## begin_patrol_targeting()/resolve_pending_patrol()/cancel_pending_patrol()),
 ## closing the roadmap's long-standing "no PATROL hotkey" rough edge --
 ## Unit.order_patrol()/SelectionManager.order_patrol() were already complete

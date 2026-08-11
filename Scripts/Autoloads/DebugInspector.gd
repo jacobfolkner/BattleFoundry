@@ -5,7 +5,7 @@
 ## between them, an attack-range ring, and cyan/magenta lines for desired
 ## vs. avoidance-adjusted velocity (see Unit._build_avoidance()) -- is
 ## targeting/steering detail gated behind the "pathfinding" flag in
-## Scripts/DebugSettings.gd (toggled from UI/DebugMenu.gd, backtick), so
+## Scripts/Autoloads/DebugSettings.gd (toggled from UI/DebugMenu.gd, backtick), so
 ## a plain click doesn't dump the whole set into the arena. Colors are
 ## public constants so DebugMenu can build a matching legend without
 ## duplicating them.

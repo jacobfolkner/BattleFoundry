@@ -390,9 +390,9 @@ func _on_play_pressed() -> void:
 	get_tree().change_scene_to_packed(packed)
 
 
-## Roadmap Phase 10's "settings/keybind remapping UI" -- Scripts/Hotkeys.gd
+## Roadmap Phase 10's "settings/keybind remapping UI" -- Scripts/Autoloads/Hotkeys.gd
 ## already has the actual InputMap-rebind mechanism (rebind(), tested by
-## tests/test_hotkeys.gd); Scripts/SettingsMenu.gd is the screen that
+## tests/test_hotkeys.gd); UI/SettingsMenu.gd is the screen that
 ## finally calls into it. A separate scene (not a panel bolted onto this
 ## one) since it needs its own full-screen key-capture input handling
 ## (_unhandled_input()) that would otherwise compete with this menu's own.

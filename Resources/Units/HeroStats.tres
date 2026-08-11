@@ -1,11 +1,11 @@
 [gd_resource type="Resource" script_class="UnitStats" load_steps=15 format=3]
 
-[ext_resource type="Script" path="res://Scripts/UnitStats.gd" id="1"]
+[ext_resource type="Script" path="res://Scripts/Combat/UnitStats.gd" id="1"]
 [ext_resource type="Resource" path="res://Resources/Abilities/CleaveStrikeAbility.tres" id="2"]
 [ext_resource type="Resource" path="res://Resources/Abilities/GroundSlamAbility.tres" id="3"]
 [ext_resource type="Resource" path="res://Resources/Abilities/RallyingRoarAbility.tres" id="4"]
 [ext_resource type="Resource" path="res://Resources/Abilities/AuraOfVigorAbility.tres" id="5"]
-[ext_resource type="Script" path="res://Scripts/AbilityChoiceSet.gd" id="6"]
+[ext_resource type="Script" path="res://Scripts/Combat/AbilityChoiceSet.gd" id="6"]
 [ext_resource type="Resource" path="res://Resources/Abilities/BattleCryAbility.tres" id="7"]
 [ext_resource type="Resource" path="res://Resources/Abilities/IronWillAbility.tres" id="8"]
 [ext_resource type="Resource" path="res://Resources/Abilities/ExecuteAbility.tres" id="9"]
