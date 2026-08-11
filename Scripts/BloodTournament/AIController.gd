@@ -18,12 +18,22 @@
 class_name AIController
 extends RefCounted
 
+## Every purchasable archetype, same set UI/HUD.gd's own build menu offers
+## (including Hero, previously missing here -- the AI never bought one at
+## all) -- _affordable_units() below filters this down to `player`'s own
+## Player.faction, the same race restriction a human's build menu enforces
+## visually via HUD.refresh_unit_panel_for_faction() (usability feedback,
+## 2026-08-11: "bots need to follow restrictions" too).
 const _UNIT_POOL: Array[UnitStats] = [
 	preload("res://Resources/Units/TankStats.tres"),
 	preload("res://Resources/Units/FighterStats.tres"),
+	preload("res://Resources/Units/AxeThrowerStats.tres"),
 	preload("res://Resources/Units/ArcherStats.tres"),
+	preload("res://Resources/Units/HeroStats.tres"),
+	preload("res://Resources/Units/PriestStats.tres"),
 	preload("res://Resources/Units/BatRiderStats.tres"),
 	preload("res://Resources/Units/GiantStats.tres"),
+	preload("res://Resources/Units/SpitterStats.tres"),
 ]
 const _UPGRADE_POOL: Array[UnitUpgrade] = [
 	preload("res://Resources/Upgrades/IronArmorUpgrade.tres"),
@@ -55,8 +65,15 @@ func take_turn(player: Player) -> void:
 	_maybe_buy_an_upgrade(player)
 
 
+## `player.faction == null` (a team that somehow never got assigned one --
+## shouldn't happen post-Main._apply_menu_selection(), but several tests
+## build a Player and call take_turn() directly without ever going
+## through the menu) falls back to the whole pool, same "ungated" default
+## HUD.refresh_unit_panel_for_faction(null) already uses.
 func _affordable_units(player: Player) -> Array[UnitStats]:
-	return _UNIT_POOL.filter(func(stats: UnitStats) -> bool: return player.can_afford(stats.cost))
+	return _UNIT_POOL.filter(func(stats: UnitStats) -> bool:
+		return player.can_afford(stats.cost) and (player.faction == null or stats.faction == player.faction)
+	)
 
 
 func _maybe_buy_an_upgrade(player: Player) -> void:

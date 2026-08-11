@@ -17,13 +17,21 @@ var display_name: String
 var color: Color
 var is_human: bool
 ## The race this player is building from -- gates which archetypes
-## HUD._build_unit_panel() shows (see HUD.refresh_unit_panel_for_faction()).
-## Assigned once per match by Main._apply_menu_selection() (the lobby's
-## chosen faction for the human slot, Faction.random_pick() for every
-## other team) -- null only before that first assignment (e.g. classic
-## mode's own tests that never go through the menu at all), in which case
-## the build menu shows every archetype ungated, same as before this
-## feature existed.
+## HUD._build_unit_panel() shows (HUD.refresh_unit_panel_for_faction())
+## and which ones AIController.take_turn() will buy
+## (AIController._affordable_units()). Assigned once per match by
+## Main._apply_menu_selection(), and ONLY under Blood Tournament (the lobby's
+## chosen faction for the human slot, FactionRegistry.random_pick() for
+## every other team) -- race is meaningless outside the one mode with a
+## shop, and unconditional assignment regardless of mode was tried and
+## reverted (2026-08-11): Player is a persistent RefCounted, so it made
+## every classic-mode match/test get a random faction whether it asked
+## for one or not, which is exactly the cross-test-pollution shape this
+## project has hit before, just via randomness instead of leftover state.
+## Stays null for classic mode/Hero Footies and any test that never goes
+## through the menu at all -- both HUD's and AIController's own gates
+## treat null as "ungated," the full archetype list, unchanged from
+## before this feature existed.
 var faction: Faction = null
 ## Gold -- only meaningful while GameManager.current_mode.uses_economy() is
 ## true (see GameMode.gd/BloodTournamentMode.gd); stays 0 and unused for

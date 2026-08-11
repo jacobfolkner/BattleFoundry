@@ -122,20 +122,6 @@ func _apply_menu_selection() -> void:
 	MenuSelection.bot_team_ids.clear()
 	MenuSelection.chosen_faction = null
 
-	# Every team gets a race, not just whoever ends up playing this match
-	# -- cheaper than threading active_team_ids through this too, and
-	# harmless for a team that never plays. The human's own slot gets the
-	# lobby's pick (or a random one if they left it on "Random"); every
-	# other slot (bots included) always gets a random race -- there's no
-	# per-bot picker. HUD.refresh_unit_panel_for_faction() then gates the
-	# build menu to the human player's own race -- a no-op visually for
-	# classic mode/Hero Footies, neither of which ever opens the build
-	# menu, so this runs unconditionally rather than only under `tournament`.
-	for team_id in GameManager.all_team_ids():
-		var player := GameManager.get_player(team_id)
-		player.faction = chosen_faction if (team_id == human_team_id and chosen_faction != null) else FactionRegistry.random_pick()
-	_hud.refresh_unit_panel_for_faction(GameManager.get_player(human_team_id).faction)
-
 	_on_team_selected(human_team_id) # harmless no-op when this is already the default (Blue)
 
 	# AI first: _on_tournament_toggled(true)'s own tail call to
@@ -160,6 +146,32 @@ func _apply_menu_selection() -> void:
 		for team_id in GameManager.all_team_ids():
 			GameManager.get_player(team_id).is_human = not bot_team_ids.has(team_id)
 	if tournament:
+		# Race only means anything under Blood Tournament (the one mode
+		# with a shop) -- gated here, not unconditionally above, since
+		# every OTHER test/scenario that loads Main.tscn (the large
+		# majority, classic mode by default) would otherwise get a random
+		# Player.faction assigned whether it asked for one or not. That
+		# already broke several AIController tests that assume a specific
+		# archetype's cost is affordable regardless of faction -- Player is
+		## a persistent RefCounted (same category of cross-test-pollution
+		## risk already on file for is_human/resources/current_mode), so an
+		## assignment here has to be genuinely conditional, not just
+		## "harmless," to avoid reintroducing that lesson via randomness
+		## instead of leftover state.
+		#
+		# Every team gets a race, not just whoever ends up playing this
+		# match -- cheaper than threading active_team_ids through this too,
+		# and harmless for a team that never plays. The human's own slot
+		# gets the lobby's pick (or a random one if left on "Random");
+		# every other slot (bots included) always gets a random race --
+		# there's no per-bot picker. Assigned before _on_tournament_toggled()
+		# runs, not after, since its own tail call is what actually runs
+		# the AI's first turn -- AIController needs Player.faction to
+		# already be set the moment it buys.
+		for team_id in GameManager.all_team_ids():
+			var player := GameManager.get_player(team_id)
+			player.faction = chosen_faction if (team_id == human_team_id and chosen_faction != null) else FactionRegistry.random_pick()
+		_hud.refresh_unit_panel_for_faction(GameManager.get_player(human_team_id).faction)
 		_on_tournament_toggled(true, active_team_ids) # its own tail call to _run_ai_turn_if_needed() is what actually runs the AI's first turn
 	elif hero_footies:
 		_on_hero_footies_toggled(true)
