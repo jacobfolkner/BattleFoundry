@@ -8,9 +8,15 @@ class_name HealthBar
 extends Node3D
 
 const WIDTH: float = 1.0
-const HEIGHT: float = 0.12
+## Was 0.12 -- at the zoom levels a full Blood Tournament battle is
+## actually viewed from, that read as a 4-6px sliver with no missing-
+## health contrast at all (usability review, 2026-08-11). Taller, plus a
+## red (not neutral dark) background below so the "damage taken" portion
+## reads as a real red segment behind the green fill, not just empty space.
+const HEIGHT: float = 0.2
 const FULL_COLOR := Color(0.2, 0.9, 0.2)
 const EMPTY_COLOR := Color(0.9, 0.15, 0.15)
+const _BACKGROUND_COLOR := Color(0.45, 0.08, 0.08)
 
 var _fill_instance: MeshInstance3D
 var _fill_mesh: QuadMesh
@@ -25,7 +31,7 @@ func _ready() -> void:
 func _build_background() -> void:
 	var quad := QuadMesh.new()
 	quad.size = Vector2(WIDTH, HEIGHT)
-	quad.surface_set_material(0, _make_bar_material(Color(0.08, 0.08, 0.08)))
+	quad.surface_set_material(0, _make_bar_material(_BACKGROUND_COLOR))
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = quad

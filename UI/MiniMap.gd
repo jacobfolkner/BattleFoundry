@@ -25,8 +25,15 @@ const _GROUND_PLANE := Plane(Vector3.UP, 0.0)
 ## Lighter than _background -- reads as "walkable ground" against the
 ## dark surrounding void, same reason _draw_arena_shape() exists at all
 ## (a blank square with only dots on it gives no sense of where you are
-## relative to the actual playable area).
-const _ARENA_SHAPE_COLOR := Color(0.22, 0.24, 0.2, 1.0)
+## relative to the actual playable area). Brightened from the original
+## (0.22, 0.24, 0.2) -- usability review, 2026-08-11: against the near-
+## black _background it was barely distinguishable in an actual
+## screenshot, reading as "just a dark square" rather than a legible map.
+const _ARENA_SHAPE_COLOR := Color(0.4, 0.43, 0.36, 1.0)
+## A visible edge around the whole minimap so it reads as a defined
+## instrument panel rather than blending into whatever's rendered behind
+## it in the corner of the 3D viewport (usability review, 2026-08-11).
+const _BORDER_COLOR := Color(0.75, 0.75, 0.7, 0.9)
 
 var _background: ColorRect
 
@@ -164,3 +171,5 @@ func _draw() -> void:
 			continue
 		var dot_position := _world_to_map(unit.global_position, half_extent)
 		draw_circle(dot_position, _DOT_RADIUS, unit.player.color)
+
+	draw_rect(Rect2(Vector2.ZERO, Vector2(_SIZE, _SIZE)), _BORDER_COLOR, false, 1.5)

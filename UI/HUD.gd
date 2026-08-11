@@ -85,6 +85,7 @@ var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
 var _buff_row: HBoxContainer
 var _targeting_label: Label
+var _placement_hint_label: Label
 var _hero_level_label: Label
 var _hero_xp_bar: ProgressBar
 var _minimap: MiniMap
@@ -128,6 +129,7 @@ func _ready() -> void:
 	_build_ability_hotbar()
 	_build_buff_row()
 	_build_targeting_prompt()
+	_build_placement_hint()
 	_build_hero_level_label()
 	_build_minimap()
 
@@ -143,6 +145,7 @@ func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
+	_refresh_placement_hint()
 	refresh_match_toggles_visibility()
 
 
@@ -227,8 +230,28 @@ func _add_unit_type_button(parent: Control, group: ButtonGroup, stats: UnitStats
 	var button := _add_toggle_button(parent, "%s (%dg)" % [stats.unit_name, stats.cost], group, is_pressed, func(): unit_type_selected.emit(stats))
 	button.tooltip_text = _unit_tooltip_text(stats)
 	_set_button_icon(button, stats.icon)
+	_apply_faction_border(button, stats.faction)
 	_unit_type_buttons.append(button)
 	_unit_type_stats.append(stats)
+
+
+## A colored left border matching the archetype's own Faction.accent_color
+## -- the same color Unit._build_faction_accent() already renders as a
+## ground ring under the unit in the arena. The shop and the battlefield
+## previously shared no visual language at all: every build-menu icon was
+## a faction-agnostic white silhouette, and a unit only ever read as
+## "team-colored" once placed (usability review, 2026-08-11). A no-op
+## when stats.faction is null.
+func _apply_faction_border(button: Button, faction: Faction) -> void:
+	if faction == null:
+		return
+	for state in ["normal", "hover", "disabled"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.13, 0.13, 0.15) if state != "hover" else Color(0.18, 0.18, 0.2)
+		style.set_corner_radius_all(4)
+		style.border_color = faction.accent_color
+		style.border_width_left = 4
+		button.add_theme_stylebox_override(state, style)
 
 
 ## Shared by every button-icon assignment in this file. Resources/Icons/*.svg
@@ -343,6 +366,21 @@ func _build_start_button(parent: Control) -> void:
 	_start_button = Button.new()
 	_start_button.text = "Start Battle"
 	_start_button.custom_minimum_size = Vector2(140, 40)
+	# Every panel in this HUD shared the same neutral charcoal chrome, so
+	# the one button that actually ends PLACEMENT looked no louder than a
+	## a team-select toggle (usability review, 2026-08-11) -- a filled
+	## accent background makes it read as the primary action, not just
+	## another row in the Match card.
+	var style := StyleBoxFlat.new()
+	style.bg_color = _TOGGLE_SELECTED_COLOR
+	style.set_corner_radius_all(4)
+	_start_button.add_theme_stylebox_override("normal", style)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = _TOGGLE_SELECTED_COLOR.lightened(0.15)
+	hover_style.set_corner_radius_all(4)
+	_start_button.add_theme_stylebox_override("hover", hover_style)
+	_start_button.add_theme_color_override("font_color", Color.BLACK)
+	_start_button.add_theme_color_override("font_hover_color", Color.BLACK)
 	_start_button.pressed.connect(_on_start_pressed)
 	_start_button.pressed.connect(func(): Sfx.play_ui_click())
 	parent.add_child(_start_button)
@@ -868,6 +906,37 @@ func show_targeting_prompt(prompt_text: String) -> void:
 
 func hide_targeting_prompt() -> void:
 	_targeting_label.visible = false
+
+
+func _build_placement_hint() -> void:
+	_placement_hint_label = Label.new()
+	_placement_hint_label.visible = false
+	_placement_hint_label.add_theme_font_size_override("font_size", 16)
+	_placement_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_overlay_label(_placement_hint_label)
+	add_child(_placement_hint_label)
+
+
+## A blank arena with no accompanying instructions gave a first-time
+## player nothing to go on (usability review, 2026-08-11 -- the classic-
+## mode placement screen is otherwise just two side cards and an empty
+## floor). Only shown during PLACEMENT -- once a battle is underway the
+## player already knows what to do, and the label would just be clutter
+## competing with the ability hotbar/buff row for the same screen space.
+## Text depends on uses_economy() since the two placement flows are
+## genuinely different (click-to-place vs. click-your-Builder-to-buy).
+func _refresh_placement_hint() -> void:
+	if not GameManager.is_placement_phase():
+		_placement_hint_label.visible = false
+		return
+
+	_placement_hint_label.text = "Click your Builder to buy units, drag squads in your courtyard to reorder, then Start Battle" \
+		if GameManager.current_mode.uses_economy() \
+		else "Click the arena to place a unit, right-click a unit to sell it, then Start Battle"
+	_placement_hint_label.reset_size()
+	var viewport_width := get_viewport_rect().size.x
+	_placement_hint_label.position = Vector2((viewport_width - _placement_hint_label.size.x) * 0.5, 140)
+	_placement_hint_label.visible = true
 
 
 const _XP_BAR_SIZE := Vector2(160, 10)

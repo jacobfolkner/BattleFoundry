@@ -18,13 +18,6 @@ config/name="BattleFoundry"
 run/main_scene="res://Scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
-[display]
-
-window/size/viewport_width=1920
-window/size/viewport_height=1080
-window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
-
 [autoload]
 
 Hotkeys="*res://Scripts/Autoloads/Hotkeys.gd"
@@ -34,6 +27,13 @@ DebugSettings="*res://Scripts/Autoloads/DebugSettings.gd"
 SelectionManager="*res://Scripts/Autoloads/SelectionManager.gd"
 MenuSelection="*res://Scripts/Autoloads/MenuSelection.gd"
 Sfx="*res://Scripts/Autoloads/Sfx.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
 
 [layer_names]
 
