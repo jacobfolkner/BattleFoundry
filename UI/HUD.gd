@@ -134,6 +134,24 @@ var _hero_draft_card: PanelContainer
 ## rebuild-children-from-scratch pass.
 var _build_menu_card: PanelContainer
 
+## Bottom-left WC3-style unit info panel (portrait/name/health/armor/
+## status) -- gameplay feedback, 2026-08-11: "when selecting a unit you
+## should be able to see a ui on the bottom... notice the health and
+## stats." Distinct from the in-world floating health bar
+## (Unit._health_bar) -- that one's a quick glance during a fight; this
+## is the "look up the exact numbers for whatever I selected" panel WC3
+## itself has, bottom-LEFT specifically so it never collides with the
+## bottom-CENTER ability hotbar/unit action bar/buff row stack. Shows for
+## ANY tracked unit regardless of ownership (matches WC3 -- inspecting an
+## enemy's health/armor is normal, not a Sell-style owned-only action).
+var _unit_info_card: PanelContainer
+var _unit_info_portrait: TextureRect
+var _unit_info_name_label: Label
+var _unit_info_health_bar: ProgressBar
+var _unit_info_health_label: Label
+var _unit_info_armor_label: Label
+var _unit_info_status_label: Label
+
 var _ability_hotbar: HBoxContainer
 var _ability_slot_buttons: Array[Button] = []
 var _unit_action_bar: HBoxContainer
@@ -184,6 +202,7 @@ func _ready() -> void:
 	_build_drag_box()
 	_build_ability_hotbar()
 	_build_unit_action_bar()
+	_build_unit_info_panel()
 	_build_buff_row()
 	_build_targeting_prompt()
 	_build_placement_hint()
@@ -201,6 +220,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
 	_refresh_unit_action_bar()
+	_refresh_unit_info_panel()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
 	_refresh_placement_hint()
@@ -699,7 +719,10 @@ func _build_leaderboard_panel() -> void:
 		header_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
 		_leaderboard_grid.add_child(header_label)
 
-	_set_leaderboard_expanded(false)
+	# Open by default -- gameplay feedback, 2026-08-11: players want the
+	# standings visible without an extra click, collapsing it themselves
+	# (▸/▾) only if they want the screen space back.
+	_set_leaderboard_expanded(true)
 
 
 func _on_leaderboard_collapse_pressed() -> void:
@@ -1116,6 +1139,114 @@ func _refresh_unit_action_bar() -> void:
 	_unit_action_bar.reset_size()
 	var viewport_size := get_viewport_rect().size
 	_unit_action_bar.position = Vector2((viewport_size.x - _unit_action_bar.size.x) * 0.5, viewport_size.y - 40)
+
+
+const _UNIT_INFO_PORTRAIT_SIZE := Vector2(64, 64)
+const _UNIT_INFO_STATS_WIDTH := 220.0
+const _UNIT_INFO_HEALTH_BAR_HEIGHT := 20.0
+
+
+## Card sized/positioned the same manual "compute from
+## get_viewport_rect().size, not anchors" way every other overlay in this
+## file already uses (see _leaderboard_card's own doc comment for why).
+## Portrait reuses UnitStats.icon -- the same texture already used on
+## build-menu/roster buttons, no new art needed. The health bar overlays
+## a ProgressBar (fill) with a Label (exact "current / max" numbers, WC3's
+## own convention) rather than just a percentage -- show_percentage is
+## Godot's own %, not what a player asking "how much HP does this unit
+## have left" actually wants.
+func _build_unit_info_panel() -> void:
+	_unit_info_card = PanelContainer.new()
+	_unit_info_card.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.08, 0.1, 0.9)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(12)
+	_unit_info_card.add_theme_stylebox_override("panel", style)
+	add_child(_unit_info_card)
+
+	var content := HBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	_unit_info_card.add_child(content)
+
+	_unit_info_portrait = TextureRect.new()
+	_unit_info_portrait.custom_minimum_size = _UNIT_INFO_PORTRAIT_SIZE
+	_unit_info_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	content.add_child(_unit_info_portrait)
+
+	var stats_column := VBoxContainer.new()
+	stats_column.custom_minimum_size = Vector2(_UNIT_INFO_STATS_WIDTH, 0)
+	stats_column.add_theme_constant_override("separation", 4)
+	content.add_child(stats_column)
+
+	_unit_info_name_label = Label.new()
+	_unit_info_name_label.add_theme_font_size_override("font_size", 18)
+	stats_column.add_child(_unit_info_name_label)
+
+	# ProgressBar's fill + a Label added as its own child, overlaid rather
+	# than laid out beside it -- Godot draws a Control's children after
+	# itself, so the label renders on top of the bar for free with no
+	# separate positioning code, same overlay trick a HUD health/mana bar
+	# always uses.
+	_unit_info_health_bar = ProgressBar.new()
+	_unit_info_health_bar.custom_minimum_size = Vector2(_UNIT_INFO_STATS_WIDTH, _UNIT_INFO_HEALTH_BAR_HEIGHT)
+	_unit_info_health_bar.show_percentage = false
+	var health_fill_style := StyleBoxFlat.new()
+	health_fill_style.bg_color = Color(0.2, 0.75, 0.25)
+	_unit_info_health_bar.add_theme_stylebox_override("fill", health_fill_style)
+	var health_bg_style := StyleBoxFlat.new()
+	health_bg_style.bg_color = Color(0.15, 0.05, 0.05)
+	_unit_info_health_bar.add_theme_stylebox_override("background", health_bg_style)
+	stats_column.add_child(_unit_info_health_bar)
+
+	_unit_info_health_label = Label.new()
+	_unit_info_health_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_unit_info_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_unit_info_health_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_unit_info_health_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_unit_info_health_bar.add_child(_unit_info_health_label)
+
+	_unit_info_armor_label = Label.new()
+	stats_column.add_child(_unit_info_armor_label)
+
+	_unit_info_status_label = Label.new()
+	stats_column.add_child(_unit_info_status_label)
+
+
+## Shows for whatever HUD.track_unit() last set, alive or dead, owned or
+## not -- WC3 shows an enemy's portrait/health/armor on selection too,
+## it's inspection, not an owned-only action bar like _unit_action_bar's
+## Sell/upgrades are.
+func _refresh_unit_info_panel() -> void:
+	var unit := _tracked_unit
+	var visible_now := unit != null and is_instance_valid(unit)
+	_unit_info_card.visible = visible_now
+	if not visible_now:
+		return
+
+	_unit_info_portrait.texture = unit.stats.icon
+	_unit_info_name_label.text = unit.stats.unit_name
+
+	var max_health := unit.stat_block.max_health()
+	_unit_info_health_bar.max_value = max_health
+	_unit_info_health_bar.value = clampf(unit.current_health, 0.0, max_health)
+	_unit_info_health_label.text = "%d / %d" % [maxi(int(ceilf(unit.current_health)), 0), int(max_health)]
+
+	_unit_info_armor_label.text = "Armor: %.1f" % unit.stat_block.armor()
+	_unit_info_status_label.text = "Status: %s" % unit.status_summary()
+
+	_unit_info_card.reset_size()
+	var viewport_size := get_viewport_rect().size
+	# Stacked above UI/DebugPanel.gd's own bottom-left diagnostic panel
+	# (also always-visible whenever a unit is selected, see its own class
+	# doc comment), not flush to the bottom edge like every other
+	# bottom-left candidate position would be -- HUD.gd stays decoupled
+	# from DebugPanel (separate scenes under Main.tscn's HUDLayer, no
+	# direct reference either way, matching this file's own class doc
+	# comment on staying decoupled from unrelated internals), so this is
+	# a fixed clearance, not a measurement of DebugPanel's real height --
+	# generous enough to clear its detailed-stats-expanded height too.
+	_unit_info_card.position = Vector2(24, viewport_size.y - _unit_info_card.size.y - 220)
 
 
 func _build_buff_row() -> void:

@@ -423,6 +423,26 @@ func get_active_effects() -> Array[Effect]:
 	return _active_effects.duplicate()
 
 
+## Short, player-facing summary for UI/HUD.gd's unit info panel's own
+## "Status" line -- WC3-style CC-name list ("Stunned, Silenced"), not
+## _describe_effects()'s raw effect-id/duration dump (that one's for
+## DebugPanel's detailed-stats mode, a different audience). "-" when
+## nothing's active, same convention _describe_effects() already uses.
+func status_summary() -> String:
+	var parts: Array[String] = []
+	if is_stunned():
+		parts.append("Stunned")
+	if is_rooted():
+		parts.append("Rooted")
+	if is_silenced():
+		parts.append("Silenced")
+	if is_invulnerable():
+		parts.append("Invulnerable")
+	if is_ethereal():
+		parts.append("Ethereal")
+	return ", ".join(parts) if not parts.is_empty() else "-"
+
+
 func _find_effect_by_id(id: String) -> Effect:
 	for effect in _active_effects:
 		if effect.id == id:
