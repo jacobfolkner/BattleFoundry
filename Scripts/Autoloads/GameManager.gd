@@ -44,6 +44,16 @@ signal battle_ended(winning_team_id: int, is_draw: bool)
 ## see _on_unit_ability_cast(). Main.gd listens for this to trigger
 ## camera shake; GameManager itself has no opinion on presentation.
 signal hero_ultimate_cast(unit: Unit)
+## Fires on every death, win or no killer (see _on_unit_died()) --
+## Main.gd listens for this to refresh the gold/blood-points display and
+## leaderboard live during a round, not just on the next explicit UI
+## action (buy/sell/exchange) or round transition. Blood points/kills
+## themselves were already granted correctly the instant a kill
+## happened (Player.add_blood_points()/BloodTournamentMode.on_unit_killed())
+## -- gameplay feedback, 2026-08-11: "blood points and kills should go
+## up during the round as units are killed" was purely a stale-display
+## bug, not a scoring bug.
+signal unit_killed(unit: Unit, killer: Unit)
 
 ## Read-only from outside GameManager -- set only via _transition_to(),
 ## which every method below goes through after validating the
@@ -829,6 +839,7 @@ func _on_unit_died(unit: Unit, killer: Unit) -> void:
 		killer.gain_xp(Unit.XP_PER_KILL)
 		current_mode.on_unit_killed(killer)
 
+	unit_killed.emit(unit, killer)
 	_spawn_death_escalation(unit)
 
 	if not is_battle_active():

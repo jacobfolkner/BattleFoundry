@@ -440,6 +440,28 @@ func test_kill_increments_the_killers_player_kill_count() -> void:
 	assert_eq(blue.kills, 1)
 
 
+## Regression: blood_points/kills were always granted correctly the
+## instant a kill happened, but nothing refreshed the on-screen readout
+## mid-round -- it only redrew on the next explicit UI action (buy/sell/
+## exchange) or round transition, so a kill's real reward stayed
+## invisible until something unrelated happened to trigger a redraw.
+## Gameplay feedback, 2026-08-11: "blood points and kills should go up
+## during the round as units are killed."
+func test_a_kill_mid_round_refreshes_the_visible_gold_and_blood_points_display() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
+	var killer := GameManager.spawn_unit(TANK_STATS, blue, Vector3.ZERO)
+	var victim := GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(1, 0, 0))
+	GameManager.spawn_unit(FIGHTER_STATS, red, Vector3(-5, 0, 0)) # keeps Red's roster non-empty after victim dies
+	GameManager.start_battle()
+
+	victim.take_damage(DamageInstance.new(victim.stat_block.max_health() + 100.0, killer))
+
+	var expected_text := "Gold — Blue %d : %d Red   |   Blood Points — Blue %d : %d Red" % [blue.resources, red.resources, blue.blood_points, red.blood_points]
+	assert_eq(_main._hud._gold_label.text, expected_text, "the gold/blood-points readout should reflect the kill immediately, not wait for the next unrelated UI action")
+
+
 func test_kills_do_not_grant_blood_points_outside_blood_tournament() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)

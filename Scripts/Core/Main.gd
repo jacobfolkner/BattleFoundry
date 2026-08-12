@@ -73,6 +73,7 @@ func _ready() -> void:
 	GameManager.battle_ended.connect(_hud.show_winner)
 	GameManager.battle_started.connect(_begin_staggered_deployment)
 	GameManager.hero_ultimate_cast.connect(_on_hero_ultimate_cast)
+	GameManager.unit_killed.connect(_on_unit_killed)
 	var placement_ghost := PlacementGhost.new()
 	_units_container.add_child(placement_ghost)
 	_input = PlayerInputController.new(_camera, _hud, _refresh_gold_display, placement_ghost)
@@ -299,6 +300,15 @@ func _run_ai_turn_if_needed() -> void:
 ## as ImpactBurst/Sfx not gating on ownership either).
 func _on_hero_ultimate_cast(_unit: Unit) -> void:
 	(_camera as OrbitCamera).shake(0.3, 0.6)
+
+
+## Keeps the gold/blood-points readout and the always-on leaderboard
+## live during a round -- previously only refreshed on the next explicit
+## UI action (buy/sell/exchange) or round transition, so a kill mid-round
+## left the on-screen numbers stale until something else happened to
+## trigger a redraw.
+func _on_unit_killed(_unit: Unit, _killer: Unit) -> void:
+	_refresh_gold_display()
 
 
 ## Swaps GameManager.current_mode between ClassicEliminationMode and a
