@@ -11,9 +11,23 @@ extends GutTest
 const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
+const HERO_STATS: UnitStats = preload("res://Resources/Units/HeroStats.tres")
+const PRIEST_STATS: UnitStats = preload("res://Resources/Units/PriestStats.tres")
+const AXE_THROWER_STATS: UnitStats = preload("res://Resources/Units/AxeThrowerStats.tres")
+const BAT_RIDER_STATS: UnitStats = preload("res://Resources/Units/BatRiderStats.tres")
+const GIANT_STATS: UnitStats = preload("res://Resources/Units/GiantStats.tres")
+const SPITTER_STATS: UnitStats = preload("res://Resources/Units/SpitterStats.tres")
 const MORTAR_STATS: UnitStats = preload("res://Resources/Units/MortarStats.tres")
+const CATAPULT_STATS: UnitStats = preload("res://Resources/Units/CatapultStats.tres")
 const MORTAR_SUPPORT_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/ArcherMortarSupportUpgrade.tres")
 const BATTLE_STANDARD_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/FighterBattleStandardUpgrade.tres")
+const SIEGE_WORKSHOP_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/TankSiegeWorkshopUpgrade.tres")
+const WAR_HORNS_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/AxeThrowerWarHornsUpgrade.tres")
+const HONOR_GUARD_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/HeroHonorGuardUpgrade.tres")
+const ZEALOUS_FAITH_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/PriestZealousFaithUpgrade.tres")
+const WING_SQUADRON_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/BatRiderWingSquadronUpgrade.tres")
+const RALLY_POINT_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/GiantRallyPointUpgrade.tres")
+const BROOD_SWARM_UPGRADE: ArchetypeUpgrade = preload("res://Resources/Upgrades/SpitterBroodSwarmUpgrade.tres")
 
 var _main: Node3D
 
@@ -174,3 +188,128 @@ func test_granted_aura_actually_buffs_nearby_allies_in_combat() -> void:
 		await wait_physics_frames(1)
 
 	assert_gt(ally.stat_block.damage(), damage_before, "the granted aura should actually buff a nearby ally's stats, not just be recorded as a field")
+
+
+# ---------------------------------------------------------------------
+# One upgrade per remaining archetype -- gameplay feedback, 2026-08-12:
+# "can you add upgrades to every one of our units?" Each test below
+# confirms the one thing that upgrade actually does, not every field on
+# it (the mechanics themselves -- composition expansion, granted auras --
+# are already exhaustively covered above; these just prove each concrete
+# upgrade is wired correctly).
+# ---------------------------------------------------------------------
+
+func test_tank_siege_workshop_adds_an_extra_tank_and_a_catapult() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = SIEGE_WORKSHOP_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, SIEGE_WORKSHOP_UPGRADE)
+	blue.roster = [TANK_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	var squad: Array = blue.courtyard_units[0]
+	var tank_count := squad.filter(func(u: Unit) -> bool: return u.stats == TANK_STATS).size()
+	var catapult_count := squad.filter(func(u: Unit) -> bool: return u.stats == CATAPULT_STATS).size()
+	assert_eq(tank_count, TANK_STATS.squad_size + 1)
+	assert_eq(catapult_count, 1)
+
+
+func test_axe_thrower_war_horns_grants_the_squad_a_move_speed_aura() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = WAR_HORNS_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, WAR_HORNS_UPGRADE)
+	blue.roster = [AXE_THROWER_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	for unit in blue.courtyard_units[0]:
+		assert_eq(unit.granted_aura_ability, WAR_HORNS_UPGRADE.aura_ability)
+
+
+func test_hero_honor_guard_adds_a_bonus_tank() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = HONOR_GUARD_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, HONOR_GUARD_UPGRADE)
+	blue.roster = [HERO_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	var squad: Array = blue.courtyard_units[0]
+	assert_eq(squad.size(), HERO_STATS.squad_size + 1)
+	var hero_count := squad.filter(func(u: Unit) -> bool: return u.stats == HERO_STATS).size()
+	var guard_count := squad.filter(func(u: Unit) -> bool: return u.stats == TANK_STATS).size()
+	assert_eq(hero_count, HERO_STATS.squad_size)
+	assert_eq(guard_count, 1)
+
+
+## Priest already has its own baked-in aura (Healing Word, via
+## PriestStats.aura_ability) -- Zealous Faith is a SECOND, independent
+## aura layered on top via granted_aura_ability, not a replacement.
+func test_priest_zealous_faith_stacks_with_the_archetypes_own_baked_in_aura() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = ZEALOUS_FAITH_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, ZEALOUS_FAITH_UPGRADE)
+	blue.roster = [PRIEST_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	for unit in blue.courtyard_units[0]:
+		assert_eq(unit.granted_aura_ability, ZEALOUS_FAITH_UPGRADE.aura_ability)
+		assert_eq(unit.stats.aura_ability.ability_name, "Healing Word", "the archetype's own baked-in aura should be untouched")
+
+
+func test_bat_rider_wing_squadron_adds_two_extra_bat_riders() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = WING_SQUADRON_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, WING_SQUADRON_UPGRADE)
+	blue.roster = [BAT_RIDER_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	assert_eq(blue.courtyard_units[0].size(), BAT_RIDER_STATS.squad_size + 2)
+
+
+func test_giant_rally_point_grants_an_armor_aura() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = RALLY_POINT_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, RALLY_POINT_UPGRADE)
+	blue.roster = [GIANT_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	for unit in blue.courtyard_units[0]:
+		assert_eq(unit.granted_aura_ability, RALLY_POINT_UPGRADE.aura_ability)
+
+
+func test_spitter_brood_swarm_adds_two_extra_spitters() -> void:
+	GameManager.set_mode(BloodTournamentMode.new())
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	blue.blood_points = BROOD_SWARM_UPGRADE.cost
+	GameManager.buy_archetype_upgrade(blue, BROOD_SWARM_UPGRADE)
+	blue.roster = [SPITTER_STATS]
+
+	GameManager.sync_courtyard_to_roster(blue)
+
+	assert_eq(blue.courtyard_units[0].size(), SPITTER_STATS.squad_size + 2)
+
+
+## Every purchasable archetype (UI/HUD.gd's own build menu list) should
+## have at least one upgrade available -- gameplay feedback, 2026-08-12:
+## "can you add upgrades to every one of our units?" A missing entry
+## here would silently leave a unit with nothing to spend blood points
+## on, exactly the gap this whole feature exists to close.
+func test_every_purchasable_archetype_has_at_least_one_upgrade_defined() -> void:
+	var purchasable_archetypes: Array[UnitStats] = [
+		TANK_STATS, FIGHTER_STATS, AXE_THROWER_STATS, ARCHER_STATS,
+		HERO_STATS, PRIEST_STATS, BAT_RIDER_STATS, GIANT_STATS, SPITTER_STATS,
+	]
+	var pool: Array = _main._hud.ARCHETYPE_UPGRADE_POOL # HUD.gd has no class_name, so this reads the const off the real instance rather than the type
+	for stats in purchasable_archetypes:
+		var has_upgrade: bool = pool.any(func(upgrade: ArchetypeUpgrade) -> bool: return upgrade.archetype == stats)
+		assert_true(has_upgrade, "%s should have at least one ArchetypeUpgrade defined" % stats.unit_name)

@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ArchetypeUpgrade" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Combat/ArchetypeUpgrade.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Units/BatRiderStats.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+upgrade_name = "Wing Squadron"
+cost = 100
+archetype = ExtResource("2")
+extra_base_units = 2

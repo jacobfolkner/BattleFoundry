@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ArchetypeUpgrade" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Combat/ArchetypeUpgrade.gd" id="1"]
+[ext_resource type="Resource" path="res://Resources/Units/TankStats.tres" id="2"]
+[ext_resource type="Resource" path="res://Resources/Units/CatapultStats.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+upgrade_name = "Siege Workshop"
+cost = 170
+archetype = ExtResource("2")
+extra_base_units = 1
+bonus_unit_stats = ExtResource("3")
+bonus_unit_count = 1

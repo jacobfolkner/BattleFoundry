@@ -46,6 +46,13 @@ const _UPGRADE_POOL: Array[UnitUpgrade] = [
 const _ARCHETYPE_UPGRADE_POOL: Array[ArchetypeUpgrade] = [
 	preload("res://Resources/Upgrades/ArcherMortarSupportUpgrade.tres"),
 	preload("res://Resources/Upgrades/FighterBattleStandardUpgrade.tres"),
+	preload("res://Resources/Upgrades/TankSiegeWorkshopUpgrade.tres"),
+	preload("res://Resources/Upgrades/AxeThrowerWarHornsUpgrade.tres"),
+	preload("res://Resources/Upgrades/HeroHonorGuardUpgrade.tres"),
+	preload("res://Resources/Upgrades/PriestZealousFaithUpgrade.tres"),
+	preload("res://Resources/Upgrades/BatRiderWingSquadronUpgrade.tres"),
+	preload("res://Resources/Upgrades/GiantRallyPointUpgrade.tres"),
+	preload("res://Resources/Upgrades/SpitterBroodSwarmUpgrade.tres"),
 ]
 ## Safety cap on a single turn's roster additions -- not a balance
 ## number, just a guard against an unbounded loop if a future archetype

@@ -179,6 +179,13 @@ var _upgrade_buttons: Array[Button] = []
 const ARCHETYPE_UPGRADE_POOL: Array[ArchetypeUpgrade] = [
 	preload("res://Resources/Upgrades/ArcherMortarSupportUpgrade.tres"),
 	preload("res://Resources/Upgrades/FighterBattleStandardUpgrade.tres"),
+	preload("res://Resources/Upgrades/TankSiegeWorkshopUpgrade.tres"),
+	preload("res://Resources/Upgrades/AxeThrowerWarHornsUpgrade.tres"),
+	preload("res://Resources/Upgrades/HeroHonorGuardUpgrade.tres"),
+	preload("res://Resources/Upgrades/PriestZealousFaithUpgrade.tres"),
+	preload("res://Resources/Upgrades/BatRiderWingSquadronUpgrade.tres"),
+	preload("res://Resources/Upgrades/GiantRallyPointUpgrade.tres"),
+	preload("res://Resources/Upgrades/SpitterBroodSwarmUpgrade.tres"),
 ]
 var _archetype_upgrade_row: HBoxContainer
 ## Index-aligned with ARCHETYPE_UPGRADE_POOL.
