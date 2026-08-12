@@ -182,6 +182,8 @@ func _build_lobby_panel(parent: Control) -> void:
 	_lobby_panel.visible = false
 	parent.add_child(_lobby_panel)
 
+	_build_lobby_header_row(_lobby_panel)
+
 	for team_id in GameManager.all_team_ids():
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -224,6 +226,35 @@ func _build_lobby_panel(parent: Control) -> void:
 		_faction_options.append(faction_option)
 
 
+## Labels the two dropdown columns -- independent design review,
+## 2026-08-12: "no column headers... 'You/Empty' and 'Random' are only
+## guessable as Player-slot and Race from context." Column widths
+## mirror each data row's own Controls exactly (swatch 16 + name 90 as
+## one blank-text spacer, then two labels matching the dropdowns' own
+## custom_minimum_size) so headers land flush above their real column
+## regardless of container spacing.
+func _build_lobby_header_row(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var spacer := Label.new()
+	spacer.custom_minimum_size = Vector2(16 + 8 + 90, 0)
+	row.add_child(spacer)
+
+	var player_header := Label.new()
+	player_header.text = "Player"
+	player_header.custom_minimum_size = Vector2(100, 0)
+	player_header.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
+	row.add_child(player_header)
+
+	var race_header := Label.new()
+	race_header.text = "Race"
+	race_header.custom_minimum_size = Vector2(120, 0)
+	race_header.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
+	row.add_child(race_header)
+
+
 func _on_slot_option_selected(index: int, team_id: int) -> void:
 	Sfx.play_ui_click()
 	if index != SlotChoice.YOU:
@@ -233,12 +264,35 @@ func _on_slot_option_selected(index: int, team_id: int) -> void:
 			_slot_options[other_team_id].select(SlotChoice.EMPTY)
 
 
+## Godot's toggle_mode Button already swaps between the "normal" and
+## "pressed" theme styleboxes automatically based on button_pressed --
+## green-for-on/neutral-for-off just needed those two styleboxes set,
+## no manual per-toggle swapping. Previously plain default-gray chrome
+## either way (independent design review, 2026-08-12: "the On/Off state
+## has no color coding at all, same white text either way -- you have to
+## read the word, not glance at a color"). Same green Play's own button
+## uses, not a new color -- reads as "this is the same kind of positive/
+## active state," not a third unrelated meaning.
 func _add_toggle(parent: Control, off_text: String, on_text: String, icon: Texture2D = null) -> Button:
 	var button := Button.new()
 	button.text = off_text
 	button.icon = icon
 	button.custom_minimum_size = Vector2(190, 40)
 	button.toggle_mode = true
+
+	var off_style := StyleBoxFlat.new()
+	off_style.bg_color = Color(0.16, 0.16, 0.18)
+	off_style.set_corner_radius_all(6)
+	button.add_theme_stylebox_override("normal", off_style)
+	var on_style := StyleBoxFlat.new()
+	on_style.bg_color = Color(0.2, 0.45, 0.25)
+	on_style.set_corner_radius_all(6)
+	button.add_theme_stylebox_override("pressed", on_style)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(0.22, 0.22, 0.25)
+	hover_style.set_corner_radius_all(6)
+	button.add_theme_stylebox_override("hover", hover_style)
+
 	button.toggled.connect(func(enabled: bool): button.text = on_text if enabled else off_text)
 	button.toggled.connect(func(_enabled: bool): Sfx.play_ui_click()) # only ever fires on real interaction -- the mutual-exclusion resets in _build_options() use set_pressed_no_signal() specifically to avoid re-triggering this
 	parent.add_child(button)

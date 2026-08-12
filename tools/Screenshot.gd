@@ -66,6 +66,14 @@
 ##                                lobby picker (this tool's --tournament
 ##                                doesn't go through Main._apply_menu_selection()
 ##                                at all). Needs --tournament first.
+##   --menu                       Boots Scenes/MainMenu.tscn instead of
+##                                Main.tscn -- a wholly separate path (see
+##                                _run_menu()), every other option above
+##                                is ignored when this is set.
+##   --menu_tournament            With --menu: presses the Blood
+##                                Tournament toggle to reveal the per-slot
+##                                lobby (color/name/Empty-You-Bot/race
+##                                picker per team).
 ##   --wait=<frames>             Physics frames to simulate before
 ##                                capturing. Default: 30. Staggered
 ##                                deployment's first roster slot deploys
@@ -102,6 +110,10 @@ func _ready() -> void:
 
 func _run() -> void:
 	var args := _parse_args()
+
+	if args.has("menu"):
+		await _run_menu(args)
+		return
 
 	var main: Node3D = load("res://Scenes/Main.tscn").instantiate()
 	add_child(main)
@@ -167,6 +179,31 @@ func _run() -> void:
 	for i in range(wait_frames):
 		await get_tree().physics_frame
 	await get_tree().process_frame # let UI (debug menu/panel) layout settle
+
+	_save_screenshot(String(args.get("out", DEFAULT_OUT)))
+	get_tree().quit()
+
+
+## `--menu` boots Scenes/MainMenu.tscn instead of Main.tscn -- everything
+## else this tool does (place/buy/battle/select/etc.) assumes Main.tscn
+## exists, so this is a fully separate early-exit path rather than one
+## more branch threaded through _run()'s own sequence. `--menu_tournament`
+## additionally presses the Blood Tournament toggle (button_pressed = true
+## fires the same toggled signal a real click would) to reveal the
+## per-slot lobby -- otherwise only the mode toggles/Play/Settings buttons
+## are visible.
+func _run_menu(args: Dictionary) -> void:
+	var menu: Control = load("res://Scenes/MainMenu.tscn").instantiate()
+	add_child(menu)
+	await get_tree().process_frame
+
+	if args.has("menu_tournament"):
+		menu._tournament_toggle.button_pressed = true
+		await get_tree().process_frame
+
+	var wait_frames := int(args.get("wait", DEFAULT_WAIT_FRAMES))
+	for i in range(wait_frames):
+		await get_tree().process_frame
 
 	_save_screenshot(String(args.get("out", DEFAULT_OUT)))
 	get_tree().quit()

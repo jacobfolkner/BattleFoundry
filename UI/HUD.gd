@@ -97,6 +97,14 @@ var _leaderboard_collapse_button: Button
 var _leaderboard_grid: GridContainer
 ## Collapsed by default -- see refresh_leaderboard()/show_tournament_score().
 var _leaderboard_expanded: bool = false
+## Wraps _gold_label/_gold_exchange_button/_blood_exchange_button in a
+## real card background -- independent design review, 2026-08-12: this
+## strip used to be 3 bare Controls floating directly over the 3D world
+## (outline-only text, no backing panel, unlike every other HUD group
+## here), and a dark/dimmed trade button (see _UNAFFORDABLE_MODULATE)
+## could visually disappear against a similarly dark unit or courtyard
+## tile rendered right behind it. See show_gold()/hide_gold().
+var _gold_panel: PanelContainer
 var _gold_label: Label
 var _gold_exchange_button: Button
 var _blood_exchange_button: Button
@@ -344,6 +352,19 @@ func _add_unit_type_button(parent: Control, group: ButtonGroup, stats: UnitStats
 ## a faction-agnostic white silhouette, and a unit only ever read as
 ## "team-colored" once placed (usability review, 2026-08-11). A no-op
 ## when stats.faction is null.
+##
+## Covers "pressed" too, not just normal/hover/disabled -- independent
+## design review, 2026-08-12 flagged Tank showing a solid yellow fill
+## while its own Orc siblings (Fighter/Axe Thrower) showed green,
+## reading as a faction-color bug. Root cause: _add_toggle_button()
+## (called before this) already sets a generic solid-yellow "pressed"
+## stylebox for every toggle button in this file (mode toggles, unit
+## buttons alike) -- this just never overrode it for the accent-bordered
+## case, so the CURRENTLY SELECTED unit type was the one button that
+## silently lost its faction color entirely. Selected state now keeps
+## the same accent-colored border/background family (a lighter tint of
+## it, so "selected" still reads as distinct) instead of swapping to an
+## unrelated color.
 func _apply_faction_border(button: Button, faction: Faction) -> void:
 	if faction == null:
 		return
@@ -354,6 +375,15 @@ func _apply_faction_border(button: Button, faction: Faction) -> void:
 		style.border_color = faction.accent_color
 		style.border_width_left = 4
 		button.add_theme_stylebox_override(state, style)
+
+	var pressed_style := StyleBoxFlat.new()
+	pressed_style.bg_color = faction.accent_color.darkened(0.35)
+	pressed_style.set_corner_radius_all(4)
+	pressed_style.border_color = faction.accent_color
+	pressed_style.border_width_left = 4
+	button.add_theme_stylebox_override("pressed", pressed_style)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_hover_pressed_color", Color.WHITE)
 
 
 ## Shared by every button-icon assignment in this file. Resources/Icons/*.svg
@@ -577,35 +607,7 @@ func _build_winner_label() -> void:
 	center.add_child(_winner_label)
 
 	_build_leaderboard_panel()
-
-	# Positioned just below the score label (see show_gold()) rather than
-	# stacked in a Container with it -- same bare-Label-on-a-parentless-
-	# Control gotcha the leaderboard modal itself avoids by living inside
-	# a CenterContainer instead, so this one still gets the manual
-	# get_viewport_rect().size positioning.
-	_gold_label = Label.new()
-	_gold_label.visible = false
-	_gold_label.add_theme_font_size_override("font_size", 18)
-	_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_style_overlay_label(_gold_label)
-	add_child(_gold_label)
-
-	# Positioned below _gold_label in show_gold() (parentless-Control
-	# manual positioning, same gotcha as every other bare Label/Button
-	# added directly to self here).
-	_gold_exchange_button = Button.new()
-	_gold_exchange_button.text = "Trade %dg -> %dbp" % [Player.EXCHANGE_GOLD_PER_CLICK, Player.EXCHANGE_BLOOD_PER_CLICK]
-	_gold_exchange_button.visible = false
-	_gold_exchange_button.pressed.connect(func(): gold_exchange_requested.emit())
-	_gold_exchange_button.pressed.connect(func(): Sfx.play_ui_click())
-	add_child(_gold_exchange_button)
-
-	_blood_exchange_button = Button.new()
-	_blood_exchange_button.text = "Trade %dbp -> %dg" % [Player.EXCHANGE_BLOOD_PER_CLICK, Player.EXCHANGE_GOLD_PER_CLICK]
-	_blood_exchange_button.visible = false
-	_blood_exchange_button.pressed.connect(func(): blood_exchange_requested.emit())
-	_blood_exchange_button.pressed.connect(func(): Sfx.play_ui_click())
-	add_child(_blood_exchange_button)
+	_build_gold_panel()
 
 
 ## A plain translucent fill, not a bordered rectangle (StyleBoxFlat's
@@ -663,7 +665,61 @@ func _style_primary_button(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", Color.BLACK)
 
 
-const _LEADERBOARD_COLUMNS := 6
+## Same dark-card chrome every other HUD group uses -- independent design
+## review, 2026-08-12: previously 3 bare Controls (a _style_overlay_label()
+## outline-only label, 2 Buttons) floated directly over the 3D world with
+## no backing panel, the one HUD group that didn't. A dimmed/disabled
+## trade button (_UNAFFORDABLE_MODULATE) could read as visually "clipped"
+## against a similarly dark unit or courtyard tile happening to render
+## right behind it -- an opaque card backdrop makes that impossible
+## regardless of what's in the 3D scene underneath. See show_gold()/
+## hide_gold().
+func _build_gold_panel() -> void:
+	_gold_panel = PanelContainer.new()
+	_gold_panel.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.1, 0.12, 0.85)
+	style.set_corner_radius_all(8)
+	style.set_content_margin_all(10)
+	_gold_panel.add_theme_stylebox_override("panel", style)
+	add_child(_gold_panel)
+
+	var content := VBoxContainer.new()
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 6)
+	_gold_panel.add_child(content)
+
+	_gold_label = Label.new()
+	_gold_label.add_theme_font_size_override("font_size", 18)
+	_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_gold_label)
+
+	var button_row := HBoxContainer.new()
+	button_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	button_row.add_theme_constant_override("separation", 8)
+	content.add_child(button_row)
+
+	_gold_exchange_button = Button.new()
+	_gold_exchange_button.text = "Trade %dg -> %dbp" % [Player.EXCHANGE_GOLD_PER_CLICK, Player.EXCHANGE_BLOOD_PER_CLICK]
+	_gold_exchange_button.pressed.connect(func(): gold_exchange_requested.emit())
+	_gold_exchange_button.pressed.connect(func(): Sfx.play_ui_click())
+	button_row.add_child(_gold_exchange_button)
+
+	_blood_exchange_button = Button.new()
+	_blood_exchange_button.text = "Trade %dbp -> %dg" % [Player.EXCHANGE_BLOOD_PER_CLICK, Player.EXCHANGE_GOLD_PER_CLICK]
+	_blood_exchange_button.pressed.connect(func(): blood_exchange_requested.emit())
+	_blood_exchange_button.pressed.connect(func(): Sfx.play_ui_click())
+	button_row.add_child(_blood_exchange_button)
+
+
+## 5, not 6 -- independent design review, 2026-08-12: Gold was shown
+## here AND in the top-center gold panel simultaneously, the same number
+## in two places on every in-match screen for no added information. Kept
+## in BloodTournamentController.scoreboard_rows()'s own data (still a
+## generic "team_id/display_name/color/wins/gold/kills/blood_points"
+## row) since other callers may still want it -- only this table stopped
+## rendering the column.
+const _LEADERBOARD_COLUMNS := 5
 
 ## An always-on panel pinned to the right edge of the screen -- a real
 ## table (rank/team-color-swatch/wins/gold/kills/blood points), collapsed
@@ -713,7 +769,7 @@ func _build_leaderboard_panel() -> void:
 	_leaderboard_grid.add_theme_constant_override("h_separation", 18)
 	_leaderboard_grid.add_theme_constant_override("v_separation", 6)
 	content.add_child(_leaderboard_grid)
-	for header in ["Rank", "Team", "Wins", "Gold", "Kills", "Blood Points"]:
+	for header in ["Rank", "Team", "Wins", "Kills", "Blood Points"]:
 		var header_label := Label.new()
 		header_label.text = header
 		header_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
@@ -773,10 +829,6 @@ func refresh_leaderboard(rows: Array[Dictionary]) -> void:
 		wins_label.text = "%d" % row["wins"]
 		_leaderboard_grid.add_child(wins_label)
 
-		var gold_label := Label.new()
-		gold_label.text = "%dg" % row["gold"]
-		_leaderboard_grid.add_child(gold_label)
-
 		var kills_label := Label.new()
 		kills_label.text = "%d" % row["kills"]
 		_leaderboard_grid.add_child(kills_label)
@@ -826,26 +878,15 @@ func _reposition_leaderboard() -> void:
 ## in sync for no real benefit.
 func show_gold(blue_gold: int, red_gold: int, blue_blood_points: int, red_blood_points: int) -> void:
 	_gold_label.text = "Gold — Blue %d : %d Red   |   Blood Points — Blue %d : %d Red" % [blue_gold, red_gold, blue_blood_points, red_blood_points]
-	_gold_label.reset_size()
-	var viewport_width := get_viewport_rect().size.x
-	_gold_label.position = Vector2((viewport_width - _gold_label.size.x) * 0.5, 52)
-	_gold_label.visible = true
 
-	_gold_exchange_button.reset_size()
-	_blood_exchange_button.reset_size()
-	var button_y := _gold_label.position.y + _gold_label.size.y + 4
-	var total_width := _gold_exchange_button.size.x + _blood_exchange_button.size.x + 8
-	var start_x := (viewport_width - total_width) * 0.5
-	_gold_exchange_button.position = Vector2(start_x, button_y)
-	_blood_exchange_button.position = Vector2(start_x + _gold_exchange_button.size.x + 8, button_y)
-	_gold_exchange_button.visible = true
-	_blood_exchange_button.visible = true
+	_gold_panel.reset_size()
+	var viewport_width := get_viewport_rect().size.x
+	_gold_panel.position = Vector2((viewport_width - _gold_panel.size.x) * 0.5, 48)
+	_gold_panel.visible = true
 
 
 func hide_gold() -> void:
-	_gold_label.visible = false
-	_gold_exchange_button.visible = false
-	_blood_exchange_button.visible = false
+	_gold_panel.visible = false
 
 
 ## Called by Main.gd alongside every gold change/team switch -- greys out
@@ -975,10 +1016,18 @@ func _build_ability_draft_row(stats: UnitStats, slot_index: int, choice_set: Abi
 	label.text = "Lv.%d:" % unlock_level
 	row.add_child(label)
 
+	# Chosen candidate gets a "✓ " prefix, not just the shared toggle-button
+	## yellow fill -- independent design review, 2026-08-12: color alone
+	## didn't clearly read as "this is your locked-in pick" vs. "just a
+	## clickable alternative sitting first in the list" (also an
+	## accessibility gap -- color-only state is a problem for colorblind
+	## players specifically).
 	var group := ButtonGroup.new()
 	for candidate_index in choice_set.candidates.size():
 		var candidate := choice_set.candidates[candidate_index]
-		_add_toggle_button(row, candidate.ability_name, group, candidate_index == chosen_index,
+		var is_chosen := candidate_index == chosen_index
+		var label_text := ("✓ " + candidate.ability_name) if is_chosen else candidate.ability_name
+		_add_toggle_button(row, label_text, group, is_chosen,
 			func(): hero_ability_picked.emit(stats, slot_index, candidate_index))
 
 

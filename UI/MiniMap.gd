@@ -16,9 +16,13 @@
 class_name MiniMap
 extends Control
 
-const _SIZE := 160.0
+## 220, not the original 160 -- independent design review, 2026-08-12:
+## "tiny relative to the amount of battle info it needs to convey."
+const _SIZE := 220.0
 const _MARGIN := 16.0
-const _DOT_RADIUS := 3.0
+## Scaled up alongside _SIZE (was 3.0 at 160px) so a unit dot doesn't
+## shrink relative to the bigger map -- same design-review finding.
+const _DOT_RADIUS := 4.0
 const _VIEW_BOX_COLOR := Color(0.9, 0.9, 0.9, 0.7)
 const _VIEW_BOX_WIDTH := 1.5
 const _GROUND_PLANE := Plane(Vector3.UP, 0.0)
@@ -29,14 +33,16 @@ const _GROUND_PLANE := Plane(Vector3.UP, 0.0)
 ## (0.22, 0.24, 0.2) -- usability review, 2026-08-11: against the near-
 ## black _background it was barely distinguishable in an actual
 ## screenshot, reading as "just a dark square" rather than a legible map.
-const _ARENA_SHAPE_COLOR := Color(0.4, 0.43, 0.36, 1.0)
+## Brightened again, 2026-08-12 (independent design review: "near-black
+## palette makes team blobs hard to distinguish at a glance mid-fight").
+const _ARENA_SHAPE_COLOR := Color(0.48, 0.51, 0.44, 1.0)
 ## Mirrors CrossArenaMap's own per-arm tints (brightened to hold contrast
 ## against the minimap's own near-black background) so the minimap reads
 ## as the same map, not a differently-colored abstraction of it.
-const _NORTH_ARM_COLOR := Color(0.34, 0.42, 0.5, 1.0)
-const _EAST_ARM_COLOR := Color(0.5, 0.36, 0.34, 1.0)
-const _SOUTH_ARM_COLOR := Color(0.34, 0.5, 0.38, 1.0)
-const _WEST_ARM_COLOR := Color(0.5, 0.47, 0.32, 1.0)
+const _NORTH_ARM_COLOR := Color(0.4, 0.48, 0.56, 1.0)
+const _EAST_ARM_COLOR := Color(0.56, 0.42, 0.4, 1.0)
+const _SOUTH_ARM_COLOR := Color(0.4, 0.56, 0.44, 1.0)
+const _WEST_ARM_COLOR := Color(0.56, 0.53, 0.38, 1.0)
 ## A visible edge around the whole minimap so it reads as a defined
 ## instrument panel rather than blending into whatever's rendered behind
 ## it in the corner of the 3D viewport (usability review, 2026-08-11).
@@ -51,7 +57,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	_background = ColorRect.new()
-	_background.color = Color(0.05, 0.05, 0.05, 0.75)
+	_background.color = Color(0.08, 0.08, 0.08, 0.8)
 	_background.size = Vector2(_SIZE, _SIZE)
 	_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_background)

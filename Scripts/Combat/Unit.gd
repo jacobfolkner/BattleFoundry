@@ -1506,11 +1506,16 @@ func die(killer: Unit = null) -> void:
 ## display strings by design, so the debug panel stays a generic "print
 ## whatever keys this returns" renderer and never needs unit-specific
 ## formatting logic of its own.
+##
+## Name/Team/Health used to be included here too, but UI/HUD.gd's own
+## unit info panel (added 2026-08-11) now shows exactly those, in the
+## same always-on corner of the screen the moment a unit is selected --
+## independent design review, 2026-08-12 flagged the two panels stacked
+## on top of each other repeating the same 3 facts as visual noise.
+## AI State/Target stay here since they're genuinely debug-only info the
+## player-facing panel has no reason to show.
 func get_debug_info() -> Dictionary:
 	return {
-		"Name": stats.unit_name,
-		"Team": player.display_name,
-		"Health": "%.0f / %.0f" % [current_health, stat_block.max_health()],
 		"AI State": _describe_state(),
 		"Target": target_enemy.stats.unit_name if target_enemy != null else "(none)",
 	}
