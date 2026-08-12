@@ -392,16 +392,27 @@ func apply_selection_to_menu_state() -> void:
 	MenuSelection.chosen_faction = FactionRegistry.ALL[faction_index - 1] if faction_index > 0 else null
 
 
-## Threaded load instead of the old direct get_tree().change_scene_to_file()
-## -- that call blocked the main thread for the entire load with the
-## loading overlay never getting a chance to actually draw first. Awaiting
-## a couple of frames before starting the load, and polling
-## load_threaded_get_status() (rather than a single blocking
-## load_threaded_get()) across frames afterward, keeps this thread free to
-## actually present _loading_overlay/animate its dots throughout. Doesn't
-## eliminate the first-frame shader/pipeline compile stutter once Main.tscn
-## actually starts rendering (see _build_loading_overlay()'s doc comment)
-## -- only the load itself is threaded, not that.
+## Plain synchronous load(), NOT ResourceLoader.load_threaded_request() --
+## this used to poll load_threaded_get_status() across awaited frames
+## specifically to keep _loading_overlay animating throughout, on the
+## reasoning that a direct get_tree().change_scene_to_file() blocked the
+## main thread for the entire load with the overlay never getting a
+## chance to draw first. Measured instead of assumed (tools/ had a
+## throwaway timing driver this session, since deleted): Main.tscn's own
+## resource graph loads in ~100ms via a plain load() -- every .tres/.svg
+## under Resources/ loads in ~25ms combined, so there's nothing here
+## worth threading. The threaded path was actually costing 40x+ that
+## (4+ real seconds, reproduced 3 times) -- polling load_threaded_get_status()
+## forces a render frame between each check, and under a loaded/CPU-
+## constrained machine that starves the background loader thread of the
+## CPU time it needs, adding real wall-clock seconds to what should be a
+## sub-frame load. A ~100ms blocking call needs no progress indicator at
+## all; the 2 awaited frames below just make sure the overlay is visible
+## for that brief moment. Doesn't eliminate the first-frame shader/
+## pipeline compile stutter once Main.tscn actually starts rendering
+## (see _build_loading_overlay()'s doc comment) -- that happens after
+## the scene switch, once MainMenu (and its overlay) is already gone,
+## and no load strategy changes that.
 const _MAIN_SCENE_PATH := "res://Scenes/Main.tscn"
 
 
@@ -414,19 +425,13 @@ func _on_play_pressed() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame # a second frame, to be sure the overlay was actually presented before the load below starts
 
-	ResourceLoader.load_threaded_request(_MAIN_SCENE_PATH)
-	var status := ResourceLoader.load_threaded_get_status(_MAIN_SCENE_PATH)
-	while status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
-		await get_tree().process_frame
-		status = ResourceLoader.load_threaded_get_status(_MAIN_SCENE_PATH)
-
-	if status != ResourceLoader.THREAD_LOAD_LOADED:
-		push_error("Failed to load Main.tscn (ResourceLoader status %d)" % status)
+	var packed: PackedScene = load(_MAIN_SCENE_PATH)
+	if packed == null:
+		push_error("Failed to load Main.tscn")
 		_loading_overlay.visible = false
 		_play_button.disabled = false
 		return
 
-	var packed: PackedScene = ResourceLoader.load_threaded_get(_MAIN_SCENE_PATH)
 	get_tree().change_scene_to_packed(packed)
 
 
