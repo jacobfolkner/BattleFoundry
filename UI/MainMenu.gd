@@ -33,16 +33,16 @@ var _play_button: Button
 ## is on -- Hero Footies keeps its own fixed 1v1 assumption, no lobby
 ## needed (see its own class doc comment for why).
 var _slot_options: Array[OptionButton] = []
+## Per-slot race pick, one per lobby row (index = team_id), sitting right
+## after that row's Empty/You/Bot picker -- every slot gets one now, not
+## just the human's. Index 0 is always "Random" (leaves that team_id out
+## of MenuSelection.chosen_factions entirely, see
+## apply_selection_to_menu_state()), indices 1+ map to
+## FactionRegistry.ALL[index - 1]. Defaults to Random for every slot.
+var _faction_options: Array[OptionButton] = []
 var _lobby_panel: VBoxContainer
 
 enum SlotChoice { EMPTY, YOU, BOT }
-
-## Your own race pick (see _build_faction_picker()) -- index 0 is always
-## "Random" (MenuSelection.chosen_faction stays null), indices 1+ map to
-## Faction.ALL[index - 1]. Only ever applies to the human slot -- every
-## bot always gets Faction.random_pick() (see Main._apply_menu_selection()),
-## there's no per-bot picker.
-var _faction_option: OptionButton
 
 var _loading_overlay: Control
 var _loading_label: Label
@@ -161,21 +161,26 @@ func _build_options(parent: Control) -> void:
 
 
 ## Mode-first, then the lobby: one row per registered team (color swatch +
-## name + a 3-way Empty/You/Bot picker), visible only once Blood
-## Tournament is toggled on -- "pick mode, then pick your color, then mark
-## any number of the other slots as bots" (confirmed design, replacing the
-## old blunt "AI Opponent: On/Off" + flat team/team-count dropdowns, which
-## couldn't leave a slot empty or choose which specific slots were bots).
-## "You" is exclusive across rows -- picking it on one row resets whichever
-## other row currently has it back to Empty (see _on_slot_option_selected()) --
-## every other slot can independently be Bot or Empty, any number of each.
+## name + a 3-way Empty/You/Bot picker + a per-slot race picker), visible
+## only once Blood Tournament is toggled on -- "pick mode, then pick your
+## color, then mark any number of the other slots as bots" (confirmed
+## design, replacing the old blunt "AI Opponent: On/Off" + flat
+## team/team-count dropdowns, which couldn't leave a slot empty or choose
+## which specific slots were bots). "You" is exclusive across rows --
+## picking it on one row resets whichever other row currently has it back
+## to Empty (see _on_slot_option_selected()) -- every other slot can
+## independently be Bot or Empty, any number of each. The race picker sits
+## beside every slot regardless of Empty/You/Bot (gameplay feedback,
+## 2026-08-11: "race should be an option beside every slot... default to
+## random for every team") -- an Empty slot's pick is simply never read
+## (Main._apply_menu_selection() only assigns factions to registered
+## teams, which is every team regardless of who's playing, but an Empty
+## team never fields a roster for it to matter).
 func _build_lobby_panel(parent: Control) -> void:
 	_lobby_panel = VBoxContainer.new()
 	_lobby_panel.add_theme_constant_override("separation", 4)
 	_lobby_panel.visible = false
 	parent.add_child(_lobby_panel)
-
-	_build_faction_picker(_lobby_panel)
 
 	for team_id in GameManager.all_team_ids():
 		var row := HBoxContainer.new()
@@ -206,36 +211,17 @@ func _build_lobby_panel(parent: Control) -> void:
 		option.select(SlotChoice.YOU if team_id == GameManager.BLUE_TEAM_ID else SlotChoice.EMPTY)
 		option.item_selected.connect(_on_slot_option_selected.bind(team_id))
 		row.add_child(option)
-
 		_slot_options.append(option)
 
-
-## Above the per-team slot rows -- your race applies regardless of which
-## team_id ends up being "You" (that's picked below), so it reads more
-## naturally as its own line than bolted onto one particular row.
-## Determines which of the 3 factions' units show up in the build menu
-## once the match starts (HUD.refresh_unit_panel_for_faction()) -- "Random"
-## (the default) leaves MenuSelection.chosen_faction null, which
-## Main._apply_menu_selection() resolves via Faction.random_pick() same
-## as every bot slot always does.
-func _build_faction_picker(parent: Control) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	parent.add_child(row)
-
-	var label := Label.new()
-	label.text = "Your Race"
-	label.custom_minimum_size = Vector2(90, 0)
-	row.add_child(label)
-
-	_faction_option = OptionButton.new()
-	_faction_option.custom_minimum_size = Vector2(140, 32)
-	_faction_option.add_item("Random", 0)
-	for i in FactionRegistry.ALL.size():
-		_faction_option.add_item(FactionRegistry.ALL[i].faction_name, i + 1)
-	_faction_option.select(0)
-	_faction_option.item_selected.connect(func(_index: int): Sfx.play_ui_click())
-	row.add_child(_faction_option)
+		var faction_option := OptionButton.new()
+		faction_option.custom_minimum_size = Vector2(120, 32)
+		faction_option.add_item("Random", 0)
+		for i in FactionRegistry.ALL.size():
+			faction_option.add_item(FactionRegistry.ALL[i].faction_name, i + 1)
+		faction_option.select(0)
+		faction_option.item_selected.connect(func(_index: int): Sfx.play_ui_click())
+		row.add_child(faction_option)
+		_faction_options.append(faction_option)
 
 
 func _on_slot_option_selected(index: int, team_id: int) -> void:
@@ -331,20 +317,40 @@ func _build_play_button(parent: Control) -> void:
 	parent.add_child(_play_button)
 
 
-## Hidden full-rect overlay shown while Main.tscn loads -- pressing Play
-## used to call get_tree().change_scene_to_file() directly, which blocks
-## the main thread for the whole load AND the first frame's shader/pipeline
-## compilation under this project's Forward+ renderer (a known Godot cost,
-## already documented in CLAUDE.md for tools/screenshot.sh's own ~30s
-## first-invocation hit) -- with nothing shown in between, that reads as a
-## frozen game, not a loading one. Doesn't reduce the actual wait (can't,
-## without avoiding shader compilation entirely), just makes it legible.
+## Hidden full-rect overlay shown while Main.tscn loads and, more
+## importantly, while its first real frame renders -- pressing Play used
+## to call get_tree().change_scene_to_file()/change_scene_to_packed()
+## directly, which frees MainMenu (and this overlay with it) the instant
+## the new scene is assigned, well before Main.tscn's own first frame
+## actually renders. Main.tscn's *resource load* is fast (~100ms, see
+## _MAIN_SCENE_PATH's own doc comment) but the first frame that scene
+## renders still pays Forward+'s known shader/pipeline-compile cost
+## (already documented in CLAUDE.md for tools/screenshot.sh's own ~30s
+## first-invocation hit) -- with the overlay already gone by then, that
+## stutter read as a frozen/broken window, not a loading one, arguably
+## worse than before once the load itself stopped being the bottleneck.
+## _on_play_pressed() now keeps this overlay alive through Main's actual
+## first frames (see its own doc comment) rather than handing off to
+## change_scene's instant free.
+##
+## Wrapped in its own CanvasLayer at a layer index (100) well above
+## Main's own HUD (a plain CanvasLayer at the default index, 0) --
+## needed because _on_play_pressed() briefly has both MainMenu and a
+## fully-_ready() Main coexisting as siblings under the tree root, and
+## without an explicit higher layer, draw order between same-layer
+## CanvasItems follows tree order (Main, added later, would draw on top
+## and let its HUD show through mid-transition instead of staying
+## hidden behind this overlay).
 func _build_loading_overlay() -> void:
+	var loading_layer := CanvasLayer.new()
+	loading_layer.layer = 100
+	add_child(loading_layer)
+
 	_loading_overlay = Control.new()
 	_loading_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_loading_overlay.visible = false
 	_loading_overlay.mouse_filter = Control.MOUSE_FILTER_STOP # eat clicks while loading
-	add_child(_loading_overlay) # added last -- draws on top of everything else built above
+	loading_layer.add_child(_loading_overlay)
 
 	var background := ColorRect.new()
 	background.color = Color(0.02, 0.02, 0.02, 0.85)
@@ -388,8 +394,11 @@ func apply_selection_to_menu_state() -> void:
 			SlotChoice.BOT:
 				MenuSelection.bot_team_ids.append(team_id)
 
-	var faction_index: int = _faction_option.get_selected_id()
-	MenuSelection.chosen_faction = FactionRegistry.ALL[faction_index - 1] if faction_index > 0 else null
+	MenuSelection.chosen_factions.clear()
+	for team_id in GameManager.all_team_ids():
+		var faction_index: int = _faction_options[team_id].get_selected_id()
+		if faction_index > 0:
+			MenuSelection.chosen_factions[team_id] = FactionRegistry.ALL[faction_index - 1]
 
 
 ## Plain synchronous load(), NOT ResourceLoader.load_threaded_request() --
@@ -406,16 +415,30 @@ func apply_selection_to_menu_state() -> void:
 ## forces a render frame between each check, and under a loaded/CPU-
 ## constrained machine that starves the background loader thread of the
 ## CPU time it needs, adding real wall-clock seconds to what should be a
-## sub-frame load. A ~100ms blocking call needs no progress indicator at
-## all; the 2 awaited frames below just make sure the overlay is visible
-## for that brief moment. Doesn't eliminate the first-frame shader/
-## pipeline compile stutter once Main.tscn actually starts rendering
-## (see _build_loading_overlay()'s doc comment) -- that happens after
-## the scene switch, once MainMenu (and its overlay) is already gone,
-## and no load strategy changes that.
+## sub-frame load.
 const _MAIN_SCENE_PATH := "res://Scenes/Main.tscn"
 
+## How many frames to keep Main hidden behind the loading overlay after
+## it's added to the tree, before revealing it -- covers _ready() itself
+## (synchronous, same frame) plus a couple of real rendered frames so
+## Forward+'s first-time shader/pipeline compile for this project's
+## primitive meshes/StandardMaterial3D (unavoidable at the API level --
+## see _build_loading_overlay()'s doc comment) happens while the overlay
+## still occludes it, not after.
+const _POST_ADD_SETTLE_FRAMES := 3
 
+
+## No longer hands off to get_tree().change_scene_to_packed() -- that
+## frees MainMenu (and _loading_overlay with it) the instant the new
+## scene is assigned, which used to happen well before Main.tscn's own
+## first real frame had actually rendered (see _build_loading_overlay()'s
+## doc comment for why that read as a frozen window once the load itself
+## stopped being the bottleneck). Manually adds Main as a sibling first,
+## waits for it to settle behind the still-visible overlay
+## (_POST_ADD_SETTLE_FRAMES), and only then removes MainMenu and hands
+## SceneTree.current_scene over -- so whatever's left of the wait always
+## has something legible on screen, load-time bug or genuine GPU compile
+## cost alike.
 func _on_play_pressed() -> void:
 	apply_selection_to_menu_state()
 
@@ -432,7 +455,15 @@ func _on_play_pressed() -> void:
 		_play_button.disabled = false
 		return
 
-	get_tree().change_scene_to_packed(packed)
+	var tree := get_tree() # get_tree() returns null once self is removed from the tree below -- must be cached before that point
+	var main := packed.instantiate()
+	tree.root.add_child(main) # runs Main._ready() synchronously, right here -- still hidden behind this menu's own layer-100 overlay
+	for i in _POST_ADD_SETTLE_FRAMES:
+		await tree.process_frame
+
+	tree.root.remove_child(self)
+	tree.current_scene = main
+	queue_free()
 
 
 ## Roadmap Phase 10's "settings/keybind remapping UI" -- Scripts/Autoloads/Hotkeys.gd
