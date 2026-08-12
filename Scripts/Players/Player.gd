@@ -81,6 +81,13 @@ var courtyard_units: Array = []
 ## would (no sell exists for this yet, matching the "buy an upgrade" shop
 ## having no refund path either).
 var roster_upgrades: Array[UnitUpgrade] = []
+## Blood-point-cost, per-archetype upgrades bought during PLACEMENT (see
+## GameManager.buy_archetype_upgrade()) -- unlike roster_upgrades (a flat
+## stat buff, applies to every squad), each entry here only affects
+## squads of its own ArchetypeUpgrade.archetype, and can change squad
+## composition (bonus units), not just stats. Persists the same way
+## roster/roster_upgrades do -- reset_battle() never clears it.
+var archetype_upgrades: Array[ArchetypeUpgrade] = []
 ## UnitStats (a hero archetype, e.g. HeroStats.tres) -> {"level": int,
 ## "xp": float} -- persists a hero's level/XP across Blood Tournament
 ## rounds the same way `roster` itself persists which archetypes are

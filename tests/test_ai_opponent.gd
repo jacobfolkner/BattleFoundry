@@ -25,6 +25,8 @@ func before_each() -> void:
 	red.roster.clear()
 	blue.roster_upgrades.clear()
 	red.roster_upgrades.clear()
+	blue.archetype_upgrades.clear()
+	red.archetype_upgrades.clear()
 	blue.is_human = true
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()

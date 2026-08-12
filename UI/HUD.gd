@@ -54,6 +54,14 @@ signal sell_requested
 ## see what you can do" is one consistent place for both, rather than
 ## upgrades living in yet another separate always-on control.
 signal upgrade_requested(upgrade: UnitUpgrade)
+## Emitted by one of the archetype upgrade row's buttons (see
+## _build_archetype_upgrade_row()) -- Main.gd routes this to
+## GameManager.buy_archetype_upgrade(). Scoped to the SELECTED unit's own
+## archetype (ArchetypeUpgrade.archetype), unlike upgrade_requested's
+## account-wide UnitUpgrade -- gameplay feedback, 2026-08-12: "we dont
+## currently have much use for blood points.. like for archers it may
+## add 1 mortar unit and 2 additional archers... or add an aura."
+signal archetype_upgrade_requested(upgrade: ArchetypeUpgrade)
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
 const FIGHTER_STATS: UnitStats = preload("res://Resources/Units/FighterStats.tres")
@@ -165,6 +173,16 @@ var _ability_slot_buttons: Array[Button] = []
 var _unit_action_bar: HBoxContainer
 var _sell_button: Button
 var _upgrade_buttons: Array[Button] = []
+## Every ArchetypeUpgrade in the game -- small and fixed, same "one pool,
+## filter/toggle per frame" shape the ability hotbar's 3 fixed slots
+## already use, not a per-selection rebuild (see _build_archetype_upgrade_row()).
+const ARCHETYPE_UPGRADE_POOL: Array[ArchetypeUpgrade] = [
+	preload("res://Resources/Upgrades/ArcherMortarSupportUpgrade.tres"),
+	preload("res://Resources/Upgrades/FighterBattleStandardUpgrade.tres"),
+]
+var _archetype_upgrade_row: HBoxContainer
+## Index-aligned with ARCHETYPE_UPGRADE_POOL.
+var _archetype_upgrade_buttons: Array[Button] = []
 var _buff_row: HBoxContainer
 var _targeting_label: Label
 var _placement_hint_label: Label
@@ -210,6 +228,7 @@ func _ready() -> void:
 	_build_drag_box()
 	_build_ability_hotbar()
 	_build_unit_action_bar()
+	_build_archetype_upgrade_row()
 	_build_unit_info_panel()
 	_build_buff_row()
 	_build_targeting_prompt()
@@ -228,6 +247,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	_refresh_ability_hotbar()
 	_refresh_unit_action_bar()
+	_refresh_archetype_upgrade_row()
 	_refresh_unit_info_panel()
 	_refresh_buff_row()
 	_refresh_hero_level_label()
@@ -1188,6 +1208,74 @@ func _refresh_unit_action_bar() -> void:
 	_unit_action_bar.reset_size()
 	var viewport_size := get_viewport_rect().size
 	_unit_action_bar.position = Vector2((viewport_size.x - _unit_action_bar.size.x) * 0.5, viewport_size.y - 40)
+
+
+## One button per ARCHETYPE_UPGRADE_POOL entry, always present (never
+## added/removed) -- same "fixed pool, toggle visibility/text in place"
+## shape _build_ability_hotbar() already uses, since the pool itself is
+## small and fixed regardless of which unit happens to be selected.
+func _build_archetype_upgrade_row() -> void:
+	_archetype_upgrade_row = HBoxContainer.new()
+	_archetype_upgrade_row.add_theme_constant_override("separation", 6)
+	_archetype_upgrade_row.visible = false
+	add_child(_archetype_upgrade_row)
+
+	for upgrade in ARCHETYPE_UPGRADE_POOL:
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(170, 32)
+		button.pressed.connect(func(): archetype_upgrade_requested.emit(upgrade))
+		button.pressed.connect(func(): Sfx.play_ui_click())
+		_archetype_upgrade_row.add_child(button)
+		_archetype_upgrade_buttons.append(button)
+
+
+## Shows only the ARCHETYPE_UPGRADE_POOL entries whose own `archetype`
+## matches the selected unit's -- e.g. selecting a Fighter shows Battle
+## Standard, never Archer's Mortar Support, and selecting a Tank (no
+## upgrades defined for it yet) shows nothing at all, same as
+## _refresh_unit_action_bar()'s own upgrade buttons hiding when
+## irrelevant. Already-owned upgrades stay visible but disabled/labeled
+## "(Owned)" rather than disappearing -- confirms the purchase stuck,
+## same reasoning a build-menu button doesn't vanish once affordable
+## again.
+func _refresh_archetype_upgrade_row() -> void:
+	var unit := _tracked_unit
+	var relevant_base := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE \
+		and unit.player == SelectionManager.local_player and GameManager.is_placement_phase() \
+		and GameManager.current_mode.uses_economy()
+
+	var any_visible := false
+	var player := SelectionManager.local_player
+	for i in ARCHETYPE_UPGRADE_POOL.size():
+		var upgrade := ARCHETYPE_UPGRADE_POOL[i]
+		var button := _archetype_upgrade_buttons[i]
+		var applies := relevant_base and upgrade.archetype == unit.stats
+		button.visible = applies
+		if not applies:
+			continue
+		any_visible = true
+
+		if player.archetype_upgrades.has(upgrade):
+			button.text = "%s (Owned)" % upgrade.upgrade_name
+			button.disabled = true
+			button.modulate = Color.WHITE
+		else:
+			var unaffordable := not player.can_afford_blood_points(upgrade.cost)
+			button.text = "%s (%dbp)" % [upgrade.upgrade_name, upgrade.cost]
+			button.disabled = unaffordable
+			button.modulate = _UNAFFORDABLE_MODULATE if unaffordable else Color.WHITE
+
+	_archetype_upgrade_row.visible = any_visible
+	if not any_visible:
+		return
+	_archetype_upgrade_row.reset_size()
+	var viewport_size := get_viewport_rect().size
+	# Above the hero level label's own -140 slot -- a non-hero archetype
+	# (the only kind with an ArchetypeUpgrade defined so far) never shows
+	# that label at all, so this doesn't actually collide with it in
+	# practice, but sits clear of it on paper too in case a future
+	# session adds a hero archetype upgrade.
+	_archetype_upgrade_row.position = Vector2((viewport_size.x - _archetype_upgrade_row.size.x) * 0.5, viewport_size.y - 175)
 
 
 const _UNIT_INFO_PORTRAIT_SIZE := Vector2(64, 64)

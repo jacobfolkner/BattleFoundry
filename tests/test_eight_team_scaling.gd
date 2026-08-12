@@ -21,6 +21,7 @@ func before_each() -> void:
 		player.kills = 0
 		player.roster.clear()
 		player.roster_upgrades.clear()
+		player.archetype_upgrades.clear()
 		player.is_human = true
 	# MenuSelection is a persistent autoload, same as GameManager/Player --
 	# an earlier test in this file setting human_team_id/bot_team_ids and

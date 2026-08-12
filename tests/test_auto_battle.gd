@@ -26,6 +26,8 @@ func before_each() -> void:
 	red.roster.clear()
 	blue.roster_upgrades.clear()
 	red.roster_upgrades.clear()
+	blue.archetype_upgrades.clear()
+	red.archetype_upgrades.clear()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)

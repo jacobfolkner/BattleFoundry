@@ -39,6 +39,14 @@ const _UPGRADE_POOL: Array[UnitUpgrade] = [
 	preload("res://Resources/Upgrades/IronArmorUpgrade.tres"),
 	preload("res://Resources/Upgrades/WhetstoneUpgrade.tres"),
 ]
+## Same pool UI/HUD.gd's own archetype upgrade row offers a human --
+## bought unconditionally on affordability, same as _UPGRADE_POOL above,
+## not gated on the AI actually owning that archetype yet (account-wide
+## in spirit: "buy it now, it applies whenever I have/get that unit").
+const _ARCHETYPE_UPGRADE_POOL: Array[ArchetypeUpgrade] = [
+	preload("res://Resources/Upgrades/ArcherMortarSupportUpgrade.tres"),
+	preload("res://Resources/Upgrades/FighterBattleStandardUpgrade.tres"),
+]
 ## Safety cap on a single turn's roster additions -- not a balance
 ## number, just a guard against an unbounded loop if a future archetype
 ## ever had cost <= 0.
@@ -63,6 +71,7 @@ func take_turn(player: Player) -> void:
 	GameManager.sync_courtyard_to_roster(player)
 
 	_maybe_buy_an_upgrade(player)
+	_maybe_buy_an_archetype_upgrade(player)
 
 
 ## `player.faction == null` (a team that somehow never got assigned one --
@@ -83,3 +92,18 @@ func _maybe_buy_an_upgrade(player: Player) -> void:
 
 	var upgrade: UnitUpgrade = affordable_upgrades[randi() % affordable_upgrades.size()]
 	GameManager.buy_roster_upgrade(player, upgrade)
+
+
+## Same shape as _maybe_buy_an_upgrade() above, already-owned entries
+## filtered out first (GameManager.buy_archetype_upgrade() would just
+## refuse them anyway, but filtering here keeps the random pick from
+## wasting a turn re-rolling into one it can't actually buy).
+func _maybe_buy_an_archetype_upgrade(player: Player) -> void:
+	var affordable_upgrades := _ARCHETYPE_UPGRADE_POOL.filter(func(upgrade: ArchetypeUpgrade) -> bool:
+		return not player.archetype_upgrades.has(upgrade) and player.can_afford_blood_points(upgrade.cost)
+	)
+	if affordable_upgrades.is_empty():
+		return
+
+	var upgrade: ArchetypeUpgrade = affordable_upgrades[randi() % affordable_upgrades.size()]
+	GameManager.buy_archetype_upgrade(player, upgrade)

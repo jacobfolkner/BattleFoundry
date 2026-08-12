@@ -630,30 +630,66 @@ func sync_courtyard_to_roster(player: Player) -> void:
 		_spawn_roster_squad_at(player, stats, CrossArenaMap.get_courtyard_unit_anchor(player.team_id, i))
 
 
+## The full ordered list of UnitStats one roster slot for `base_stats`
+## actually deploys as, once `player`'s own ArchetypeUpgrade purchases
+## are folded in -- base_stats.squad_size copies of base_stats, plus
+## each matching upgrade's extra_base_units (more of the same archetype)
+## and bonus_unit_stats/bonus_unit_count (a different unit type
+## entirely). A player with no archetype upgrades for base_stats gets
+## exactly base_stats.squad_size copies back -- today's pre-upgrade
+## behavior, unchanged. Pure lookup; spawns nothing itself.
+func _expanded_squad_composition(player: Player, base_stats: UnitStats) -> Array[UnitStats]:
+	var composition: Array[UnitStats] = []
+	for i in base_stats.squad_size:
+		composition.append(base_stats)
+	for upgrade in player.archetype_upgrades:
+		if upgrade.archetype != base_stats:
+			continue
+		for i in upgrade.extra_base_units:
+			composition.append(base_stats)
+		if upgrade.bonus_unit_stats != null:
+			for i in upgrade.bonus_unit_count:
+				composition.append(upgrade.bonus_unit_stats)
+	return composition
+
+
 ## Spawns one roster slot's squad at `position`, applying every
-## account-wide roster upgrade and restoring hero progress -- the shared
-## per-slot body sync_courtyard_to_roster()'s loop above and
+## account-wide roster upgrade, per-archetype ArchetypeUpgrade (squad
+## composition + granted aura), and restoring hero progress -- the
+## shared per-slot body sync_courtyard_to_roster()'s loop above and
 ## buy_roster_slot_at() below both use, so the two call sites (default
 ## courtyard anchor vs. a player-chosen ghost-placement point) can't
 ## silently drift apart on what "realizing a roster slot" actually means.
 func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3) -> void:
-	var squad := spawn_squad(stats, player, position)
+	var composition := _expanded_squad_composition(player, stats)
+	var squad: Array[Unit] = []
+	for i in composition.size():
+		var member_stats: UnitStats = composition[i]
+		var offset := Vector3((i - (composition.size() - 1) * 0.5) * (member_stats.collision_radius * 2.5 + 0.3), 0, 0)
+		squad.append(spawn_unit(member_stats, player, position + offset))
+
 	for upgrade in player.roster_upgrades:
 		if upgrade.heroes_only and not stats.is_hero:
 			continue
 		for unit in squad:
 			upgrade.ability.cast_unit_target(unit, unit)
+	for upgrade in player.archetype_upgrades:
+		if upgrade.archetype == stats and upgrade.aura_ability != null:
+			for unit in squad:
+				unit.granted_aura_ability = upgrade.aura_ability
 	if stats.is_hero and player.hero_progress.has(stats):
 		var saved: Dictionary = player.hero_progress[stats]
 		for unit in squad:
-			unit.restore_hero_progress(saved.level, saved.xp)
+			if unit.stats.is_hero:
+				unit.restore_hero_progress(saved.level, saved.xp)
 	# Only the squad's first member is actually shown in the courtyard --
 	# see Unit.set_courtyard_visible()'s own doc comment. The rest reveal
 	# themselves at battle start (BloodTournamentController.begin_march()).
-	# squad[0]'s own spawn position came from _squad_formation_offset(),
-	# which is zero-mean around `position` but NOT zero at index 0 for any
-	# squad_size > 1 -- e.g. a 5-wide squad's member 0 lands ~2 full
-	# spacings to one side of `position`, not on it. That was invisible
+	# squad[0]'s own spawn position came from the same per-member offset
+	# formula _squad_formation_offset() uses, which is zero-mean around
+	# `position` but NOT zero at index 0 for any composition.size() > 1 --
+	# e.g. a 5-wide squad's member 0 lands ~2 full spacings to one side of
+	# `position`, not on it. That was invisible
 	# before this feature (the whole spread squad read as "centered here"
 	# even though no single member was), but once member 0 became the
 	# only visible unit, a multi-member archetype would visibly appear
@@ -753,6 +789,38 @@ func buy_roster_upgrade(player: Player, upgrade: UnitUpgrade) -> bool:
 			continue
 		for unit in player.courtyard_units[i]:
 			upgrade.ability.cast_unit_target(unit, unit)
+	return true
+
+
+## The per-archetype shop upgrade path (ArchetypeUpgrade -- see its own
+## class doc comment): spends blood points and records the purchase on
+## Player.archetype_upgrades. Same "already-owned squads get the aura
+## immediately, composition changes wait for the next (re)spawn" split
+## pick_hero_ability() documents right below -- growing an
+## already-standing squad's member count live is real added complexity
+## (spawning the delta into an existing courtyard array, repositioning
+## around it) for a purchase-time moment that's already about to be
+## superseded by the next round's sync_courtyard_to_roster() anyway; the
+## granted aura, by contrast, is just an Effect application, exactly as
+## cheap to apply retroactively as buy_roster_upgrade()'s own already
+## does. Refuses a duplicate purchase of the same upgrade outright (no
+## stacking two "extra units" copies onto one squad).
+func buy_archetype_upgrade(player: Player, upgrade: ArchetypeUpgrade) -> bool:
+	if not is_placement_phase() or not current_mode.uses_economy():
+		return false
+	if player.archetype_upgrades.has(upgrade):
+		return false
+	if not player.can_afford_blood_points(upgrade.cost):
+		return false
+
+	player.spend_blood_points(upgrade.cost)
+	player.archetype_upgrades.append(upgrade)
+	if upgrade.aura_ability != null:
+		for i in player.courtyard_units.size():
+			if player.roster[i] != upgrade.archetype:
+				continue
+			for unit in player.courtyard_units[i]:
+				unit.granted_aura_ability = upgrade.aura_ability
 	return true
 
 

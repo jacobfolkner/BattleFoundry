@@ -92,6 +92,7 @@ func _ready() -> void:
 	_hud.blood_exchange_requested.connect(_on_blood_exchange_requested)
 	_hud.sell_requested.connect(_on_sell_requested)
 	_hud.upgrade_requested.connect(_on_upgrade_requested)
+	_hud.archetype_upgrade_requested.connect(_on_archetype_upgrade_requested)
 	# HUD only ever displays whichever unit SelectionManager reports as
 	# selected -- it never reads SelectionManager itself (see HUD.gd's own
 	# doc comment on staying decoupled from selection/battle-lifecycle
@@ -442,6 +443,16 @@ func _on_sell_requested() -> void:
 ## unit is selected at all, just spends _selected_player's blood points.
 func _on_upgrade_requested(upgrade: UnitUpgrade) -> void:
 	if GameManager.buy_roster_upgrade(_selected_player, upgrade):
+		_refresh_gold_display()
+
+
+## HUD's archetype upgrade row -- unlike _on_upgrade_requested() above,
+## this genuinely is scoped to whichever unit is selected (its own
+## archetype has to match ArchetypeUpgrade.archetype), but the actual
+## spend still only needs _selected_player -- GameManager.buy_archetype_upgrade()
+## itself re-derives the applicable squads from Player.roster.
+func _on_archetype_upgrade_requested(upgrade: ArchetypeUpgrade) -> void:
+	if GameManager.buy_archetype_upgrade(_selected_player, upgrade):
 		_refresh_gold_display()
 
 

@@ -198,6 +198,17 @@ var _ability_cooldowns: Dictionary = {}
 ## the buff never actually expires on someone standing in range.
 const _AURA_TICK_INTERVAL := 0.25
 var _aura_tick_elapsed: float = 0.0
+## A second, independent aura source alongside stats.aura_ability --
+## per-INSTANCE, not on the shared UnitStats resource, deliberately.
+## ArchetypeUpgrade (Scripts/Combat/ArchetypeUpgrade.gd) grants an aura
+## to already-existing and future units of one archetype at purchase
+## time; setting it on `stats` directly would mutate the shared,
+## preloaded UnitStats Resource every unit of that archetype (including
+## every other player's) references, leaking the aura game-wide the
+## instant one player bought it -- the same "shared preloaded Resource"
+## mutation trap this codebase's own tests already document elsewhere.
+## See GameManager._spawn_roster_squad_at()/buy_archetype_upgrade().
+var granted_aura_ability: Ability = null
 
 var _decay_elapsed: float = 0.0
 ## Seconds remaining on the current hit flash -- 0.0 (the common case,
@@ -521,13 +532,16 @@ func clear_all_effects() -> void:
 # ---------------------------------------------------------------------
 
 func _tick_aura(delta: float) -> void:
-	if stats.aura_ability == null:
+	if stats.aura_ability == null and granted_aura_ability == null:
 		return
 	_aura_tick_elapsed += delta
 	if _aura_tick_elapsed < _AURA_TICK_INTERVAL:
 		return
 	_aura_tick_elapsed = 0.0
-	stats.aura_ability.apply_aura(self)
+	if stats.aura_ability != null:
+		stats.aura_ability.apply_aura(self)
+	if granted_aura_ability != null:
+		granted_aura_ability.apply_aura(self)
 
 
 func _apply_passive_abilities() -> void:

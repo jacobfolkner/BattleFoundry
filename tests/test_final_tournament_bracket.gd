@@ -23,6 +23,7 @@ func before_each() -> void:
 		player.blood_points = 0
 		player.roster.clear()
 		player.roster_upgrades.clear()
+		player.archetype_upgrades.clear()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
