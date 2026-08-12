@@ -50,16 +50,12 @@ static func arm_partner_index(index: int) -> int:
 	return index ^ 1
 
 
-## Subtle per-arm ground tints -- gameplay feedback, 2026-08-11: "the
-## cross arena has no lane/landmark differentiation," every arm and the
-## center hub being the exact same flat color. Deliberately small
-## deviations from ArenaMap.DEFAULT_GROUND_COLOR (0.16, 0.18, 0.16), not
-## saturated team-style colors -- this is a "which lane am I looking at"
-## wayfinding cue, not a team-ownership signal (a team's own arm changes
-## every round via round_spawn_points, so an arm's tint is fixed to its
-## compass direction, never to whichever team currently holds it). The
-## center hub itself stays untinted (see build()) -- it's the shared
-## convergence point, not any one lane.
+## Subtle per-arm ground tints, small deviations from
+## ArenaMap.DEFAULT_GROUND_COLOR -- a "which lane am I looking at"
+## wayfinding cue, not a team-ownership signal (an arm's tint is fixed
+## to its compass direction, never to whichever team currently holds
+## it, since round_spawn_points reassigns teams to arms each round). The
+## center hub stays untinted -- shared convergence point, not any one lane.
 const _NORTH_ARM_COLOR := Color(0.14, 0.17, 0.20, 1)
 const _EAST_ARM_COLOR := Color(0.20, 0.15, 0.14, 1)
 const _SOUTH_ARM_COLOR := Color(0.14, 0.20, 0.15, 1)
@@ -85,14 +81,10 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 		Vector3(-half, 0, outer),  # 9: south-arm outer SW
 		Vector3(-outer, 0, half),  # 10: west-arm outer SW
 		Vector3(-outer, 0, -half), # 11: west-arm outer NW
-		# The 4 spawn platforms -- gameplay feedback, 2026-08-11
-		# (referencing WC3 Blood Tournament's own map): "on each end of
-		# the cross, there should be a larger rectangle, giving each team
-		# more space to spawn on." Each is a trapezoid connecting the
+		# The 4 spawn platforms -- each a trapezoid connecting the
 		# corridor's own outer edge (reusing 2 of the 12 vertices above by
-		# index, this project's established navmesh-stitching convention
-		# -- see this class's own doc comment) to a wider far edge at
-		# CROSS_ARM_PLATFORM_HALF_WIDTH.
+		# index, this project's navmesh-stitching convention) to a wider
+		# far edge at CROSS_ARM_PLATFORM_HALF_WIDTH.
 		Vector3(-p, 0, -p_outer), # 12: north platform far-left
 		Vector3(p, 0, -p_outer),  # 13: north platform far-right
 		Vector3(p_outer, 0, -p),  # 14: east platform far-top
@@ -185,31 +177,23 @@ const _COURTYARD_UNIT_OFFSET := 3.0
 
 ## How far the Builder (get_courtyard_position()) sits from the
 ## courtyard's own center, pushed toward the outer/back wall -- distinct
-## from _COURTYARD_UNIT_OFFSET (and pushed noticeably further) so the
-## Builder reads as clearly outside the actual build/roster area, not
-## just another few meters into the same footprint (gameplay feedback,
-## 2026-08-11: "the builder should just be a stationary unit somewhere
-## immediately outside the building area"). Bounded by the courtyard's
-## own square footprint: with the outward direction's dominant axis
-## component always ~0.883 (see _courtyard_center()'s LATERAL_REACH/
-## ARM_DEPTH split, constant across all 8 teams since they're just
-## axis-swapped), COURTYARD_HALF_EXTENT / 0.883 =~ 7.36 is the largest
-## offset that still lands on the courtyard's own ground tile -- past
-## that the Builder would visibly float off the tile into the plain
-## default-colored ground beyond it. 6.0 stays safely under that with
-## real margin while landing near the tile's own back edge.
+## from _COURTYARD_UNIT_OFFSET, and pushed noticeably further, so the
+## Builder reads as clearly outside the build/roster area. Bounded by
+## the courtyard's own square footprint: with the outward direction's
+## dominant axis component always ~0.883 (see _courtyard_center()'s
+## LATERAL_REACH/ARM_DEPTH split, constant across all 8 teams),
+## COURTYARD_HALF_EXTENT / 0.883 =~ 7.36 is the largest offset that
+## still lands on the courtyard's own ground tile. 6.0 stays safely
+## under that.
 const _COURTYARD_BUILDER_OFFSET := 6.0
 
 ## Lateral spacing between roster slots' squads within a courtyard --
-## get_courtyard_unit_anchor()'s `slot_index` param. Previously every
-## slot resolved to the exact same point (only ever noticeable once a
-## roster had 2+ slots realized in the same sync_courtyard_to_roster()
-## pass, e.g. a fresh round -- gameplay feedback, 2026-08-11: "between
-## rounds some units disappear," actually still alive but physically
-## coincident with another squad, with only one of the two visible
-## squad[0]s winning the overlap). COURTYARD_HALF_EXTENT (6.5) already
-## budgeted "room for a roster that grows" per its own doc comment, so
-## the fix is purely this offset never having been wired in.
+## get_courtyard_unit_anchor()'s `slot_index` param. Every slot used to
+## resolve to the exact same point, invisible with one slot but causing
+## real overlap once a roster had 2+ realized in the same
+## sync_courtyard_to_roster() pass (only squad[0] renders, so one squad
+## would silently occlude another). COURTYARD_HALF_EXTENT (6.5) already
+## budgeted room for this; the fix is just wiring this offset in.
 const _COURTYARD_SLOT_LATERAL_SPACING := 2.0
 
 

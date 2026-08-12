@@ -47,12 +47,7 @@ signal hero_ultimate_cast(unit: Unit)
 ## Fires on every death, win or no killer (see _on_unit_died()) --
 ## Main.gd listens for this to refresh the gold/blood-points display and
 ## leaderboard live during a round, not just on the next explicit UI
-## action (buy/sell/exchange) or round transition. Blood points/kills
-## themselves were already granted correctly the instant a kill
-## happened (Player.add_blood_points()/BloodTournamentMode.on_unit_killed())
-## -- gameplay feedback, 2026-08-11: "blood points and kills should go
-## up during the round as units are killed" was purely a stale-display
-## bug, not a scoring bug.
+## action or round transition.
 signal unit_killed(unit: Unit, killer: Unit)
 
 ## Read-only from outside GameManager -- set only via _transition_to(),
@@ -92,18 +87,13 @@ const CROSS_ARM_HALF_WIDTH := 10.0 ## Half-width of the center square and of eve
 ## that seam.
 const CROSS_ARM_OUTER_EXTENT := 40.0
 
-## Gameplay feedback, 2026-08-11 (referencing WC3 Blood Tournament's own
-## map): "on each end of the cross, there should be a larger rectangle,
-## giving each team more space to spawn on." Half-width of that
-## rectangle, noticeably wider than the corridor's own
-## CROSS_ARM_HALF_WIDTH -- CrossArenaMap.build() connects the two via one
-## trapezoid nav-mesh polygon per arm (reusing the corridor's own outer
-## corner vertices, widening from CROSS_ARM_HALF_WIDTH to this over
-## CROSS_ARM_PLATFORM_DEPTH) rather than a hard-edged T-junction, since
-## this project's own "junction vertices shared by index, not just
-## coincident position" navmesh-stitching convention (see
-## CrossArenaMap.gd's own class doc comment) only guarantees connectivity
-## for exactly that shape.
+## Half-width of the wider spawn platform at each arm's outer end,
+## noticeably wider than the corridor's own CROSS_ARM_HALF_WIDTH.
+## CrossArenaMap.build() connects the two via one trapezoid nav-mesh
+## polygon per arm (reusing the corridor's own outer corner vertices)
+## rather than a hard-edged T-junction, since this project's navmesh
+## vertices-shared-by-index stitching convention only guarantees
+## connectivity for exactly that shape.
 const CROSS_ARM_PLATFORM_HALF_WIDTH := 22.0
 ## How far beyond CROSS_ARM_OUTER_EXTENT the platform extends.
 const CROSS_ARM_PLATFORM_DEPTH := 12.0
@@ -683,27 +673,15 @@ func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3)
 			if unit.stats.is_hero:
 				unit.restore_hero_progress(saved.level, saved.xp)
 	# Only the squad's first member is actually shown in the courtyard --
-	# see Unit.set_courtyard_visible()'s own doc comment. The rest reveal
-	# themselves at battle start (BloodTournamentController.begin_march()).
-	# squad[0]'s own spawn position came from the same per-member offset
-	# formula _squad_formation_offset() uses, which is zero-mean around
-	# `position` but NOT zero at index 0 for any composition.size() > 1 --
-	# e.g. a 5-wide squad's member 0 lands ~2 full spacings to one side of
-	# `position`, not on it. That was invisible
-	# before this feature (the whole spread squad read as "centered here"
-	# even though no single member was), but once member 0 became the
-	# only visible unit, a multi-member archetype would visibly appear
-	# offset from wherever the player actually clicked (gameplay
-	# feedback, 2026-08-11: "I should be able to place my unit anywhere
-	# in my courtyard but sometimes it'll shift elsewhere" -- exactly the
-	# squad_size > 1 archetypes, never the squad_size == 1 ones, which is
-	# why it read as "sometimes"). Snapping it back onto `position`
-	# explicitly, after the fact, is the fix -- members 1..N-1 are left at
-	# their own _squad_formation_offset() positions, which no longer
-	# matters for anything (see _squad_centroid()'s own doc comment: it
-	# reads member 0 directly now, not an average) since they're
-	# invisible, non-colliding, and unconditionally overwritten fresh by
-	# begin_march() the moment they're revealed for battle anyway.
+	# see Unit.set_courtyard_visible()'s own doc comment. squad[0]'s own
+	# spawn position came from the same per-member offset formula
+	# _squad_formation_offset() uses, which is zero-mean around `position`
+	# but not zero at index 0 for composition.size() > 1 -- snap it back
+	# onto `position` explicitly so a multi-member squad's one visible
+	# unit lands exactly where the player clicked. Members 1..N-1 are
+	# left at their own offset positions, which doesn't matter since
+	# they're invisible/non-colliding and get overwritten fresh by
+	# begin_march() once revealed for battle.
 	squad[0].global_position = position
 	for i in range(1, squad.size()):
 		squad[i].set_courtyard_visible(false)
@@ -878,22 +856,13 @@ func get_all_units() -> Array[Unit]:
 ## than this purely-geometric search just handing back the same
 ## already-crowded target every time.
 ##
-## Still a plain O(n) scan, deliberately -- roadmap Phase 0's own
-## long-deferred note. A spatial-grid version (rebuilt at most once per
-## physics frame, queried by cell instead of scanning every hostile unit)
-## was tried and reverted the same session (2026-08-11): tools/benchmark.sh
-## showed no measurable improvement even with units spread across the
-## arena instead of clustered -- the real cost at high unit counts is
-## evidently elsewhere (NavigationAgent3D pathfinding/avoidance is the
-## likely suspect, not this search), so the added complexity bought
-## nothing. It also introduced a real, reproducible bug: caching "the
-## grid as of this physics frame" broke the very next physics-frame-exact
-## test that spawned a new unit and immediately re-queried within the
-## same frame (test_target_acquisition_perf.gd's own reacquisition-cooldown
-## tests do exactly this) -- the newly spawned unit was invisible to a
-## grid snapshot taken before it existed. Don't re-attempt this exact
-## approach without first confirming (with tools/benchmark.sh) that the
-## scan itself, not something else, is actually the bottleneck.
+## Still a plain O(n) scan, deliberately -- a spatial-grid version was
+## tried and reverted: tools/benchmark.sh showed no measurable
+## improvement (the real cost at high unit counts is NavigationAgent3D
+## avoidance, not this search) and it introduced a real bug (a
+## same-physics-frame spawn-then-query missed the newly spawned unit,
+## since the grid snapshot predated it). Don't re-attempt without first
+## confirming via tools/benchmark.sh that this scan is actually the bottleneck.
 func find_nearest_enemy(unit: Unit, exclude: Unit = null) -> Unit:
 	var nearest: Unit = null
 	var nearest_distance: float = INF

@@ -70,19 +70,15 @@ const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
 const _TARGET_REACQUISITION_INTERVAL := 0.2
 ## How long this unit can chase the same target without ever getting
 ## within attack range before _update_target() gives up on it and picks
-## a different enemy instead (gameplay feedback, 2026-08-11: "units often
-## run around chasing a target when there's other units following them" --
-## GameManager.find_nearest_enemy() is purely geometric-distance-based
-## with no crowding awareness, so once several allies converge on the
-## same nearest enemy, whichever ones can't find an open attack_range
-## slot around it keep re-pathing toward an already-occupied spot,
-## getting deflected by avoidance every time -- the "circling" this
-## fixes). Deliberately NOT applied to a forced ATTACK_MOVE target
-## (right-click a specific enemy) -- see _process_order()'s own
-## ATTACK_MOVE branch, which sets target_enemy directly and never calls
+## a different enemy instead. GameManager.find_nearest_enemy() is purely
+## geometric-distance-based with no crowding awareness, so several
+## allies converging on the same nearest enemy could otherwise circle it
+## forever, deflected by avoidance every time they re-path toward an
+## already-occupied attack_range slot. Not applied to a forced
+## ATTACK_MOVE target (right-click a specific enemy) -- see
+## _process_order()'s own ATTACK_MOVE branch, which never calls
 ## _update_target() at all, so a deliberate player order is never
-## silently overridden, only the default autonomous "fight whatever's
-## nearest" acquisition is.
+## silently overridden.
 const _STUCK_CHASE_THRESHOLD := 2.5
 ## How long a unit is immune to a *new* application of the same hard-CC
 ## flag after one wears off -- simplified stand-in for real diminishing
@@ -269,17 +265,11 @@ func setup(new_stats: UnitStats, new_player: Player) -> void:
 
 
 ## Used by GameManager to hide every squad member past the first one
-## while a purchased squad is just standing in its courtyard -- a
-## squad_size-5 Fighter purchase used to spawn all 5 visibly stacked
-## side by side in the (relatively small) courtyard, which read as
-## visual clutter for what's really "one roster slot" (usability
-## feedback, 2026-08-11). All squad_size members are still real, fully
-## set-up Unit instances the whole time (upgrades/hero-progress applied
-## once at spawn, same as before) -- only rendering and click/raycast
-## targeting are suppressed; BloodTournamentController.begin_march()
-## calls this with `true` on every squad member to reveal the full squad
-## again the instant marching starts. Node visibility already hides
-## every child (health bar, status marker) for free.
+## while a purchased squad stands in its courtyard, so it reads as one
+## roster slot rather than a stack of overlapping models. All members
+## stay real, fully set-up Unit instances -- only rendering and
+## click/raycast targeting are suppressed; begin_march() reveals the
+## full squad again once marching starts.
 func set_courtyard_visible(is_visible: bool) -> void:
 	visible = is_visible
 	_collision_shape.disabled = not is_visible
@@ -856,15 +846,9 @@ func _physics_process(delta: float) -> void:
 		return
 
 	# The Builder is a permanent, invulnerable, move_speed == 0 courtyard
-	# fixture (see GameManager.spawn_courtyard_fixture()'s own doc
-	# comment) -- it never has a _nav_agent (see _build_avoidance() below)
-	# and should never move at all. Without this it still called
-	# move_and_slide() every frame via _on_safe_velocity_computed(),
-	# which resolves any physical overlap (another unit bumping it,
-	# another courtyard squad spawned too close) by pushing it away --
-	# reading as the Builder wandering off its spawn point over a long
-	# match (gameplay feedback, 2026-08-11: "the builder should just be a
-	# stationary unit").
+	# fixture with no _nav_agent -- without this early return it still
+	# called move_and_slide() every frame, letting physical overlap
+	# (another unit bumping it) push it off its spawn point over time.
 	if stats.is_builder:
 		return
 
@@ -1522,12 +1506,8 @@ func die(killer: Unit = null) -> void:
 ## formatting logic of its own.
 ##
 ## Name/Team/Health used to be included here too, but UI/HUD.gd's own
-## unit info panel (added 2026-08-11) now shows exactly those, in the
-## same always-on corner of the screen the moment a unit is selected --
-## independent design review, 2026-08-12 flagged the two panels stacked
-## on top of each other repeating the same 3 facts as visual noise.
-## AI State/Target stay here since they're genuinely debug-only info the
-## player-facing panel has no reason to show.
+## unit info panel now shows exactly those in the same corner, so this
+## stays scoped to genuinely debug-only info instead of duplicating it.
 func get_debug_info() -> Dictionary:
 	return {
 		"AI State": _describe_state(),

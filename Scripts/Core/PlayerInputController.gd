@@ -154,15 +154,12 @@ func handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if not (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
 		return
 	if dragging_unit != null:
-		# A plain click landing on a unit (to select/inspect it) still fires
-		# a mouse-motion event or two from incidental cursor jitter between
-		# press and release -- without this threshold, that jitter alone
-		# was enough to teleport the unit under the cursor, so simply
-		# clicking a courtyard unit visibly shifted it (usability report,
-		# 2026-08-11). Reuses _is_left_dragging as a general "past the
-		# click threshold" latch -- safe to share with the box-select path
-		# below since the two are mutually exclusive (dragging_unit is only
-		# ever set during PLACEMENT, box-select only during BATTLE).
+		# A plain click landing on a unit still fires a mouse-motion event
+		# or two from incidental cursor jitter -- without this threshold,
+		# that alone was enough to teleport the unit under the cursor.
+		# Reuses _is_left_dragging as a general "past the click threshold"
+		# latch -- safe to share with the box-select path below since the
+		# two are mutually exclusive.
 		if not _is_left_dragging and _left_drag_start.distance_to(event.position) <= _DRAG_THRESHOLD:
 			return
 		_is_left_dragging = true

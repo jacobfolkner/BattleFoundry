@@ -24,12 +24,8 @@ signal ability_slot_pressed(index: int)
 ## Emitted when a roster line-up slot is clicked (see _build_roster_row())
 ## -- Main.gd routes this to selecting that squad's own first live unit
 ## (same target set_courtyard_visible(true)/begin_march() always keeps
-## visible/valid), NOT selling it. Used to sell immediately on click
-## (usability feedback, 2026-08-11: "the Shop area is dumb, I don't like
-## being able to sell there by clicking the unit name") -- selling now
-## only ever happens via the explicit Sell action in _unit_action_bar,
-## once a unit is actually selected, never as a surprise side effect of
-## a single click meant to just look at/select something.
+## visible/valid), NOT selling it. Selling is an explicit action in
+## _unit_action_bar instead, once a unit is actually selected.
 signal roster_slot_clicked(index: int)
 ## Emitted when the player toggles a candidate in the hero ability draft
 ## panel (see _build_hero_draft_panel()) -- Main.gd routes this to
@@ -57,10 +53,7 @@ signal upgrade_requested(upgrade: UnitUpgrade)
 ## Emitted by one of the archetype upgrade row's buttons (see
 ## _build_archetype_upgrade_row()) -- Main.gd routes this to
 ## GameManager.buy_archetype_upgrade(). Scoped to the SELECTED unit's own
-## archetype (ArchetypeUpgrade.archetype), unlike upgrade_requested's
-## account-wide UnitUpgrade -- gameplay feedback, 2026-08-12: "we dont
-## currently have much use for blood points.. like for archers it may
-## add 1 mortar unit and 2 additional archers... or add an aura."
+## archetype, unlike upgrade_requested's account-wide UnitUpgrade.
 signal archetype_upgrade_requested(upgrade: ArchetypeUpgrade)
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")
@@ -88,30 +81,17 @@ var _start_button: Button
 var _winner_label: Label
 var _drag_box: ColorRect
 ## The leaderboard -- an always-on, collapsible panel pinned to the right
-## edge of the screen (usability feedback, 2026-08-11: "I'd like to see
-## it be 'always on' on the right side... maybe collapsable/expandable"),
-## not the dim-backdrop modal it started as. _leaderboard_card is
-## positioned manually from get_viewport_rect().size (same pattern every
-## other overlay in this file already uses), not a CenterContainer/anchors
-## -- two different CenterContainer attempts (one nested inside an extra
-## full-rect wrapper, one as a direct full-rect-anchored child of `self`)
-## both rendered the card pinned to the top-left corner instead of
-## centered when this was still a modal. Matches CLAUDE.md's documented
-## "a Control's anchors don't reliably resolve in this codebase's setup"
-## gotcha closely enough that manual positioning, not more anchor
-## nesting, is the fix.
+## edge. Positioned manually from get_viewport_rect().size, not
+## anchors/CenterContainer -- see CLAUDE.md's "Control anchors don't
+## reliably resolve" gotcha.
 var _leaderboard_card: PanelContainer
 var _leaderboard_collapse_button: Button
 var _leaderboard_grid: GridContainer
 ## Collapsed by default -- see refresh_leaderboard()/show_tournament_score().
 var _leaderboard_expanded: bool = false
 ## Wraps _gold_label/_gold_exchange_button/_blood_exchange_button in a
-## real card background -- independent design review, 2026-08-12: this
-## strip used to be 3 bare Controls floating directly over the 3D world
-## (outline-only text, no backing panel, unlike every other HUD group
-## here), and a dark/dimmed trade button (see _UNAFFORDABLE_MODULATE)
-## could visually disappear against a similarly dark unit or courtyard
-## tile rendered right behind it. See show_gold()/hide_gold().
+## real card background so a dimmed trade button (_UNAFFORDABLE_MODULATE)
+## never visually disappears against the 3D scene behind it.
 var _gold_panel: PanelContainer
 var _gold_label: Label
 var _gold_exchange_button: Button
@@ -151,15 +131,9 @@ var _hero_draft_card: PanelContainer
 var _build_menu_card: PanelContainer
 
 ## Bottom-left WC3-style unit info panel (portrait/name/health/armor/
-## status) -- gameplay feedback, 2026-08-11: "when selecting a unit you
-## should be able to see a ui on the bottom... notice the health and
-## stats." Distinct from the in-world floating health bar
-## (Unit._health_bar) -- that one's a quick glance during a fight; this
-## is the "look up the exact numbers for whatever I selected" panel WC3
-## itself has, bottom-LEFT specifically so it never collides with the
-## bottom-CENTER ability hotbar/unit action bar/buff row stack. Shows for
-## ANY tracked unit regardless of ownership (matches WC3 -- inspecting an
-## enemy's health/armor is normal, not a Sell-style owned-only action).
+## status) -- distinct from the in-world floating health bar
+## (Unit._health_bar), which is a quick glance during a fight, not a
+## stat lookup. Shows for any tracked unit regardless of ownership.
 var _unit_info_card: PanelContainer
 var _unit_info_portrait: TextureRect
 var _unit_info_name_label: Label
@@ -173,9 +147,8 @@ var _ability_slot_buttons: Array[Button] = []
 var _unit_action_bar: HBoxContainer
 var _sell_button: Button
 var _upgrade_buttons: Array[Button] = []
-## Every ArchetypeUpgrade in the game -- small and fixed, same "one pool,
-## filter/toggle per frame" shape the ability hotbar's 3 fixed slots
-## already use, not a per-selection rebuild (see _build_archetype_upgrade_row()).
+## Every ArchetypeUpgrade in the game -- small/fixed, same pool-and-toggle
+## shape the ability hotbar's fixed slots use (see _build_archetype_upgrade_row()).
 const ARCHETYPE_UPGRADE_POOL: Array[ArchetypeUpgrade] = [
 	preload("res://Resources/Upgrades/ArcherMortarSupportUpgrade.tres"),
 	preload("res://Resources/Upgrades/FighterBattleStandardUpgrade.tres"),
@@ -373,25 +346,15 @@ func _add_unit_type_button(parent: Control, group: ButtonGroup, stats: UnitStats
 
 
 ## A colored left border matching the archetype's own Faction.accent_color
-## -- the same color Unit._build_faction_accent() already renders as a
-## ground ring under the unit in the arena. The shop and the battlefield
-## previously shared no visual language at all: every build-menu icon was
-## a faction-agnostic white silhouette, and a unit only ever read as
-## "team-colored" once placed (usability review, 2026-08-11). A no-op
-## when stats.faction is null.
+## -- the same color Unit._build_faction_accent() renders as a ground
+## ring under the unit in the arena. A no-op when stats.faction is null.
 ##
-## Covers "pressed" too, not just normal/hover/disabled -- independent
-## design review, 2026-08-12 flagged Tank showing a solid yellow fill
-## while its own Orc siblings (Fighter/Axe Thrower) showed green,
-## reading as a faction-color bug. Root cause: _add_toggle_button()
-## (called before this) already sets a generic solid-yellow "pressed"
-## stylebox for every toggle button in this file (mode toggles, unit
-## buttons alike) -- this just never overrode it for the accent-bordered
-## case, so the CURRENTLY SELECTED unit type was the one button that
-## silently lost its faction color entirely. Selected state now keeps
-## the same accent-colored border/background family (a lighter tint of
-## it, so "selected" still reads as distinct) instead of swapping to an
-## unrelated color.
+## Covers "pressed" too: _add_toggle_button() already sets a generic
+## solid-yellow "pressed" stylebox for every toggle button in this file,
+## which silently overrode the accent border on whichever unit type was
+## currently selected. Pressed now uses a darker tint of the same accent
+## color instead, so selection still reads as distinct without losing
+## the faction color.
 func _apply_faction_border(button: Button, faction: Faction) -> void:
 	if faction == null:
 		return
@@ -482,16 +445,9 @@ func _add_spacer(parent: Control, height: float) -> void:
 	parent.add_child(spacer)
 
 
-## The default theme's own "pressed" look (a marginally lighter shade of
-## the same dark charcoal) barely reads against these already-dark cards
-## -- side-by-side, a selected and unselected toggle look nearly
-## identical (usability review, 2026-08-11, same category of finding
-## refresh_affordability()'s own _UNAFFORDABLE_MODULATE already fixed for
-## affordability). A single warm-gold accent (matching the hero XP bar's
-## existing fill color, the one deliberate accent color already in this
-## UI) on the "pressed" stylebox gives every toggle group in this file --
-## team select, build-menu unit selection, hero ability draft picks --
-## an unambiguous selected state for free.
+## The default theme's "pressed" look barely reads against these dark
+## cards -- a warm-gold accent (matching the hero XP bar's fill color)
+## gives every toggle group in this file an unambiguous selected state.
 const _TOGGLE_SELECTED_COLOR := Color(0.85, 0.7, 0.2)
 
 func _add_toggle_button(parent: Control, label: String, group: ButtonGroup, is_pressed: bool, on_pressed: Callable) -> Button:
@@ -525,12 +481,7 @@ func _build_start_button(parent: Control) -> void:
 	_start_button = Button.new()
 	_start_button.text = "Start Battle"
 	_start_button.custom_minimum_size = Vector2(140, 40)
-	# Every panel in this HUD shared the same neutral charcoal chrome, so
-	# the one button that actually ends PLACEMENT looked no louder than a
-	# team-select toggle (usability review, 2026-08-11) -- _style_primary_button()'s
-	# filled accent background makes it read as the primary action, not
-	# just another row in the Match card.
-	_style_primary_button(_start_button)
+	_style_primary_button(_start_button) # filled accent background so it reads as the primary action, not just another row
 	_start_button.pressed.connect(_on_start_pressed)
 	_start_button.pressed.connect(func(): Sfx.play_ui_click())
 	parent.add_child(_start_button)
@@ -607,12 +558,9 @@ func _on_ai_toggled(enabled: bool) -> void:
 ## the same category of bug that previously made the Start Battle button
 ## invisible: setting position/size on a Control before it's in the tree
 ## resolves against a zero-size parent rect in Godot 4.7.
-## These labels sit directly on top of the live 3D scene (no backing
-## panel) -- the default theme's mid-gray font color barely holds up
-## against whatever happens to be rendered underneath (usability review,
-## 2026-08-11). A bright near-white fill plus a black outline keeps them
-## legible against any background without needing to size/position a
-## panel behind each one.
+## These labels sit directly on top of the live 3D scene with no backing
+## panel -- a bright near-white fill plus a black outline keeps them
+## legible against any background.
 func _style_overlay_label(label: Label) -> void:
 	label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
@@ -674,11 +622,8 @@ func show_winner(winning_team_id: int, is_draw: bool) -> void:
 	_winner_label.visible = true
 
 
-## Shared by Start Battle and the leaderboard modal's Continue button --
-## both are "the one thing you actually click to move on" action in their
-## respective screens, so both get the same filled-gold treatment
-## (usability review, 2026-08-11) instead of blending into the rest of
-## the charcoal chrome.
+## Shared by Start Battle and the leaderboard's Continue button -- the one
+## primary action on each screen, styled to stand out from the charcoal chrome.
 func _style_primary_button(button: Button) -> void:
 	var style := StyleBoxFlat.new()
 	style.bg_color = _TOGGLE_SELECTED_COLOR
@@ -692,15 +637,7 @@ func _style_primary_button(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", Color.BLACK)
 
 
-## Same dark-card chrome every other HUD group uses -- independent design
-## review, 2026-08-12: previously 3 bare Controls (a _style_overlay_label()
-## outline-only label, 2 Buttons) floated directly over the 3D world with
-## no backing panel, the one HUD group that didn't. A dimmed/disabled
-## trade button (_UNAFFORDABLE_MODULATE) could read as visually "clipped"
-## against a similarly dark unit or courtyard tile happening to render
-## right behind it -- an opaque card backdrop makes that impossible
-## regardless of what's in the 3D scene underneath. See show_gold()/
-## hide_gold().
+## Same dark-card chrome every other HUD group uses. See show_gold()/hide_gold().
 func _build_gold_panel() -> void:
 	_gold_panel = PanelContainer.new()
 	_gold_panel.visible = false
@@ -739,13 +676,8 @@ func _build_gold_panel() -> void:
 	button_row.add_child(_blood_exchange_button)
 
 
-## 5, not 6 -- independent design review, 2026-08-12: Gold was shown
-## here AND in the top-center gold panel simultaneously, the same number
-## in two places on every in-match screen for no added information. Kept
-## in BloodTournamentController.scoreboard_rows()'s own data (still a
-## generic "team_id/display_name/color/wins/gold/kills/blood_points"
-## row) since other callers may still want it -- only this table stopped
-## rendering the column.
+## 5, not 6 -- Gold is already shown in the top-center panel, so this
+## table skips rendering it (still present in scoreboard_rows()'s data).
 const _LEADERBOARD_COLUMNS := 5
 
 ## An always-on panel pinned to the right edge of the screen -- a real
@@ -802,10 +734,7 @@ func _build_leaderboard_panel() -> void:
 		header_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
 		_leaderboard_grid.add_child(header_label)
 
-	# Open by default -- gameplay feedback, 2026-08-11: players want the
-	# standings visible without an extra click, collapsing it themselves
-	# (▸/▾) only if they want the screen space back.
-	_set_leaderboard_expanded(true)
+	_set_leaderboard_expanded(true) # open by default, collapsible via ▸/▾
 
 
 func _on_leaderboard_collapse_pressed() -> void:
@@ -917,15 +846,10 @@ func hide_gold() -> void:
 
 
 ## Called by Main.gd alongside every gold change/team switch -- greys out
-## whichever unit-type buttons `player` can't currently afford. A no-op
-## grey-out (never disables anything) while current_mode.uses_economy()
-## is false, matching every other gold-gated behavior in this codebase.
-## Independent design-review feedback: the default theme's own
-## `.disabled` look barely reads against these already-dark cards --
-## side-by-side, an affordable and an unaffordable button look nearly
-## identical. `.disabled` still gates the actual click (kept, for the
-## real behavior), but `modulate` alpha is what actually carries the
-## visible "you can't afford this" signal now.
+## whichever unit-type buttons `player` can't currently afford. The
+## default theme's `.disabled` look barely reads against these dark
+## cards, so `modulate` alpha carries the visible signal; `.disabled`
+## still gates the actual click.
 const _UNAFFORDABLE_MODULATE := Color(1, 1, 1, 0.4)
 
 func refresh_affordability(player: Player) -> void:
@@ -942,17 +866,12 @@ func refresh_affordability(player: Player) -> void:
 	_blood_exchange_button.modulate = _UNAFFORDABLE_MODULATE if blood_unaffordable else Color.WHITE
 
 
-## The "rectangle" -- a literal separate staging area's line-up display,
-## not the arena itself. Shows the currently active placement side's
-## roster in purchase order (see Player.roster); clicking a slot selects
-## that squad (roster_slot_clicked, routed by Main.gd to
-## SelectionManager.select_single()) rather than selling it outright --
-## selling now only happens via the explicit Sell action in
-## _unit_action_bar once something's actually selected (usability
-## feedback, 2026-08-11: a single click here silently selling was a real
-## complaint, not just a hypothetical foot-gun). Hidden entirely outside
-## Blood Tournament via refresh_roster_row([]) -- Main.gd is what decides
-## that, same as show_gold()/hide_gold().
+## Shows the currently active placement side's roster in purchase order
+## (see Player.roster); clicking a slot selects that squad
+## (roster_slot_clicked -> SelectionManager.select_single()) rather than
+## selling it outright -- selling is the explicit Sell action in
+## _unit_action_bar. Hidden entirely outside Blood Tournament via
+## refresh_roster_row([]).
 func _build_roster_row(parent: Control) -> void:
 	_roster_row = HBoxContainer.new()
 	_roster_row.add_theme_constant_override("separation", 4)
@@ -1043,12 +962,8 @@ func _build_ability_draft_row(stats: UnitStats, slot_index: int, choice_set: Abi
 	label.text = "Lv.%d:" % unlock_level
 	row.add_child(label)
 
-	# Chosen candidate gets a "✓ " prefix, not just the shared toggle-button
-	## yellow fill -- independent design review, 2026-08-12: color alone
-	## didn't clearly read as "this is your locked-in pick" vs. "just a
-	## clickable alternative sitting first in the list" (also an
-	## accessibility gap -- color-only state is a problem for colorblind
-	## players specifically).
+	# Chosen candidate gets a "✓ " prefix, not just the toggle-button color
+	# alone -- clearer than color-only state, including for colorblind players.
 	var group := ButtonGroup.new()
 	for candidate_index in choice_set.candidates.size():
 		var candidate := choice_set.candidates[candidate_index]
@@ -1095,9 +1010,7 @@ func track_unit(unit: Unit) -> void:
 ## Unit.cast_ability() enforces the same gate; this just reflects it
 ## visually rather than letting a click silently no-op with no feedback).
 ## The whole hotbar hides rather than showing 3 "-" placeholders when
-## there's nothing selected or the selected unit has zero abilities
-## (usability review, 2026-08-11: most archetypes have none, so this row
-## was permanently visible noise across nearly every screenshot).
+## there's nothing selected or the selected unit has zero abilities.
 func _refresh_ability_hotbar() -> void:
 	var unit := _tracked_unit
 	var alive := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE
@@ -1137,16 +1050,13 @@ func _refresh_ability_hotbar() -> void:
 			button.disabled = false
 
 
-## A visible set of "what can I do with the thing I just selected"
-## actions -- Sell (with its real refund price) plus, under Blood
-## Tournament, the 4 account-wide upgrade purchases (previously only
-## reachable via the U/I/O/L hotkeys, with zero visible affordance --
-## usability feedback, 2026-08-11: "nothing shows up" when a unit is
-## selected). Positioned at the very bottom of the screen -- clear of the
-## ability hotbar (viewport_size.y - 80), buff row (-106), and hero
-## level/XP bar (-140/-118), all of which only show for specific unit
-## types, whereas this bar should be able to show for anything ownable
-## regardless of what else is currently visible.
+## "What can I do with the thing I just selected" -- Sell (real refund
+## price) plus, under Blood Tournament, the 4 account-wide upgrades
+## (previously U/I/O/L hotkey-only, no visible affordance). Positioned
+## at the very bottom of the screen, clear of the ability hotbar
+## (viewport_size.y - 80), buff row (-106), and hero level/XP bar
+## (-140/-118) -- this bar can show for anything ownable regardless of
+## what else is visible.
 func _build_unit_action_bar() -> void:
 	_unit_action_bar = HBoxContainer.new()
 	_unit_action_bar.add_theme_constant_override("separation", 6)
@@ -1485,14 +1395,10 @@ func _build_placement_hint() -> void:
 	add_child(_placement_hint_label)
 
 
-## A blank arena with no accompanying instructions gave a first-time
-## player nothing to go on (usability review, 2026-08-11 -- the classic-
-## mode placement screen is otherwise just two side cards and an empty
-## floor). Only shown during PLACEMENT -- once a battle is underway the
-## player already knows what to do, and the label would just be clutter
-## competing with the ability hotbar/buff row for the same screen space.
-## Text depends on uses_economy() since the two placement flows are
-## genuinely different (click-to-place vs. click-your-Builder-to-buy).
+## Only shown during PLACEMENT, since a blank arena otherwise gives a
+## first-time player nothing to go on. Text depends on uses_economy()
+## since the two placement flows are genuinely different
+## (click-to-place vs. click-your-Builder-to-buy).
 func _refresh_placement_hint() -> void:
 	if not GameManager.is_placement_phase():
 		_placement_hint_label.visible = false
@@ -1516,10 +1422,9 @@ func _build_hero_level_label() -> void:
 	_hero_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_hero_level_label)
 
-	# A ProgressBar, not just text -- independent design-review feedback:
-	# a plain "12 / 100 XP" number gives no at-a-glance sense of how
-	# close a level-up is. Exact numbers still available via tooltip_text
-	# on hover, not deleted, just not the primary always-visible readout.
+	# A ProgressBar, not just text -- a plain "12 / 100 XP" number gives
+	# no at-a-glance sense of how close a level-up is. Exact numbers
+	# still available via tooltip_text on hover.
 	_hero_xp_bar = ProgressBar.new()
 	_hero_xp_bar.visible = false
 	_hero_xp_bar.show_percentage = false

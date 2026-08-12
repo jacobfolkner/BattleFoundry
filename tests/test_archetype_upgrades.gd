@@ -1,11 +1,6 @@
-## Tests for Scripts/Combat/ArchetypeUpgrade.gd -- gameplay feedback,
-## 2026-08-12: "we dont currently have much use for blood points.. in
-## real blood tournament games you have optional upgrades for units,
-## like for archers it may add 1 mortar unit and 2 additional archers
-## for some cost or add an aura." Distinct from UnitUpgrade
-## (test_economy.gd's own buy_roster_upgrade() tests): scoped to one
-## archetype, can change squad composition (bonus units), not just
-## stats.
+## Tests for Scripts/Combat/ArchetypeUpgrade.gd -- distinct from
+## UnitUpgrade (test_economy.gd's own buy_roster_upgrade() tests):
+## scoped to one archetype, can change squad composition, not just stats.
 extends GutTest
 
 const ARCHER_STATS: UnitStats = preload("res://Resources/Units/ArcherStats.tres")
@@ -191,12 +186,9 @@ func test_granted_aura_actually_buffs_nearby_allies_in_combat() -> void:
 
 
 # ---------------------------------------------------------------------
-# One upgrade per remaining archetype -- gameplay feedback, 2026-08-12:
-# "can you add upgrades to every one of our units?" Each test below
-# confirms the one thing that upgrade actually does, not every field on
-# it (the mechanics themselves -- composition expansion, granted auras --
-# are already exhaustively covered above; these just prove each concrete
-# upgrade is wired correctly).
+# One upgrade per remaining archetype. Each test confirms the one thing
+# that upgrade does, not every field -- the mechanics themselves
+# (composition expansion, granted auras) are covered above.
 # ---------------------------------------------------------------------
 
 func test_tank_siege_workshop_adds_an_extra_tank_and_a_catapult() -> void:
@@ -299,11 +291,9 @@ func test_spitter_brood_swarm_adds_two_extra_spitters() -> void:
 	assert_eq(blue.courtyard_units[0].size(), SPITTER_STATS.squad_size + 2)
 
 
-## Every purchasable archetype (UI/HUD.gd's own build menu list) should
-## have at least one upgrade available -- gameplay feedback, 2026-08-12:
-## "can you add upgrades to every one of our units?" A missing entry
-## here would silently leave a unit with nothing to spend blood points
-## on, exactly the gap this whole feature exists to close.
+## Every purchasable archetype should have at least one upgrade
+## available -- a missing entry would silently leave a unit with
+## nothing to spend blood points on.
 func test_every_purchasable_archetype_has_at_least_one_upgrade_defined() -> void:
 	var purchasable_archetypes: Array[UnitStats] = [
 		TANK_STATS, FIGHTER_STATS, AXE_THROWER_STATS, ARCHER_STATS,

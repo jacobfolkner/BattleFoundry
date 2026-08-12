@@ -47,15 +47,9 @@ func test_builder_is_invulnerable() -> void:
 
 
 ## Regression: the Builder is a CharacterBody3D like any other Unit, and
-## _on_safe_velocity_computed() called move_and_slide() for it every
-## physics frame regardless of move_speed -- if another body overlapped
-## it (another unit bumping it, or two courtyard squads spawned too
-## close, see test_multiple_roster_slots_realized_in_one_sync_do_not_overlap())
-## physics collision-resolution could nudge it off its spawn point, with
-## nothing ever correcting the drift back. Gameplay feedback,
-## 2026-08-11: "the builder should just be a stationary unit." A Tank
-## spawned directly on top of it is the overlap that used to cause the
-## push.
+## move_and_slide() ran for it every physics frame regardless of
+## move_speed -- an overlapping body (a Tank spawned on top of it here)
+## could nudge it off its spawn point with nothing correcting the drift.
 func test_builder_never_moves_even_when_another_unit_overlaps_it() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var spawn_position := Vector3(20, 0, 20)
@@ -265,14 +259,10 @@ func test_round_transition_repopulates_the_courtyard_from_the_persisted_roster()
 
 
 ## Regression: sync_courtyard_to_roster() used to realize every new
-## roster slot at the exact same CrossArenaMap.get_courtyard_unit_anchor()
-## point regardless of index -- harmless with one slot, but a roster of
-## 2+ (the common case after a round transition, where every slot gets
-## re-realized in the same pass) spawned every squad fully overlapping.
-## Only each squad's member 0 is visible (Unit.set_courtyard_visible()),
-## so this read as gameplay feedback (2026-08-11): "between rounds some
-## units disappear" -- the "missing" unit was actually alive, just
-## occupying the exact same point as another squad.
+## roster slot at the exact same anchor point regardless of index --
+## harmless with one slot, but 2+ (the common case after a round
+## transition) spawned every squad fully overlapping. Only each squad's
+## member 0 is visible, so an occluded unit read as "disappeared."
 func test_multiple_roster_slots_realized_in_one_sync_do_not_overlap() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
@@ -495,18 +485,12 @@ func test_dragging_a_courtyard_squad_reorders_the_roster_to_match_its_physical_a
 	_main._try_start_unit_drag(camera.unproject_position(blue.courtyard_units[0][0].global_position))
 	assert_eq(_main._drag_source_squad_index, 0, "sanity check: the drag should have armed on Tank's slot")
 
-	# A real drag has to actually move the cursor past the click-vs-drag
-	# threshold before a drop commits (handle_mouse_motion()) -- otherwise
-	# this is indistinguishable from a plain click that shouldn't reposition
-	# anything (usability report, 2026-08-11: clicking a courtyard unit to
-	# inspect it was shifting it). This test's own drop point is
-	# deliberately the SAME point Tank already occupies (testing the
-	# reorder mechanic in isolation from any actual position change), so
-	# moving straight there would never cross that threshold at all --
-	# a real drag doesn't teleport straight to its final point either, it
-	# passes through intermediate ones first, so this does too before
-	# settling back on back_point; the actual reposition still resolves
-	# from wherever the release lands, not the intermediate motion.
+	# A real drag has to move the cursor past the click-vs-drag threshold
+	# before a drop commits, otherwise it's indistinguishable from a
+	# plain click. This test's drop point is deliberately the SAME point
+	# Tank already occupies, so moving straight there would never cross
+	# that threshold -- pass through an intermediate point first, same as
+	# a real drag would, before settling back on back_point.
 	_main._try_move_mouse_to(camera.unproject_position(back_point) + Vector2(20, 0), true)
 	_main._try_move_mouse_to(camera.unproject_position(back_point), true)
 	_main._try_left_click_at(camera.unproject_position(back_point))

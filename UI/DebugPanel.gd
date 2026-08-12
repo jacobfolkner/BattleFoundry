@@ -21,10 +21,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	_panel = PanelContainer.new()
-	# Shares the same dark-card chrome as every player-facing HUD panel by
-	# default -- nothing marked this as a dev-only tool (usability review,
-	# 2026-08-11). An amber left-border + tinted background reads as
-	# "diagnostic overlay," distinct from Shop/Match/Build's neutral cards.
+	# Amber left-border + tinted background reads as "diagnostic overlay,"
+	# distinct from Shop/Match/Build's neutral cards.
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.12, 0.09, 0.02, 0.85)
 	style.border_color = Color(0.9, 0.65, 0.15)
@@ -59,11 +57,8 @@ func _ready() -> void:
 ## text (and thus the panel's ideal width/height) changes with the
 ## selected unit.
 ##
-## Bottom-left corner -- top-right is UI/HUD.gd's own leaderboard panel
-## now (added 2026-08-11, after this one), which this used to sit right
-## on top of. Every other corner is already claimed too (top-left: Shop/
-## Build/Match cards, bottom-right: the minimap), leaving bottom-left as
-## the only genuinely free spot on screen.
+## Bottom-left corner -- every other corner is claimed (top-left:
+## Shop/Build/Match cards, top-right: leaderboard, bottom-right: minimap).
 func _reposition() -> void:
 	_panel.reset_size()
 	var viewport_size := get_viewport_rect().size

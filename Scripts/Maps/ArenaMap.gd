@@ -52,12 +52,10 @@ const DEFAULT_GROUND_COLOR := Color(0.16, 0.18, 0.16, 1)
 
 ## Shared ground-piece builder -- the same flat PlaneMesh + material every
 ## concrete map shape uses by default. `color` lets a subclass tint an
-## individual piece (CrossArenaMap.build() uses this to give each of the
-## 4 arms its own subtle identifying color -- gameplay feedback,
-## 2026-08-11: "the cross arena has no lane/landmark differentiation" --
-## while leaving the center hub and courtyards at DEFAULT_GROUND_COLOR).
-## Not private (no leading underscore) so subclasses in their own files
-## can call it.
+## individual piece (CrossArenaMap.build() gives each of the 4 arms its
+## own subtle identifying color, leaving the center hub and courtyards
+## at DEFAULT_GROUND_COLOR). Not private so subclasses in their own
+## files can call it.
 func build_ground_piece(parent: Node3D, size: Vector2, position: Vector3, color: Color = DEFAULT_GROUND_COLOR) -> MeshInstance3D:
 	var mesh := PlaneMesh.new()
 	mesh.size = size

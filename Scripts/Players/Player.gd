@@ -22,13 +22,10 @@ var is_human: bool
 ## (AIController._affordable_units()). Assigned once per match by
 ## Main._apply_menu_selection(), and ONLY under Blood Tournament (the lobby's
 ## chosen faction for the human slot, FactionRegistry.random_pick() for
-## every other team) -- race is meaningless outside the one mode with a
-## shop, and unconditional assignment regardless of mode was tried and
-## reverted (2026-08-11): Player is a persistent RefCounted, so it made
-## every classic-mode match/test get a random faction whether it asked
-## for one or not, which is exactly the cross-test-pollution shape this
-## project has hit before, just via randomness instead of leftover state.
-## Stays null for classic mode/Hero Footies and any test that never goes
+## every other team) -- unconditional assignment regardless of mode was
+## tried and reverted: Player is a persistent RefCounted, so it gave
+## every classic-mode match/test a random faction whether it asked for
+## one or not. Stays null for classic mode/Hero Footies and any test that never goes
 ## through the menu at all -- both HUD's and AIController's own gates
 ## treat null as "ungated," the full archetype list, unchanged from
 ## before this feature existed.

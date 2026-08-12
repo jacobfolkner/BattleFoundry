@@ -18,12 +18,10 @@
 class_name AIController
 extends RefCounted
 
-## Every purchasable archetype, same set UI/HUD.gd's own build menu offers
-## (including Hero, previously missing here -- the AI never bought one at
-## all) -- _affordable_units() below filters this down to `player`'s own
-## Player.faction, the same race restriction a human's build menu enforces
-## visually via HUD.refresh_unit_panel_for_faction() (usability feedback,
-## 2026-08-11: "bots need to follow restrictions" too).
+## Every purchasable archetype, same set UI/HUD.gd's own build menu
+## offers -- _affordable_units() below filters this down to `player`'s
+## own Player.faction, the same race restriction a human's build menu
+## enforces visually via HUD.refresh_unit_panel_for_faction().
 const _UNIT_POOL: Array[UnitStats] = [
 	preload("res://Resources/Units/TankStats.tres"),
 	preload("res://Resources/Units/FighterStats.tres"),

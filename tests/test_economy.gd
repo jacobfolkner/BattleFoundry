@@ -442,13 +442,9 @@ func test_kill_increments_the_killers_player_kill_count() -> void:
 	assert_eq(blue.kills, 1)
 
 
-## Regression: blood_points/kills were always granted correctly the
-## instant a kill happened, but nothing refreshed the on-screen readout
-## mid-round -- it only redrew on the next explicit UI action (buy/sell/
-## exchange) or round transition, so a kill's real reward stayed
-## invisible until something unrelated happened to trigger a redraw.
-## Gameplay feedback, 2026-08-11: "blood points and kills should go up
-## during the round as units are killed."
+## Regression: blood_points/kills were granted correctly the instant a
+## kill happened, but nothing refreshed the on-screen readout mid-round
+## -- it only redrew on the next explicit UI action or round transition.
 func test_a_kill_mid_round_refreshes_the_visible_gold_and_blood_points_display() -> void:
 	GameManager.set_mode(BloodTournamentMode.new())
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)

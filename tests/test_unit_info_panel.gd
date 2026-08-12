@@ -1,12 +1,7 @@
 ## Tests for UI/HUD.gd's bottom-left unit info panel (portrait/name/
-## health/armor/status) -- gameplay feedback, 2026-08-11: "when selecting
-## a unit you should be able to see a ui on the bottom.. notice the
-## health and stats." Not exhaustive per-field coverage (this codebase's
-## other HUD selection widgets -- the ability hotbar, unit action bar --
-## have no direct visual tests either, relying on the full suite staying
-## green plus manual screenshot verification); covers the shape of the
-## behavior: hidden with nothing tracked, populated once a unit is
-## tracked, hidden again once cleared.
+## health/armor/status). Not exhaustive per-field coverage; covers the
+## shape of the behavior: hidden with nothing tracked, populated once a
+## unit is tracked, hidden again once cleared.
 extends GutTest
 
 const TANK_STATS: UnitStats = preload("res://Resources/Units/TankStats.tres")

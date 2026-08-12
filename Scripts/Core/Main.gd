@@ -347,8 +347,8 @@ func _begin_staggered_deployment() -> void:
 ## Blood Tournament's default camera framing centers on the map origin at
 ## a zoom tuned for the older, smaller square arena -- against the cross
 ## map's larger reach that leaves the actual fight a tiny cluster near
-## the frame's edge (usability review, 2026-08-11). Recenter+zoom onto
-## the local human player's own arm anchor the instant marching starts,
+## the frame's edge. Recenter+zoom onto the local human player's own arm
+## anchor the instant marching starts,
 ## since that's where their fight actually happens first -- the player
 ## can still freely re-orbit/zoom afterward, this only sets where the
 ## camera starts looking. A no-op outside the cross map (classic mode's
@@ -396,14 +396,10 @@ func _refresh_gold_display() -> void:
 	_hud.refresh_affordability(_selected_player)
 
 
-## Connected to HUD's roster line-up row (see UI/HUD.gd) -- clicking a
-## slot there SELECTS that squad's own first live unit instead of selling
-## it outright (usability feedback, 2026-08-11: a bare click silently
-## selling was a real complaint) -- the same courtyard squad member
-## Unit.set_courtyard_visible(true) always keeps visible/valid (see its
-## own doc comment). Selecting it surfaces the real Sell/upgrade actions
-## in HUD's unit action bar, same as clicking the unit directly in the
-## world would.
+## Connected to HUD's roster line-up row -- clicking a slot SELECTS that
+## squad's own first live unit instead of selling it outright, surfacing
+## the real Sell/upgrade actions in HUD's unit action bar, same as
+## clicking the unit directly in the world would.
 func _on_roster_slot_clicked(index: int) -> void:
 	if index < 0 or index >= _selected_player.courtyard_units.size():
 		return

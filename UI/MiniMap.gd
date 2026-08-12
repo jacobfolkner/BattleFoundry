@@ -16,25 +16,15 @@
 class_name MiniMap
 extends Control
 
-## 220, not the original 160 -- independent design review, 2026-08-12:
-## "tiny relative to the amount of battle info it needs to convey."
 const _SIZE := 220.0
 const _MARGIN := 16.0
-## Scaled up alongside _SIZE (was 3.0 at 160px) so a unit dot doesn't
-## shrink relative to the bigger map -- same design-review finding.
-const _DOT_RADIUS := 4.0
+const _DOT_RADIUS := 4.0 # scaled up alongside _SIZE so a unit dot doesn't shrink relative to the bigger map
 const _VIEW_BOX_COLOR := Color(0.9, 0.9, 0.9, 0.7)
 const _VIEW_BOX_WIDTH := 1.5
 const _GROUND_PLANE := Plane(Vector3.UP, 0.0)
 ## Lighter than _background -- reads as "walkable ground" against the
-## dark surrounding void, same reason _draw_arena_shape() exists at all
-## (a blank square with only dots on it gives no sense of where you are
-## relative to the actual playable area). Brightened from the original
-## (0.22, 0.24, 0.2) -- usability review, 2026-08-11: against the near-
-## black _background it was barely distinguishable in an actual
-## screenshot, reading as "just a dark square" rather than a legible map.
-## Brightened again, 2026-08-12 (independent design review: "near-black
-## palette makes team blobs hard to distinguish at a glance mid-fight").
+## dark surrounding void; a blank square with only dots on it gives no
+## sense of where you are relative to the playable area.
 const _ARENA_SHAPE_COLOR := Color(0.48, 0.51, 0.44, 1.0)
 ## Mirrors CrossArenaMap's own per-arm tints (brightened to hold contrast
 ## against the minimap's own near-black background) so the minimap reads
@@ -43,9 +33,8 @@ const _NORTH_ARM_COLOR := Color(0.4, 0.48, 0.56, 1.0)
 const _EAST_ARM_COLOR := Color(0.56, 0.42, 0.4, 1.0)
 const _SOUTH_ARM_COLOR := Color(0.4, 0.56, 0.44, 1.0)
 const _WEST_ARM_COLOR := Color(0.56, 0.53, 0.38, 1.0)
-## A visible edge around the whole minimap so it reads as a defined
-## instrument panel rather than blending into whatever's rendered behind
-## it in the corner of the 3D viewport (usability review, 2026-08-11).
+## A visible edge so the minimap reads as a defined instrument panel
+## rather than blending into whatever's behind it in the viewport corner.
 const _BORDER_COLOR := Color(0.75, 0.75, 0.7, 0.9)
 
 var _background: ColorRect
@@ -135,14 +124,11 @@ func _draw_arena_shape() -> void:
 
 
 ## 5 filled rects (center square + 4 arms) plus 4 more for the wider
-## spawn platform at each arm's outer end (GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH),
-## the same footprint CrossArenaMap.build() lays out, plus one small
-## team-colored rect per registered team's lineup courtyard -- gameplay
-## feedback, 2026-08-11: "minimap should show an accurate representation
-## of the map.. not just the cross but the team areas too." Mapped
-## through _world_to_map() and Rect2(...).expand(...) the same way the
-## view-box overlay already does, robust regardless of which world axis
-## maps to which minimap-local sign.
+## spawn platform at each arm's outer end, the same footprint
+## CrossArenaMap.build() lays out, plus one small team-colored rect per
+## registered team's lineup courtyard. Mapped through _world_to_map()
+## and Rect2(...).expand(...) the same way the view-box overlay does,
+## robust regardless of which world axis maps to which minimap-local sign.
 func _draw_cross_arena_shape() -> void:
 	var half_extent := _current_half_extent()
 	var w := GameManager.CROSS_ARM_HALF_WIDTH

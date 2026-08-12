@@ -1,8 +1,4 @@
-## Data-driven definition of one per-archetype shop upgrade -- gameplay
-## feedback, 2026-08-12: "we dont currently have much use for blood
-## points.. in real blood tournament games you have optional upgrades
-## for units, like for archers it may add 1 mortar unit and 2 additional
-## archers for some cost or add an aura."
+## Data-driven definition of one per-archetype shop upgrade.
 ##
 ## Distinct from UnitUpgrade (that class is a flat, account-wide stat
 ## buff applied to every squad or every hero, via Ability.cast_unit_target()) --

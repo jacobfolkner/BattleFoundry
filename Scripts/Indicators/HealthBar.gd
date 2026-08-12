@@ -8,11 +8,9 @@ class_name HealthBar
 extends Node3D
 
 const WIDTH: float = 1.0
-## Was 0.12 -- at the zoom levels a full Blood Tournament battle is
-## actually viewed from, that read as a 4-6px sliver with no missing-
-## health contrast at all (usability review, 2026-08-11). Taller, plus a
-## red (not neutral dark) background below so the "damage taken" portion
-## reads as a real red segment behind the green fill, not just empty space.
+## Was 0.12 -- too thin to read at Blood Tournament's usual zoom level.
+## Red (not neutral dark) background so "damage taken" reads as a real
+## segment behind the green fill, not just empty space.
 const HEIGHT: float = 0.2
 const FULL_COLOR := Color(0.2, 0.9, 0.2)
 const EMPTY_COLOR := Color(0.9, 0.15, 0.15)

@@ -162,20 +162,12 @@ func _build_options(parent: Control) -> void:
 
 ## Mode-first, then the lobby: one row per registered team (color swatch +
 ## name + a 3-way Empty/You/Bot picker + a per-slot race picker), visible
-## only once Blood Tournament is toggled on -- "pick mode, then pick your
-## color, then mark any number of the other slots as bots" (confirmed
-## design, replacing the old blunt "AI Opponent: On/Off" + flat
-## team/team-count dropdowns, which couldn't leave a slot empty or choose
-## which specific slots were bots). "You" is exclusive across rows --
-## picking it on one row resets whichever other row currently has it back
-## to Empty (see _on_slot_option_selected()) -- every other slot can
-## independently be Bot or Empty, any number of each. The race picker sits
-## beside every slot regardless of Empty/You/Bot (gameplay feedback,
-## 2026-08-11: "race should be an option beside every slot... default to
-## random for every team") -- an Empty slot's pick is simply never read
-## (Main._apply_menu_selection() only assigns factions to registered
-## teams, which is every team regardless of who's playing, but an Empty
-## team never fields a roster for it to matter).
+## only once Blood Tournament is toggled on. "You" is exclusive across
+## rows -- picking it on one row resets whichever other row currently
+## has it back to Empty (see _on_slot_option_selected()) -- every other
+## slot can independently be Bot or Empty, any number of each. The race
+## picker sits beside every slot regardless of Empty/You/Bot; an Empty
+## slot's pick is simply never read (an Empty team never fields a roster).
 func _build_lobby_panel(parent: Control) -> void:
 	_lobby_panel = VBoxContainer.new()
 	_lobby_panel.add_theme_constant_override("separation", 4)
@@ -226,13 +218,10 @@ func _build_lobby_panel(parent: Control) -> void:
 		_faction_options.append(faction_option)
 
 
-## Labels the two dropdown columns -- independent design review,
-## 2026-08-12: "no column headers... 'You/Empty' and 'Random' are only
-## guessable as Player-slot and Race from context." Column widths
-## mirror each data row's own Controls exactly (swatch 16 + name 90 as
-## one blank-text spacer, then two labels matching the dropdowns' own
-## custom_minimum_size) so headers land flush above their real column
-## regardless of container spacing.
+## Labels the two dropdown columns. Column widths mirror each data row's
+## own Controls exactly (swatch 16 + name 90 as one blank-text spacer,
+## then two labels matching the dropdowns' own custom_minimum_size) so
+## headers land flush above their real column regardless of container spacing.
 func _build_lobby_header_row(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -266,13 +255,8 @@ func _on_slot_option_selected(index: int, team_id: int) -> void:
 
 ## Godot's toggle_mode Button already swaps between the "normal" and
 ## "pressed" theme styleboxes automatically based on button_pressed --
-## green-for-on/neutral-for-off just needed those two styleboxes set,
-## no manual per-toggle swapping. Previously plain default-gray chrome
-## either way (independent design review, 2026-08-12: "the On/Off state
-## has no color coding at all, same white text either way -- you have to
-## read the word, not glance at a color"). Same green Play's own button
-## uses, not a new color -- reads as "this is the same kind of positive/
-## active state," not a third unrelated meaning.
+## green-for-on/neutral-for-off just needed those two styleboxes set, no
+## manual per-toggle swapping. Same green Play's own button uses.
 func _add_toggle(parent: Control, off_text: String, on_text: String, icon: Texture2D = null) -> Button:
 	var button := Button.new()
 	button.text = off_text
@@ -299,14 +283,9 @@ func _add_toggle(parent: Control, off_text: String, on_text: String, icon: Textu
 	return button
 
 
-## Collapsed by default -- this used to be an always-visible 8-line wall
-## of hotkey text leading the front screen before the player had done
-## anything, reading as a reference manual rather than a menu
-## (independent design-review feedback). One click away instead of
-## deleted -- the reference is still genuinely useful once the input
-## surface (drag-select, control groups, U/I/O/L upgrades...) is more
-## than "click to place, click to fight" (see this file's own class doc
-## comment).
+## Collapsed by default -- an always-visible wall of hotkey text read as
+## a reference manual, not a menu. One click away, not deleted -- still
+## useful once the input surface grows past "click to place, click to fight."
 func _build_controls_card(parent: Control) -> void:
 	var card := PanelContainer.new()
 	var style := StyleBoxFlat.new()
@@ -345,10 +324,8 @@ func _build_controls_card(parent: Control) -> void:
 	content.add_child(label)
 
 
-## A distinct fill color and larger size than Settings -- independent
-## design-review feedback: the two used to look like equal-weight
-## siblings, with nothing marking Play as the primary action on the
-## whole screen.
+## A distinct fill color and larger size than Settings, so Play reads as
+## the primary action instead of an equal-weight sibling.
 func _build_play_button(parent: Control) -> void:
 	_play_button = Button.new()
 	_play_button.text = "Play"
