@@ -17,11 +17,12 @@ const _MAX_DISTANCE := 45.0
 const _MIN_PITCH := deg_to_rad(15.0)
 const _MAX_PITCH := deg_to_rad(85.0)
 const _ORBIT_SENSITIVITY := 0.005
-## Generous enough to cover the 8-team cross map's arms
-## (CrossArenaMap.SPAWN_POINTS reach roughly +-32) without this camera
-## needing to know which arena shape is active -- panning a little past
-## the smaller square arena's edge into empty space is harmless.
-const _PAN_BOUND := 44.0
+## Generous enough to cover the 8-team cross map's spawn platforms
+## (CrossArenaMap.SPAWN_POINTS reach roughly +-46, GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT
+## is 52) without this camera needing to know which arena shape is
+## active -- panning a little past the smaller square arena's edge into
+## empty space is harmless.
+const _PAN_BOUND := GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT + 4.0
 const _PAN_SPEED := 24.0 ## Meters per second, arrow keys and edge-pan alike.
 const _EDGE_PAN_MARGIN := 12.0 ## Pixels from the viewport edge that starts edge-pan.
 

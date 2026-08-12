@@ -979,36 +979,50 @@ func _clamp_to_arena() -> void:
 
 
 ## A cross isn't a square, so this isn't a plain clampf() on each axis:
-## a point is in-bounds if it's within the vertical bar (|x| <= half_width,
-## any z within the outer extent) OR the horizontal bar (|z| <= half_width,
-## any x within the outer extent). A point in neither -- a "dead corner"
-## diagonally outside both arms -- gets pulled onto whichever bar it's
-## already closer to (the axis with the smaller magnitude is the one
-## pulled in to half_width; the other is just capped at outer_extent).
-## One deliberate exception: the 8 lineup courtyards (CrossArenaMap._courtyard_center())
-## are themselves "dead corners" by this same definition -- without the
-## early-out below, a unit standing in one would get yanked back onto an
-## arm every single physics frame, starting the instant it's positioned
-## there.
+## a point is in-bounds if it's within the vertical bar (|x| <= the
+## effective width at this depth, any z within the platform's outer
+## extent) OR the horizontal bar (mirrored). A point in neither -- a
+## "dead corner" diagonally outside both arms -- gets pulled onto
+## whichever bar it's already closer to (the axis with the smaller
+## magnitude is the one pulled in to half_width; the other is just capped
+## at the platform's outer extent). One deliberate exception: the 8
+## lineup courtyards (CrossArenaMap._courtyard_center()) are themselves
+## "dead corners" by this same definition -- without the early-out below,
+## a unit standing in one would get yanked back onto an arm every single
+## physics frame, starting the instant it's positioned there.
+##
+## "The effective width at this depth" accounts for the spawn platform at
+## each arm's outer end (GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH's own
+## doc comment) -- CROSS_ARM_HALF_WIDTH out to CROSS_ARM_OUTER_EXTENT
+## (the corridor, matching the center square), widening to
+## CROSS_ARM_PLATFORM_HALF_WIDTH beyond that (the platform) -- a step,
+## not a smooth taper, matching the platform's own rectangular ground
+## visual (see CrossArenaMap.build()) rather than the narrower trapezoid
+## its nav mesh actually uses for pathfinding connectivity.
 func _clamp_to_cross_arena() -> void:
 	if CrossArenaMap.is_in_any_courtyard(global_position):
 		return
 
 	var half_width := GameManager.CROSS_ARM_HALF_WIDTH
 	var outer := GameManager.CROSS_ARM_OUTER_EXTENT
+	var platform_half := GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH
+	var platform_outer := GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT
 	var x := global_position.x
 	var z := global_position.z
 
-	if absf(x) <= half_width:
-		z = clampf(z, -outer, outer)
-	elif absf(z) <= half_width:
-		x = clampf(x, -outer, outer)
+	var vertical_half_width := half_width if absf(z) <= outer else platform_half
+	var horizontal_half_width := half_width if absf(x) <= outer else platform_half
+
+	if absf(x) <= vertical_half_width:
+		z = clampf(z, -platform_outer, platform_outer)
+	elif absf(z) <= horizontal_half_width:
+		x = clampf(x, -platform_outer, platform_outer)
 	elif absf(x) < absf(z):
 		x = clampf(x, -half_width, half_width)
-		z = clampf(z, -outer, outer)
+		z = clampf(z, -platform_outer, platform_outer)
 	else:
 		z = clampf(z, -half_width, half_width)
-		x = clampf(x, -outer, outer)
+		x = clampf(x, -platform_outer, platform_outer)
 
 	global_position.x = x
 	global_position.z = z

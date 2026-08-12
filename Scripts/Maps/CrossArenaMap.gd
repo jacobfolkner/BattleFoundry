@@ -1,33 +1,42 @@
-## The 8-team Blood Tournament map: a square center plus 4 arms of the
-## same width extending outward, one per cardinal direction (see
-## SPAWN_POINTS for where each team starts). Hand-authored as 5 quads
-## sharing vertex indices at the center/arm junctions, the same "direct
-## NavigationMesh.vertices/add_polygon(), not baked" approach
-## SquareArenaMap uses and for the same reason (deterministic, instant,
-## nothing to bake around) -- junction vertices are shared by index (not
-## just coincident position) so Godot's navigation system definitely
-## stitches the 5 polygons into one walkable region rather than relying
-## on floating-point-exact edge matching between separately authored
-## polygons.
+## The 8-team Blood Tournament map: a square center plus 4 corridor-width
+## arms extending outward, one per cardinal direction, each widening into
+## a bigger spawn platform at its outer end (see
+## GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH's own doc comment, and
+## SPAWN_POINTS for where each team actually starts). Hand-authored as 9
+## quads (5 original + 4 platform trapezoids) sharing vertex indices at
+## every junction, the same "direct NavigationMesh.vertices/add_polygon(),
+## not baked" approach SquareArenaMap uses and for the same reason
+## (deterministic, instant, nothing to bake around) -- junction vertices
+## are shared by index (not just coincident position) so Godot's
+## navigation system definitely stitches every polygon into one walkable
+## region rather than relying on floating-point-exact edge matching
+## between separately authored polygons.
 class_name CrossArenaMap
 extends ArenaMap
 
-## Team_id -> spawn anchor, near the outer edge of one of the cross map's
-## 4 arms (2 team_ids per arm). Used by Main._deploy_next_pending_slot()
-## as the fallback anchor and by Main._assign_random_spawn_points() as
-## the pool it shuffles across teams each round. Kept as a class-level
-## const (not computed in build()) since spawn point values don't depend
-## on the built scene nodes at all -- callers can read get_spawn_points()
-## without this map ever having been built.
+## Team_id -> spawn anchor, on one of the cross map's 4 spawn platforms
+## (2 team_ids per platform) -- see GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH's
+## own doc comment for why the platform exists. Used by
+## Main._deploy_next_pending_slot() as the fallback anchor and by
+## Main._assign_random_spawn_points() as the pool it shuffles across
+## teams each round. Kept as a class-level const (not computed in
+## build()) since spawn point values don't depend on the built scene
+## nodes at all -- callers can read get_spawn_points() without this map
+## ever having been built. Depth centered within the platform
+## (GameManager.CROSS_ARM_OUTER_EXTENT + PLATFORM_DEPTH * 0.5); lateral
+## offset (+-11) spread further apart than the old pre-platform anchors
+## (+-5) to actually use the platform's extra width, half of
+## CROSS_ARM_PLATFORM_HALF_WIDTH (22) so both teams sit with real margin
+## from the platform's own edges and each other.
 const SPAWN_POINTS: Array[Vector3] = [
-	Vector3(-5, 0, -32), # 0 Blue -- North arm, west half
-	Vector3(5, 0, -32),  # 1 Red -- North arm, east half
-	Vector3(32, 0, -5),  # 2 Green -- East arm, north half
-	Vector3(32, 0, 5),   # 3 Yellow -- East arm, south half
-	Vector3(5, 0, 32),   # 4 Purple -- South arm, east half
-	Vector3(-5, 0, 32),  # 5 Orange -- South arm, west half
-	Vector3(-32, 0, 5),  # 6 Cyan -- West arm, south half
-	Vector3(-32, 0, -5), # 7 Magenta -- West arm, north half
+	Vector3(-11, 0, -46), # 0 Blue -- North platform, west half
+	Vector3(11, 0, -46),  # 1 Red -- North platform, east half
+	Vector3(46, 0, -11),  # 2 Green -- East platform, north half
+	Vector3(46, 0, 11),   # 3 Yellow -- East platform, south half
+	Vector3(11, 0, 46),   # 4 Purple -- South platform, east half
+	Vector3(-11, 0, 46),  # 5 Orange -- South platform, west half
+	Vector3(-46, 0, 11),  # 6 Cyan -- West platform, south half
+	Vector3(-46, 0, -11), # 7 Magenta -- West platform, north half
 ]
 
 ## SPAWN_POINTS' index within an arm's pair -- entries 0/1 share the
@@ -60,6 +69,8 @@ const _WEST_ARM_COLOR := Color(0.20, 0.19, 0.13, 1)
 func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	var half := GameManager.CROSS_ARM_HALF_WIDTH
 	var outer := GameManager.CROSS_ARM_OUTER_EXTENT
+	var p := GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH
+	var p_outer := GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT
 
 	var vertices := PackedVector3Array([
 		Vector3(-half, 0, -half), # 0: center NW
@@ -74,6 +85,22 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 		Vector3(-half, 0, outer),  # 9: south-arm outer SW
 		Vector3(-outer, 0, half),  # 10: west-arm outer SW
 		Vector3(-outer, 0, -half), # 11: west-arm outer NW
+		# The 4 spawn platforms -- gameplay feedback, 2026-08-11
+		# (referencing WC3 Blood Tournament's own map): "on each end of
+		# the cross, there should be a larger rectangle, giving each team
+		# more space to spawn on." Each is a trapezoid connecting the
+		# corridor's own outer edge (reusing 2 of the 12 vertices above by
+		# index, this project's established navmesh-stitching convention
+		# -- see this class's own doc comment) to a wider far edge at
+		# CROSS_ARM_PLATFORM_HALF_WIDTH.
+		Vector3(-p, 0, -p_outer), # 12: north platform far-left
+		Vector3(p, 0, -p_outer),  # 13: north platform far-right
+		Vector3(p_outer, 0, -p),  # 14: east platform far-top
+		Vector3(p_outer, 0, p),   # 15: east platform far-bottom
+		Vector3(p, 0, p_outer),   # 16: south platform far-right
+		Vector3(-p, 0, p_outer),  # 17: south platform far-left
+		Vector3(-p_outer, 0, p),  # 18: west platform far-bottom
+		Vector3(-p_outer, 0, -p), # 19: west platform far-top
 	])
 
 	var nav_mesh := NavigationMesh.new()
@@ -83,6 +110,10 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	nav_mesh.add_polygon(PackedInt32Array([1, 6, 7, 2])) # east arm
 	nav_mesh.add_polygon(PackedInt32Array([2, 8, 9, 3])) # south arm
 	nav_mesh.add_polygon(PackedInt32Array([3, 10, 11, 0])) # west arm
+	nav_mesh.add_polygon(PackedInt32Array([12, 13, 5, 4])) # north platform
+	nav_mesh.add_polygon(PackedInt32Array([6, 14, 15, 7])) # east platform
+	nav_mesh.add_polygon(PackedInt32Array([8, 16, 17, 9])) # south platform
+	nav_mesh.add_polygon(PackedInt32Array([10, 18, 19, 11])) # west platform
 
 	_nav_region = NavigationRegion3D.new()
 	_nav_region.navigation_mesh = nav_mesh
@@ -97,8 +128,24 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(full, arm_length), Vector3(0, 0, arm_center), _SOUTH_ARM_COLOR))
 	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(arm_length, full), Vector3(-arm_center, 0, 0), _WEST_ARM_COLOR))
 
+	# The 4 spawn-platform ground pieces -- plain rectangles at the full
+	# platform width (not tapered to match the trapezoid nav-mesh polygon
+	# above), same "cosmetic ground extends a little past the walkable
+	# footprint near the corridor seam" tradeoff CLAUDE.md-style projects
+	# make all the time; a unit simply never reaches that sliver since
+	# it's outside the connected nav mesh (Unit._clamp_to_cross_arena()
+	# also treats the platform's own true bounds, not this rectangle, as
+	# the hard limit -- see its own doc comment).
+	var platform_full := p * 2.0
+	var platform_depth := GameManager.CROSS_ARM_PLATFORM_DEPTH
+	var platform_center := outer + platform_depth * 0.5
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(platform_full, platform_depth), Vector3(0, 0, -platform_center), _NORTH_ARM_COLOR))
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(platform_depth, platform_full), Vector3(platform_center, 0, 0), _EAST_ARM_COLOR))
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(platform_full, platform_depth), Vector3(0, 0, platform_center), _SOUTH_ARM_COLOR))
+	_ground_pieces.append(build_ground_piece(ground_parent, Vector2(platform_depth, platform_full), Vector3(-platform_center, 0, 0), _WEST_ARM_COLOR))
+
 	# The 8 lineup courtyards, one per team, in the diagonal gaps between
-	# arms -- deliberately separate ground pieces, not part of the 5
+	# arms -- deliberately separate ground pieces, not part of the
 	# nav-mesh-connected polygons above (see _courtyard_center()'s own
 	# doc comment for why no corridor geometry is needed).
 	var courtyard_size := Vector2(COURTYARD_HALF_EXTENT, COURTYARD_HALF_EXTENT) * 2.0
@@ -185,6 +232,13 @@ static func _courtyard_center(team_id: int) -> Vector3:
 	else:
 		# North/South arm: Z is the dominant (depth) axis, X is lateral.
 		return Vector3(signf(anchor.x) * _COURTYARD_LATERAL_REACH, 0, signf(anchor.z) * _COURTYARD_ARM_DEPTH)
+
+
+## Public wrapper around _courtyard_center() -- UI/MiniMap.gd needs the
+## courtyard's own footprint (center +/- COURTYARD_HALF_EXTENT) to draw
+## team spawn areas on the minimap, not either anchor point specifically.
+static func get_courtyard_center(team_id: int) -> Vector3:
+	return _courtyard_center(team_id)
 
 
 ## Direction from the map's own center out toward team_id's courtyard --

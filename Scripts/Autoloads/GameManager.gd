@@ -82,8 +82,35 @@ const ARENA_HALF_EXTENT := 20.0
 ## Main.ARM_SPAWN_POINTS) -- the 8-team Blood Tournament map. Unit's arena
 ## clamp (_clamp_to_arena()) branches between this shape's math and the
 ## plain square's, since a cross isn't a square.
-const CROSS_ARM_HALF_WIDTH := 10.0 ## Half-width of the center square and of every arm.
-const CROSS_ARM_OUTER_EXTENT := 40.0 ## Distance from the map center to each arm's outer (spawn) edge.
+const CROSS_ARM_HALF_WIDTH := 10.0 ## Half-width of the center square and of every arm's own corridor.
+## Distance from the map center to where each arm's corridor ends and its
+## (wider) spawn platform begins -- see CROSS_ARM_PLATFORM_HALF_WIDTH/
+## CROSS_ARM_PLATFORM_DEPTH right below. Was this map's true outer edge
+## before the platform existed; kept as the corridor/platform boundary
+## rather than renamed, since several tests and CrossArenaMap's own
+## trapezoid transition (see CrossArenaMap.build()) read it as exactly
+## that seam.
+const CROSS_ARM_OUTER_EXTENT := 40.0
+
+## Gameplay feedback, 2026-08-11 (referencing WC3 Blood Tournament's own
+## map): "on each end of the cross, there should be a larger rectangle,
+## giving each team more space to spawn on." Half-width of that
+## rectangle, noticeably wider than the corridor's own
+## CROSS_ARM_HALF_WIDTH -- CrossArenaMap.build() connects the two via one
+## trapezoid nav-mesh polygon per arm (reusing the corridor's own outer
+## corner vertices, widening from CROSS_ARM_HALF_WIDTH to this over
+## CROSS_ARM_PLATFORM_DEPTH) rather than a hard-edged T-junction, since
+## this project's own "junction vertices shared by index, not just
+## coincident position" navmesh-stitching convention (see
+## CrossArenaMap.gd's own class doc comment) only guarantees connectivity
+## for exactly that shape.
+const CROSS_ARM_PLATFORM_HALF_WIDTH := 22.0
+## How far beyond CROSS_ARM_OUTER_EXTENT the platform extends.
+const CROSS_ARM_PLATFORM_DEPTH := 12.0
+## The map's true outer edge now that the platform exists -- used
+## wherever CROSS_ARM_OUTER_EXTENT alone used to mark the far boundary
+## (Unit._clamp_to_cross_arena(), UI/MiniMap.gd's half-extent).
+const CROSS_ARM_PLATFORM_OUTER_EXTENT := CROSS_ARM_OUTER_EXTENT + CROSS_ARM_PLATFORM_DEPTH
 
 ## No damage dealt anywhere on the field for this long during BATTLE means
 ## neither side can actually reach/hurt the other (e.g. an all-flying vs.

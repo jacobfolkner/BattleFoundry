@@ -50,7 +50,7 @@ func test_half_extent_uses_the_plain_square_arena_bound_under_classic_mode() -> 
 
 func test_half_extent_uses_the_wider_cross_map_bound_under_blood_tournament() -> void:
 	GameManager.current_mode = BloodTournamentMode.new()
-	assert_eq(_minimap._current_half_extent(), GameManager.CROSS_ARM_OUTER_EXTENT)
+	assert_eq(_minimap._current_half_extent(), GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT)
 
 
 ## The view-footprint overlay (drawn as an outline in _draw(), not

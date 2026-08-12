@@ -70,16 +70,17 @@ func _reposition() -> void:
 
 
 ## Half-extent of whichever arena shape is currently active, in world
-## units -- the cross map's arms reach further from center
-## (GameManager.CROSS_ARM_OUTER_EXTENT) than the plain square arena
-## (GameManager.ARENA_HALF_EXTENT) does, so a unit near a cross-map arm's
-## spawn point would otherwise plot outside the square arena's tighter
-## bounds. Read once per frame (_process()'s queue_redraw() already runs
-## once per frame regardless of unit count), not per-unit -- unlike
-## GameMode.uses_cross_map()'s own per-unit-per-frame hot path in
+## units -- the cross map's arms (and, further out, their spawn
+## platforms -- GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT) reach
+## further from center than the plain square arena
+## (GameManager.ARENA_HALF_EXTENT) does, so a unit near a cross-map
+## platform's spawn point would otherwise plot outside the square arena's
+## tighter bounds. Read once per frame (_process()'s queue_redraw()
+## already runs once per frame regardless of unit count), not per-unit --
+## unlike GameMode.uses_cross_map()'s own per-unit-per-frame hot path in
 ## Unit._clamp_to_arena(), there's no equivalent cost concern here.
 func _current_half_extent() -> float:
-	return GameManager.CROSS_ARM_OUTER_EXTENT if GameManager.current_mode.uses_cross_map() else GameManager.ARENA_HALF_EXTENT
+	return GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT if GameManager.current_mode.uses_cross_map() else GameManager.ARENA_HALF_EXTENT
 
 
 func _world_to_map(world_position: Vector3, half_extent: float) -> Vector2:
@@ -127,26 +128,45 @@ func _draw_arena_shape() -> void:
 		draw_rect(Rect2(Vector2.ZERO, Vector2(_SIZE, _SIZE)), _ARENA_SHAPE_COLOR)
 
 
-## 5 filled rects (center square + 4 arms), the same footprint
-## CrossArenaMap.build() lays out as 5 nav-mesh quads -- mapped through
-## _world_to_map() and Rect2(...).expand(...) the same way the view-box
-## overlay already does, robust regardless of which world axis maps to
-## which minimap-local sign.
+## 5 filled rects (center square + 4 arms) plus 4 more for the wider
+## spawn platform at each arm's outer end (GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH),
+## the same footprint CrossArenaMap.build() lays out, plus one small
+## team-colored rect per registered team's lineup courtyard -- gameplay
+## feedback, 2026-08-11: "minimap should show an accurate representation
+## of the map.. not just the cross but the team areas too." Mapped
+## through _world_to_map() and Rect2(...).expand(...) the same way the
+## view-box overlay already does, robust regardless of which world axis
+## maps to which minimap-local sign.
 func _draw_cross_arena_shape() -> void:
 	var half_extent := _current_half_extent()
 	var w := GameManager.CROSS_ARM_HALF_WIDTH
 	var o := GameManager.CROSS_ARM_OUTER_EXTENT
+	var p := GameManager.CROSS_ARM_PLATFORM_HALF_WIDTH
+	var po := GameManager.CROSS_ARM_PLATFORM_OUTER_EXTENT
 	var pieces: Array = [
 		[Vector3(-w, 0, -w), Vector3(w, 0, w), _ARENA_SHAPE_COLOR],  # center -- untinted, shared convergence point
 		[Vector3(-w, 0, -o), Vector3(w, 0, -w), _NORTH_ARM_COLOR],
 		[Vector3(-w, 0, w), Vector3(w, 0, o), _SOUTH_ARM_COLOR],
 		[Vector3(w, 0, -w), Vector3(o, 0, w), _EAST_ARM_COLOR],
 		[Vector3(-o, 0, -w), Vector3(-w, 0, w), _WEST_ARM_COLOR],
+		[Vector3(-p, 0, -po), Vector3(p, 0, -o), _NORTH_ARM_COLOR],
+		[Vector3(-p, 0, o), Vector3(p, 0, po), _SOUTH_ARM_COLOR],
+		[Vector3(o, 0, -p), Vector3(po, 0, p), _EAST_ARM_COLOR],
+		[Vector3(-po, 0, -p), Vector3(-o, 0, p), _WEST_ARM_COLOR],
 	]
 	for piece in pieces:
 		var mapped_min := _world_to_map(piece[0], half_extent)
 		var mapped_max := _world_to_map(piece[1], half_extent)
 		draw_rect(Rect2(mapped_min, Vector2.ZERO).expand(mapped_max), piece[2])
+
+	var courtyard_half := Vector3(CrossArenaMap.COURTYARD_HALF_EXTENT, 0, CrossArenaMap.COURTYARD_HALF_EXTENT)
+	for team_id in GameManager.all_team_ids():
+		var center := CrossArenaMap.get_courtyard_center(team_id)
+		var color := GameManager.get_player(team_id).color
+		color.a = 0.55 # translucent -- a team area reads as "part of the map," not a full-strength dot-like marker competing with the live unit dots drawn on top later
+		var mapped_min := _world_to_map(center - courtyard_half, half_extent)
+		var mapped_max := _world_to_map(center + courtyard_half, half_extent)
+		draw_rect(Rect2(mapped_min, Vector2.ZERO).expand(mapped_max), color)
 
 
 func _draw() -> void:
