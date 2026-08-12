@@ -83,3 +83,26 @@ func test_an_unaffected_units_status_line_reads_as_a_dash() -> void:
 	await wait_physics_frames(1)
 
 	assert_eq(_hud._unit_info_status_label.text, "Status: -")
+
+
+## Regression: world clicks only selected during BATTLE, not PLACEMENT,
+## so this panel never updated from a direct click while shopping.
+func test_clicking_a_unit_directly_in_the_world_during_placement_shows_the_panel() -> void:
+	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
+	var unit := GameManager.spawn_unit(TANK_STATS, blue, Vector3(3, 0, 3))
+	assert_eq(GameManager.battle_state, GameManager.BattleState.PLACEMENT, "sanity check -- this is the exact phase the bug report was about")
+	var camera: Camera3D = _main.get_node("Camera3D")
+	camera._focus_point = Vector3(3, 0, 3)
+	camera._update_transform()
+	await wait_physics_frames(1)
+
+	_main._try_left_click_at(camera.unproject_position(unit.global_position))
+
+	assert_true(SelectionManager.selected_units.has(unit), "a direct world click during PLACEMENT should select the unit, same as clicking it in the roster row does")
+
+	# The panel's own visible/text state only updates in HUD._process()
+	# (see _refresh_unit_info_panel()), not synchronously from
+	# track_unit() -- selection itself (asserted above) is synchronous.
+	await wait_physics_frames(1)
+	assert_true(_hud._unit_info_card.visible)
+	assert_eq(_hud._unit_info_name_label.text, TANK_STATS.unit_name)

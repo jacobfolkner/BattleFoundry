@@ -219,12 +219,11 @@ func on_left_release(event: InputEventMouseButton) -> void:
 			_hud.show_build_menu()
 			return
 		_hud.hide_build_menu() # clicking any other unit closes the build menu, same as clicking away
-		# Debug-inspecting a unit and being able to command it shouldn't
-		# need two separate clicks -- select_single() is a no-op if the
-		# hit unit isn't SelectionManager.local_player's, so this is
-		# harmless when the click was on an enemy/inspection-only target.
-		if GameManager.battle_state == GameManager.BattleState.BATTLE:
-			SelectionManager.select_single(DebugInspector.selected_unit, Input.is_key_pressed(KEY_SHIFT))
+		# Not BATTLE-only anymore -- HUD's unit info/action panels need
+		# selection during PLACEMENT too. Safe either way: select_single()
+		# no-ops on a non-owned unit, and on_right_click() (the only thing
+		# selection enables commanding through) still refuses outside BATTLE.
+		SelectionManager.select_single(DebugInspector.selected_unit, Input.is_key_pressed(KEY_SHIFT))
 		return
 
 	_hud.hide_build_menu() # clicking empty ground or dragging also closes it
