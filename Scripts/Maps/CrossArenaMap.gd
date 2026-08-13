@@ -144,6 +144,42 @@ func build(nav_region_parent: Node3D, ground_parent: Node3D) -> void:
 	for team_id in GameManager.all_team_ids():
 		_ground_pieces.append(build_ground_piece(ground_parent, courtyard_size, _courtyard_center(team_id)))
 
+	# One landmark pillar per arm, against the platform's own back wall
+	# (inset _LANDMARK_WALL_MARGIN so it never sits on top of a spawn
+	# point or a courtyard), lit in that arm's own tint but brighter --
+	# a real geometric "which way am I facing" cue on top of the ground
+	# tint above, visible from orbit height, not just underfoot.
+	var wall := outer + platform_depth - _LANDMARK_WALL_MARGIN
+	_ground_pieces.append(build_landmark_pillar(ground_parent, Vector3(0, 0, -wall), _NORTH_ARM_COLOR))
+	_ground_pieces.append(build_landmark_pillar(ground_parent, Vector3(wall, 0, 0), _EAST_ARM_COLOR))
+	_ground_pieces.append(build_landmark_pillar(ground_parent, Vector3(0, 0, wall), _SOUTH_ARM_COLOR))
+	_ground_pieces.append(build_landmark_pillar(ground_parent, Vector3(-wall, 0, 0), _WEST_ARM_COLOR))
+
+
+## A tall thin cylinder standing at an arm's own tint, brightened --
+## purely decorative (no collision), matching this project's
+## primitive-mesh/flat-color convention. Appended into _ground_pieces by
+## build() so set_active() hides/shows it with the rest of the map.
+const _LANDMARK_HEIGHT := 6.0
+const _LANDMARK_RADIUS := 0.6
+const _LANDMARK_WALL_MARGIN := 1.5
+
+func build_landmark_pillar(parent: Node3D, ground_position: Vector3, tint: Color) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.height = _LANDMARK_HEIGHT
+	mesh.top_radius = _LANDMARK_RADIUS
+	mesh.bottom_radius = _LANDMARK_RADIUS
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = tint.lightened(0.6)
+	mesh.surface_set_material(0, material)
+
+	var instance := MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.position = ground_position + Vector3(0, _LANDMARK_HEIGHT * 0.5, 0)
+	parent.add_child(instance)
+	return instance
+
 
 func get_spawn_points() -> Array[Vector3]:
 	return SPAWN_POINTS

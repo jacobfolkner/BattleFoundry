@@ -15,6 +15,12 @@ var _main: Node3D
 func before_each() -> void:
 	GameManager.reset_battle()
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena) leak into this one
+	# See Player.reset_for_new_match()'s own doc comment -- reset_battle()
+	# deliberately leaves player.roster alone, so a stale one from an
+	# earlier test would otherwise resurrect as extra live units the
+	# moment this file's own start_battle() call runs.
+	GameManager.get_player(GameManager.BLUE_TEAM_ID).reset_for_new_match()
+	GameManager.get_player(GameManager.RED_TEAM_ID).reset_for_new_match()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
@@ -110,10 +116,8 @@ func test_melee_attack_deals_damage_without_spawning_a_projectile() -> void:
 	var target := GameManager.spawn_unit(FIGHTER_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(1, 0, 0))
 	GameManager.start_battle()
 
-	for i in range(90): # comfortably covers Tank's 1.2s attack_interval
-		await wait_physics_frames(1)
-
-	assert_lt(target.current_health, FIGHTER_STATS.max_health)
+	var hit := await _wait_until(func(): return target.current_health < FIGHTER_STATS.max_health, 90) # comfortably covers Tank's 1.2s attack_interval
+	assert_true(hit, "the Tank should land a melee hit")
 
 	var projectile_count := 0
 	for child in GameManager.units_container.get_children():

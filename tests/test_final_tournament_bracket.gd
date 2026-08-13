@@ -18,12 +18,7 @@ func before_each() -> void:
 	GameManager.reset_battle()
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode leak in
 	for team_id in GameManager.all_team_ids():
-		var player := GameManager.get_player(team_id)
-		player.resources = 0
-		player.blood_points = 0
-		player.roster.clear()
-		player.roster_upgrades.clear()
-		player.archetype_upgrades.clear()
+		GameManager.get_player(team_id).reset_for_new_match()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)

@@ -21,6 +21,12 @@ func before_each() -> void:
 	# GameManager's private _units_by_team.
 	GameManager.reset_battle()
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena) leak into this one
+	# reset_battle() alone doesn't do this -- see Player.reset_for_new_match()'s
+	# own doc comment for why a stale roster from an earlier test would
+	# otherwise resurrect as extra live units the moment this file's own
+	# start_battle() call runs.
+	GameManager.get_player(GameManager.BLUE_TEAM_ID).reset_for_new_match()
+	GameManager.get_player(GameManager.RED_TEAM_ID).reset_for_new_match()
 
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)

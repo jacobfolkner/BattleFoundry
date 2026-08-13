@@ -2,13 +2,17 @@
 ##
 ## Distinct from UnitUpgrade (that class is a flat, account-wide stat
 ## buff applied to every squad or every hero, via Ability.cast_unit_target()) --
-## this one is scoped to a single `archetype` and can change what a
-## purchased squad of that archetype actually deploys as, not just its
-## stats. Bought once per player via GameManager.buy_archetype_upgrade(),
-## persists for the rest of the match the same way Player.roster_upgrades
-## does, and is re-applied by GameManager._spawn_roster_squad_at() every
-## time a squad of `archetype` is realized from then on (a fresh round's
-## courtyard sync, a mid-round purchase, ...).
+## this one is scoped to a single `archetype` AND, at purchase time, a
+## single owned squad of that archetype -- it can change what that ONE
+## squad actually deploys as, not just its stats, and never leaks onto a
+## different squad of the same archetype the player also owns. Bought via
+## GameManager.buy_archetype_upgrade() (which takes the target squad's
+## squad_id -- see Player.roster_squad_ids), persists for the rest of the
+## match the same way Player.roster_upgrades does (just keyed per-squad,
+## not account-wide -- see Player.archetype_upgrades), and is re-applied
+## by GameManager._spawn_roster_squad_at() every time that specific squad
+## is realized from then on (a fresh round's courtyard sync, a mid-round
+## purchase, ...).
 ##
 ## All three effects below are optional and independently combinable on
 ## one upgrade (a real WC3 Blood Tournament upgrade might grant a bonus

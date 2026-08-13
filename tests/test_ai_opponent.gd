@@ -17,16 +17,8 @@ func before_each() -> void:
 	# Player is a plain RefCounted that outlives each test, same as
 	# GameManager itself -- reset both fields an earlier test (or this
 	# one's own AI-opponent toggling) could have left dirty.
-	blue.resources = 0
-	red.resources = 0
-	blue.blood_points = 0
-	red.blood_points = 0
-	blue.roster.clear()
-	red.roster.clear()
-	blue.roster_upgrades.clear()
-	red.roster_upgrades.clear()
-	blue.archetype_upgrades.clear()
-	red.archetype_upgrades.clear()
+	blue.reset_for_new_match()
+	red.reset_for_new_match()
 	blue.is_human = true
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()

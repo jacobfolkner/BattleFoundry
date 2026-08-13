@@ -20,19 +20,12 @@ func before_each() -> void:
 	# Red's is_human false, which would make _main._on_tournament_toggled(true)
 	# below silently have the AI spawn bonus Red units on top of whatever
 	# a test spawns itself. Roster/gold need the same reset -- an earlier
-	# Blood Tournament test in this file leaves them non-zero otherwise.
+	# Blood Tournament test in this file leaves them non-zero otherwise
+	# (see Player.reset_for_new_match()'s own doc comment).
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	blue.resources = 0
-	red.resources = 0
-	blue.blood_points = 0
-	red.blood_points = 0
-	blue.roster.clear()
-	red.roster.clear()
-	blue.roster_upgrades.clear()
-	red.roster_upgrades.clear()
-	blue.archetype_upgrades.clear()
-	red.archetype_upgrades.clear()
+	blue.reset_for_new_match()
+	red.reset_for_new_match()
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)

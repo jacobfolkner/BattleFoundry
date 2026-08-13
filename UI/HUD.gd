@@ -1151,10 +1151,11 @@ func _build_archetype_upgrade_row() -> void:
 ## Standard, never Archer's Mortar Support, and selecting a Tank (no
 ## upgrades defined for it yet) shows nothing at all, same as
 ## _refresh_unit_action_bar()'s own upgrade buttons hiding when
-## irrelevant. Already-owned upgrades stay visible but disabled/labeled
-## "(Owned)" rather than disappearing -- confirms the purchase stuck,
-## same reasoning a build-menu button doesn't vanish once affordable
-## again.
+## irrelevant. Already-owned-BY-THIS-SQUAD upgrades stay visible but
+## disabled/labeled "(Owned)" rather than disappearing -- confirms the
+## purchase stuck, same reasoning a build-menu button doesn't vanish once
+## affordable again; selecting a DIFFERENT squad of the same archetype
+## shows the button as buyable again, since ownership is per-squad now.
 func _refresh_archetype_upgrade_row() -> void:
 	var unit := _tracked_unit
 	var relevant_base := unit != null and is_instance_valid(unit) and unit.life_state == Unit.LifeState.ALIVE \
@@ -1163,6 +1164,7 @@ func _refresh_archetype_upgrade_row() -> void:
 
 	var any_visible := false
 	var player := SelectionManager.local_player
+	var squad_id := GameManager.find_squad_id_for_unit(player, unit) if relevant_base else -1
 	for i in ARCHETYPE_UPGRADE_POOL.size():
 		var upgrade := ARCHETYPE_UPGRADE_POOL[i]
 		var button := _archetype_upgrade_buttons[i]
@@ -1172,7 +1174,8 @@ func _refresh_archetype_upgrade_row() -> void:
 			continue
 		any_visible = true
 
-		if player.archetype_upgrades.has(upgrade):
+		var squad_upgrades: Array = player.archetype_upgrades.get(squad_id, [])
+		if squad_upgrades.has(upgrade):
 			button.text = "%s (Owned)" % upgrade.upgrade_name
 			button.disabled = true
 			button.modulate = Color.WHITE

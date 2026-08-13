@@ -104,6 +104,11 @@ const _DR_ELIGIBLE_CC_FLAGS: Array[Effect.CCFlag] = [Effect.CCFlag.STUN, Effect.
 ## respawn," so a future hero revive can intercept before the free
 ## without take_damage()/die() needing another signature change.
 const _CORPSE_DECAY_DURATION := 3.0
+## Corpse sinks into the ground and fades to transparent over the final
+## portion of _CORPSE_DECAY_DURATION, instead of just darkening to black
+## and popping out of existence.
+const _DISSOLVE_START_FRACTION := 0.6
+const _DISSOLVE_SINK_DEPTH := 0.6
 ## Roadmap Phase 9's "hit flash" -- how long a landed hit tints
 ## _body_material toward _HIT_FLASH_COLOR before easing back to
 ## player.color. Purely cosmetic, ticked in _physics_process() (not
@@ -151,10 +156,11 @@ var _windup_target: Unit = null
 var _health_bar: HealthBar
 var _status_indicator: UnitStatusMarker
 ## The mesh's own material -- stored so die()/_physics_process()'s corpse
-## tick can darken it toward black over _CORPSE_DECAY_DURATION, instead of
+## tick can darken and dissolve it over _CORPSE_DECAY_DURATION, instead of
 ## a corpse just sitting there at full team color until it vanishes.
 var _body_material: StandardMaterial3D
 var _body_color_at_death: Color
+var _position_y_at_death: float
 var _nav_agent: NavigationAgent3D
 var _order_queue: Array[Order] = []
 var _patrol_forward: bool = true
@@ -197,8 +203,8 @@ var _aura_tick_elapsed: float = 0.0
 ## A second, independent aura source alongside stats.aura_ability --
 ## per-INSTANCE, not on the shared UnitStats resource, deliberately.
 ## ArchetypeUpgrade (Scripts/Combat/ArchetypeUpgrade.gd) grants an aura
-## to already-existing and future units of one archetype at purchase
-## time; setting it on `stats` directly would mutate the shared,
+## to already-existing and future units of one purchased SQUAD at
+## purchase time; setting it on `stats` directly would mutate the shared,
 ## preloaded UnitStats Resource every unit of that archetype (including
 ## every other player's) references, leaking the aura game-wide the
 ## instant one player bought it -- the same "shared preloaded Resource"
@@ -840,7 +846,11 @@ func _build_avoidance() -> void:
 func _physics_process(delta: float) -> void:
 	if life_state == LifeState.DEAD:
 		_decay_elapsed += delta
-		_body_material.albedo_color = _body_color_at_death.lerp(Color.BLACK, clampf(_decay_elapsed / _CORPSE_DECAY_DURATION, 0.0, 1.0))
+		var decay_fraction := clampf(_decay_elapsed / _CORPSE_DECAY_DURATION, 0.0, 1.0)
+		var dissolve_fraction := clampf((decay_fraction - _DISSOLVE_START_FRACTION) / (1.0 - _DISSOLVE_START_FRACTION), 0.0, 1.0)
+		var darkened := _body_color_at_death.lerp(Color.BLACK, decay_fraction)
+		_body_material.albedo_color = Color(darkened.r, darkened.g, darkened.b, 1.0 - dissolve_fraction)
+		global_position.y = _position_y_at_death - _DISSOLVE_SINK_DEPTH * dissolve_fraction
 		if _decay_elapsed >= _CORPSE_DECAY_DURATION:
 			queue_free()
 		return
@@ -1487,6 +1497,8 @@ func die(killer: Unit = null) -> void:
 	life_state = LifeState.DEAD
 	_decay_elapsed = 0.0
 	_body_color_at_death = _body_material.albedo_color
+	_position_y_at_death = global_position.y
+	_body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_collision_shape.disabled = true
 	_health_bar.visible = false
 	_status_indicator.hide_status()

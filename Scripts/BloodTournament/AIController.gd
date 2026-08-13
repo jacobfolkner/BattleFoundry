@@ -99,16 +99,22 @@ func _maybe_buy_an_upgrade(player: Player) -> void:
 	GameManager.buy_roster_upgrade(player, upgrade)
 
 
-## Same shape as _maybe_buy_an_upgrade() above, already-owned entries
-## filtered out first (GameManager.buy_archetype_upgrade() would just
-## refuse them anyway, but filtering here keeps the random pick from
-## wasting a turn re-rolling into one it can't actually buy).
+## Same shape as _maybe_buy_an_upgrade() above, but per-squad now (see
+## GameManager.buy_archetype_upgrade()'s own doc comment) -- picks a
+## random (squad, upgrade) pair from every squad/upgrade combination this
+## player can actually afford and doesn't already own, so two Archer
+## squads can end up with different upgrades over a long match instead of
+## the AI treating "own Mortar Support" as a single account-wide flag.
 func _maybe_buy_an_archetype_upgrade(player: Player) -> void:
-	var affordable_upgrades := _ARCHETYPE_UPGRADE_POOL.filter(func(upgrade: ArchetypeUpgrade) -> bool:
-		return not player.archetype_upgrades.has(upgrade) and player.can_afford_blood_points(upgrade.cost)
-	)
-	if affordable_upgrades.is_empty():
+	var candidates: Array[Dictionary] = []
+	for i in player.roster.size():
+		var squad_id: int = player.roster_squad_ids[i]
+		var owned: Array = player.archetype_upgrades.get(squad_id, [])
+		for upgrade in _ARCHETYPE_UPGRADE_POOL:
+			if upgrade.archetype == player.roster[i] and not owned.has(upgrade) and player.can_afford_blood_points(upgrade.cost):
+				candidates.append({"upgrade": upgrade, "squad_id": squad_id})
+	if candidates.is_empty():
 		return
 
-	var upgrade: ArchetypeUpgrade = affordable_upgrades[randi() % affordable_upgrades.size()]
-	GameManager.buy_archetype_upgrade(player, upgrade)
+	var choice: Dictionary = candidates[randi() % candidates.size()]
+	GameManager.buy_archetype_upgrade(player, choice["upgrade"], choice["squad_id"])

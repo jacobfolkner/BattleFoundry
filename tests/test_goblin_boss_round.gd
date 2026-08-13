@@ -18,16 +18,8 @@ func before_each() -> void:
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode leak in
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)
-	blue.resources = 0
-	red.resources = 0
-	blue.blood_points = 0
-	red.blood_points = 0
-	blue.roster.clear()
-	red.roster.clear()
-	blue.roster_upgrades.clear()
-	red.roster_upgrades.clear()
-	blue.archetype_upgrades.clear()
-	red.archetype_upgrades.clear()
+	blue.reset_for_new_match()
+	red.reset_for_new_match()
 	blue.is_human = true
 	red.is_human = true
 	_main = load("res://Scenes/Main.tscn").instantiate()

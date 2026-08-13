@@ -60,6 +60,21 @@ var kills: int = 0
 ## regardless of whether that round's copy died in battle. Unused (stays
 ## empty) for a plain single-battle match, same as `resources`.
 var roster: Array[UnitStats] = []
+## Stable identity for each `roster`/`courtyard_units` slot, index-aligned
+## with both -- assigned once at purchase time (see next_squad_id()) and
+## never reused or re-derived from index, so a per-squad purchase (see
+## archetype_upgrades below) stays attached to the SAME physical squad
+## even after sell_roster_slot()/reorder_roster_by_courtyard_depth()
+## shift or permute which index it currently sits at.
+var roster_squad_ids: Array[int] = []
+var _next_squad_id: int = 0
+
+func next_squad_id() -> int:
+	var id := _next_squad_id
+	_next_squad_id += 1
+	return id
+
+
 ## Index-aligned with `roster` -- courtyard_units[i] is the live Array[Unit]
 ## squad currently standing in this team's lineup courtyard for roster[i]
 ## (see CrossArenaMap.get_courtyard_position()). Purely a derived,
@@ -78,13 +93,17 @@ var courtyard_units: Array = []
 ## would (no sell exists for this yet, matching the "buy an upgrade" shop
 ## having no refund path either).
 var roster_upgrades: Array[UnitUpgrade] = []
-## Blood-point-cost, per-archetype upgrades bought during PLACEMENT (see
-## GameManager.buy_archetype_upgrade()) -- unlike roster_upgrades (a flat
-## stat buff, applies to every squad), each entry here only affects
-## squads of its own ArchetypeUpgrade.archetype, and can change squad
-## composition (bonus units), not just stats. Persists the same way
-## roster/roster_upgrades do -- reset_battle() never clears it.
-var archetype_upgrades: Array[ArchetypeUpgrade] = []
+## squad_id (see roster_squad_ids above) -> the ArchetypeUpgrade(s) bought
+## for THAT specific squad (see GameManager.buy_archetype_upgrade()) --
+## unlike roster_upgrades (a flat stat buff, account-wide, applies to
+## every squad), each entry here only affects the one physical squad it
+## was bought for, even if a player owns several squads of the same
+## archetype: buying Mortar Support for one Archer squad never grants it
+## to a different Archer squad. Persists the same way roster/roster_upgrades
+## do -- reset_battle() never clears it, and a squad_id's entry simply
+## becomes orphaned (harmless, never looked up again) if that squad is
+## later sold via sell_roster_slot().
+var archetype_upgrades: Dictionary = {} # squad_id: int -> Array[ArchetypeUpgrade]
 ## UnitStats (a hero archetype, e.g. HeroStats.tres) -> {"level": int,
 ## "xp": float} -- persists a hero's level/XP across Blood Tournament
 ## rounds the same way `roster` itself persists which archetypes are
@@ -118,6 +137,33 @@ var hero_progress: Dictionary = {}
 ## buying the same hero archetype twice shares one combined draft rather
 ## than choosing independently per copy.
 var hero_ability_picks: Dictionary = {}
+
+
+## Clears every field that's meant to persist for a whole MATCH (roster,
+## roster_squad_ids, roster_upgrades, archetype_upgrades, hero_progress,
+## hero_ability_picks, kills, blood_points, resources) back to a fresh
+## player's defaults -- distinct from GameManager.reset_battle(), which
+## deliberately leaves all of this alone (it only resets ROUND-scoped
+## state: courtyard_units/battle_state) so a real Blood Tournament match
+## can carry a roster across rounds. Player is a persistent RefCounted --
+## GameManager.players never recreates one between matches or (in a test
+## run) between tests -- so this is the actual "start over" a test's
+## before_each wants; calling reset_battle() alone leaves every one of
+## these fields exactly as a PREVIOUS test/match left them, which is what
+## used to make GameManager.start_battle()'s own sync_courtyard_to_roster()
+## call silently resurrect a stale roster (and its live units) left behind
+## by an unrelated earlier test.
+func reset_for_new_match() -> void:
+	resources = 0
+	blood_points = 0
+	kills = 0
+	roster.clear()
+	roster_squad_ids.clear()
+	courtyard_units.clear()
+	roster_upgrades.clear()
+	archetype_upgrades.clear()
+	hero_progress.clear()
+	hero_ability_picks.clear()
 
 
 func _init(p_id: int, p_slot: int, p_team_id: int, p_display_name: String, p_color: Color, p_is_human: bool = true) -> void:

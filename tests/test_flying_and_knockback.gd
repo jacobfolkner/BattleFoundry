@@ -18,6 +18,12 @@ var _main: Node3D
 func before_each() -> void:
 	GameManager.reset_battle()
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena) leak into this one
+	# See Player.reset_for_new_match()'s own doc comment -- reset_battle()
+	# deliberately leaves player.roster alone, so a stale one from an
+	# earlier test would otherwise resurrect as extra live units the
+	# moment this file's own start_battle() call runs.
+	GameManager.get_player(GameManager.BLUE_TEAM_ID).reset_for_new_match()
+	GameManager.get_player(GameManager.RED_TEAM_ID).reset_for_new_match()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)
@@ -67,14 +73,25 @@ func test_ground_melee_cannot_target_flying_unit() -> void:
 	var tank := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.RED_TEAM_ID), Vector3(1, 0, 0))
 	GameManager.start_battle()
 
-	for i in range(120): # 2s
-		await wait_physics_frames(1)
+	var tank_hit := await _wait_until(func(): return tank.current_health < TANK_STATS.max_health, 120) # 2s
+	assert_true(tank_hit, "the flying unit should still be able to hit the ground unit")
 
 	assert_eq(bat_rider.current_health, BAT_RIDER_STATS.max_health,
 		"can_attack_flying = false should mean the Tank never lands a hit on a flying unit")
 	assert_null(tank.target_enemy, "the Tank should never acquire the flying unit as a target at all")
-	assert_lt(tank.current_health, TANK_STATS.max_health,
-		"the flying unit should still be able to hit the ground unit")
+
+
+## Polls `condition` once per physics frame (not a wall-clock timer, which
+## doesn't map to simulated physics time under GUT). Returns true as soon
+## as it's met, false if `timeout_physics_frames` elapses first.
+func _wait_until(condition: Callable, timeout_physics_frames: int) -> bool:
+	var frames := 0
+	while not condition.call():
+		if frames >= timeout_physics_frames:
+			return false
+		await wait_physics_frames(1)
+		frames += 1
+	return true
 
 
 func test_giant_knockback_launches_target_up_and_back_and_lands() -> void:

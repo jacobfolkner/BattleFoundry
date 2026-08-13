@@ -23,13 +23,7 @@ func before_each() -> void:
 	# left dirty (same recurring lesson this codebase's other economy
 	# tests already document).
 	for team_id in [GameManager.BLUE_TEAM_ID, GameManager.RED_TEAM_ID]:
-		var player := GameManager.get_player(team_id)
-		player.resources = 0
-		player.blood_points = 0
-		player.roster.clear()
-		player.roster_upgrades.clear()
-		player.archetype_upgrades.clear()
-		player.courtyard_units.clear()
+		GameManager.get_player(team_id).reset_for_new_match()
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)
 	await wait_physics_frames(2)

@@ -15,6 +15,15 @@ var _original_stalemate_timeout: float
 func before_each() -> void:
 	GameManager.reset_battle()
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode (and its cross-shaped arena) leak into this one
+	# Player is a persistent RefCounted, not recreated per test -- an
+	# earlier Blood-Tournament-flavored test that populated a roster and
+	# never sold it back off would otherwise survive into this file:
+	# GameManager.start_battle() calls sync_courtyard_to_roster() for
+	# EVERY registered player, so a stale roster silently resurrects as
+	# extra live units the moment this test starts a battle. See
+	# Player.reset_for_new_match()'s own doc comment.
+	GameManager.get_player(GameManager.BLUE_TEAM_ID).reset_for_new_match()
+	GameManager.get_player(GameManager.RED_TEAM_ID).reset_for_new_match()
 	_original_stalemate_timeout = GameManager.STALEMATE_TIMEOUT
 	_main = load("res://Scenes/Main.tscn").instantiate()
 	add_child_autofree(_main)

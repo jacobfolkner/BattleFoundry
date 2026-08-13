@@ -257,18 +257,23 @@ func _process(delta: float) -> void:
 
 
 ## PLACEMENT, BATTLE, or GAME_OVER -> PLACEMENT. Frees every unit still in
-## the arena, dead or alive, and clears both rosters, so the lifecycle
-## state and the actual battlefield can never disagree about whether a
-## battle is in progress.
+## the arena, dead or alive, so the lifecycle state and the actual
+## battlefield can never disagree about whether a battle is in progress.
 ##
-## No survivor-carryover option here (an earlier version of this method
-## had one) -- Blood Tournament doesn't have permadeath: what persists
+## Deliberately does NOT touch Player.roster (or roster_squad_ids/
+## roster_upgrades/archetype_upgrades/hero_progress/...) -- no
+## survivor-carryover here (an earlier version of this method had one),
+## but Blood Tournament doesn't have permadeath either: what persists
 ## between rounds is each Player's `roster` (purchased archetypes, data),
 ## not literal surviving Unit nodes. sync_courtyard_to_roster() is what
 ## respawns a round's full roster fresh into each team's lineup courtyard
-## after this runs.
+## after this runs. This is exactly right for a real match's between-round
+## transition, but it means calling ONLY this (not
+## Player.reset_for_new_match()) between separate tests/matches leaves a
+## stale roster sitting on a persistent Player object -- see that
+## method's own doc comment for the bug shape this caused.
 ##
-## Also clears every registered Player's `courtyard_units` -- those live
+## DOES clear every registered Player's `courtyard_units` -- those live
 ## Unit references are among what the sweep above just freed, so leaving
 ## the array itself non-empty would make sync_courtyard_to_roster() wrongly
 ## believe those slots are already populated (it only fills slots the
@@ -493,11 +498,14 @@ func reorder_roster_by_courtyard_depth(player: Player) -> void:
 	)
 	var new_roster: Array[UnitStats] = []
 	var new_courtyard_units: Array = []
+	var new_squad_ids: Array[int] = []
 	for i in indices:
 		new_roster.append(player.roster[i])
 		new_courtyard_units.append(player.courtyard_units[i])
+		new_squad_ids.append(player.roster_squad_ids[i])
 	player.roster = new_roster
 	player.courtyard_units = new_courtyard_units
+	player.roster_squad_ids = new_squad_ids
 
 
 ## Squad member 0's own position -- the only member ever actually visible
@@ -565,6 +573,9 @@ func sell_roster_slot(player: Player, index: int) -> bool:
 		return false
 	var stats: UnitStats = player.roster[index]
 	player.roster.remove_at(index)
+	if index < player.roster_squad_ids.size():
+		player.archetype_upgrades.erase(player.roster_squad_ids[index])
+		player.roster_squad_ids.remove_at(index)
 	if index < player.courtyard_units.size():
 		var squad: Array = player.courtyard_units[index]
 		for unit in squad:
@@ -592,6 +603,7 @@ func buy_roster_slot(player: Player, stats: UnitStats) -> bool:
 		return false
 	player.spend(stats.cost)
 	player.roster.append(stats)
+	player.roster_squad_ids.append(player.next_squad_id())
 	return true
 
 
@@ -607,6 +619,18 @@ func buy_roster_slot(player: Player, stats: UnitStats) -> bool:
 ## courtyard_units needing to be hand-maintained at every possible
 ## roster-mutation call site.
 func sync_courtyard_to_roster(player: Player) -> void:
+	# Keeps roster_squad_ids index-aligned with roster regardless of how
+	# roster got mutated -- the dominant test-setup idiom in this codebase
+	# sets player.roster directly, bypassing buy_roster_slot() (the only
+	# other place a squad_id is normally assigned), so this backfill is
+	# what lets buy_archetype_upgrade() work against those tests unchanged,
+	# the same "durable safety net" role this method already plays for
+	# courtyard_units below.
+	while player.roster_squad_ids.size() > player.roster.size():
+		player.roster_squad_ids.pop_back()
+	while player.roster_squad_ids.size() < player.roster.size():
+		player.roster_squad_ids.append(player.next_squad_id())
+
 	while player.courtyard_units.size() > player.roster.size():
 		var extra: Array = player.courtyard_units.pop_back()
 		for unit in extra:
@@ -617,24 +641,23 @@ func sync_courtyard_to_roster(player: Player) -> void:
 
 	for i in range(player.courtyard_units.size(), player.roster.size()):
 		var stats: UnitStats = player.roster[i]
-		_spawn_roster_squad_at(player, stats, CrossArenaMap.get_courtyard_unit_anchor(player.team_id, i))
+		_spawn_roster_squad_at(player, stats, player.roster_squad_ids[i], CrossArenaMap.get_courtyard_unit_anchor(player.team_id, i))
 
 
 ## The full ordered list of UnitStats one roster slot for `base_stats`
-## actually deploys as, once `player`'s own ArchetypeUpgrade purchases
-## are folded in -- base_stats.squad_size copies of base_stats, plus
-## each matching upgrade's extra_base_units (more of the same archetype)
-## and bonus_unit_stats/bonus_unit_count (a different unit type
-## entirely). A player with no archetype upgrades for base_stats gets
-## exactly base_stats.squad_size copies back -- today's pre-upgrade
-## behavior, unchanged. Pure lookup; spawns nothing itself.
-func _expanded_squad_composition(player: Player, base_stats: UnitStats) -> Array[UnitStats]:
+## actually deploys as, once the upgrades bought specifically for
+## `squad_id` (see Player.archetype_upgrades) are folded in --
+## base_stats.squad_size copies of base_stats, plus each upgrade's
+## extra_base_units (more of the same archetype) and
+## bonus_unit_stats/bonus_unit_count (a different unit type entirely). A
+## squad with no archetype upgrades of its own gets exactly
+## base_stats.squad_size copies back -- today's pre-upgrade behavior,
+## unchanged. Pure lookup; spawns nothing itself.
+func _expanded_squad_composition(base_stats: UnitStats, squad_upgrades: Array) -> Array[UnitStats]:
 	var composition: Array[UnitStats] = []
 	for i in base_stats.squad_size:
 		composition.append(base_stats)
-	for upgrade in player.archetype_upgrades:
-		if upgrade.archetype != base_stats:
-			continue
+	for upgrade in squad_upgrades:
 		for i in upgrade.extra_base_units:
 			composition.append(base_stats)
 		if upgrade.bonus_unit_stats != null:
@@ -644,14 +667,17 @@ func _expanded_squad_composition(player: Player, base_stats: UnitStats) -> Array
 
 
 ## Spawns one roster slot's squad at `position`, applying every
-## account-wide roster upgrade, per-archetype ArchetypeUpgrade (squad
-## composition + granted aura), and restoring hero progress -- the
-## shared per-slot body sync_courtyard_to_roster()'s loop above and
-## buy_roster_slot_at() below both use, so the two call sites (default
-## courtyard anchor vs. a player-chosen ghost-placement point) can't
-## silently drift apart on what "realizing a roster slot" actually means.
-func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3) -> void:
-	var composition := _expanded_squad_composition(player, stats)
+## account-wide roster upgrade, `squad_id`'s own ArchetypeUpgrade
+## purchases (squad composition + granted aura -- see
+## Player.archetype_upgrades' own doc comment for why per-squad, not
+## per-archetype), and restoring hero progress -- the shared per-slot
+## body sync_courtyard_to_roster()'s loop above and buy_roster_slot_at()
+## below both use, so the two call sites (default courtyard anchor vs. a
+## player-chosen ghost-placement point) can't silently drift apart on
+## what "realizing a roster slot" actually means.
+func _spawn_roster_squad_at(player: Player, stats: UnitStats, squad_id: int, position: Vector3) -> void:
+	var squad_upgrades: Array = player.archetype_upgrades.get(squad_id, [])
+	var composition := _expanded_squad_composition(stats, squad_upgrades)
 	var squad: Array[Unit] = []
 	for i in composition.size():
 		var member_stats: UnitStats = composition[i]
@@ -663,8 +689,8 @@ func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3)
 			continue
 		for unit in squad:
 			upgrade.ability.cast_unit_target(unit, unit)
-	for upgrade in player.archetype_upgrades:
-		if upgrade.archetype == stats and upgrade.aura_ability != null:
+	for upgrade in squad_upgrades:
+		if upgrade.aura_ability != null:
 			for unit in squad:
 				unit.granted_aura_ability = upgrade.aura_ability
 	if stats.is_hero and player.hero_progress.has(stats):
@@ -700,7 +726,7 @@ func _spawn_roster_squad_at(player: Player, stats: UnitStats, position: Vector3)
 func buy_roster_slot_at(player: Player, stats: UnitStats, position: Vector3) -> bool:
 	if not buy_roster_slot(player, stats):
 		return false
-	_spawn_roster_squad_at(player, stats, position)
+	_spawn_roster_squad_at(player, stats, player.roster_squad_ids[-1], position)
 	return true
 
 
@@ -771,35 +797,53 @@ func buy_roster_upgrade(player: Player, upgrade: UnitUpgrade) -> bool:
 
 
 ## The per-archetype shop upgrade path (ArchetypeUpgrade -- see its own
-## class doc comment): spends blood points and records the purchase on
-## Player.archetype_upgrades. Same "already-owned squads get the aura
-## immediately, composition changes wait for the next (re)spawn" split
-## pick_hero_ability() documents right below -- growing an
-## already-standing squad's member count live is real added complexity
+## class doc comment): spends blood points and records the purchase
+## against ONE specific squad (`squad_id`, see Player.roster_squad_ids),
+## not every squad of that archetype the player owns -- a player with two
+## Archer squads can upgrade just one of them. Same "already-standing
+## squad gets the aura immediately, composition changes wait for the next
+## (re)spawn" split pick_hero_ability() documents right below -- growing
+## an already-standing squad's member count live is real added complexity
 ## (spawning the delta into an existing courtyard array, repositioning
 ## around it) for a purchase-time moment that's already about to be
 ## superseded by the next round's sync_courtyard_to_roster() anyway; the
 ## granted aura, by contrast, is just an Effect application, exactly as
 ## cheap to apply retroactively as buy_roster_upgrade()'s own already
-## does. Refuses a duplicate purchase of the same upgrade outright (no
-## stacking two "extra units" copies onto one squad).
-func buy_archetype_upgrade(player: Player, upgrade: ArchetypeUpgrade) -> bool:
+## does. Refuses a duplicate purchase of the same upgrade for the same
+## squad outright (no stacking two "extra units" copies onto one squad),
+## and refuses a squad_id that isn't currently one of player's own or
+## whose archetype doesn't match the upgrade at all.
+func buy_archetype_upgrade(player: Player, upgrade: ArchetypeUpgrade, squad_id: int) -> bool:
 	if not is_placement_phase() or not current_mode.uses_economy():
 		return false
-	if player.archetype_upgrades.has(upgrade):
+	var index := player.roster_squad_ids.find(squad_id)
+	if index == -1 or player.roster[index] != upgrade.archetype:
+		return false
+	var squad_upgrades: Array = player.archetype_upgrades.get(squad_id, [])
+	if squad_upgrades.has(upgrade):
 		return false
 	if not player.can_afford_blood_points(upgrade.cost):
 		return false
 
 	player.spend_blood_points(upgrade.cost)
-	player.archetype_upgrades.append(upgrade)
-	if upgrade.aura_ability != null:
-		for i in player.courtyard_units.size():
-			if player.roster[i] != upgrade.archetype:
-				continue
-			for unit in player.courtyard_units[i]:
-				unit.granted_aura_ability = upgrade.aura_ability
+	squad_upgrades.append(upgrade)
+	player.archetype_upgrades[squad_id] = squad_upgrades
+	if upgrade.aura_ability != null and index < player.courtyard_units.size():
+		for unit in player.courtyard_units[index]:
+			unit.granted_aura_ability = upgrade.aura_ability
 	return true
+
+
+## Which squad_id (see Player.roster_squad_ids) `unit` currently belongs
+## to, or -1 if it isn't part of any of `player`'s courtyard squads --
+## used to scope an archetype-upgrade purchase to the specific squad the
+## player has selected (see Main._on_archetype_upgrade_requested()) rather
+## than every squad of that archetype.
+func find_squad_id_for_unit(player: Player, unit: Unit) -> int:
+	for i in player.courtyard_units.size():
+		if player.courtyard_units[i].has(unit):
+			return player.roster_squad_ids[i]
+	return -1
 
 
 ## Records which candidate `player` picked for one of `stats`' drafted

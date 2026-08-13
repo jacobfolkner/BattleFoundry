@@ -16,12 +16,7 @@ func before_each() -> void:
 	GameManager.current_mode = ClassicEliminationMode.new() # don't let an earlier test's mode leak in
 	for team_id in GameManager.all_team_ids():
 		var player := GameManager.get_player(team_id)
-		player.resources = 0
-		player.blood_points = 0
-		player.kills = 0
-		player.roster.clear()
-		player.roster_upgrades.clear()
-		player.archetype_upgrades.clear()
+		player.reset_for_new_match()
 		player.is_human = true
 	# MenuSelection is a persistent autoload, same as GameManager/Player --
 	# an earlier test in this file setting human_team_id/bot_team_ids and

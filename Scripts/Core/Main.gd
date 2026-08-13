@@ -443,12 +443,17 @@ func _on_upgrade_requested(upgrade: UnitUpgrade) -> void:
 
 
 ## HUD's archetype upgrade row -- unlike _on_upgrade_requested() above,
-## this genuinely is scoped to whichever unit is selected (its own
-## archetype has to match ArchetypeUpgrade.archetype), but the actual
-## spend still only needs _selected_player -- GameManager.buy_archetype_upgrade()
-## itself re-derives the applicable squads from Player.roster.
+## this is scoped to the ONE specific squad currently selected (see
+## GameManager.buy_archetype_upgrade()'s own doc comment for why
+## per-squad, not per-archetype), same "whichever unit SelectionManager
+## currently reports as selected" source _on_sell_requested() above uses.
 func _on_archetype_upgrade_requested(upgrade: ArchetypeUpgrade) -> void:
-	if GameManager.buy_archetype_upgrade(_selected_player, upgrade):
+	if SelectionManager.selected_units.is_empty():
+		return
+	var squad_id := GameManager.find_squad_id_for_unit(_selected_player, SelectionManager.selected_units[0])
+	if squad_id == -1:
+		return
+	if GameManager.buy_archetype_upgrade(_selected_player, upgrade, squad_id):
 		_refresh_gold_display()
 
 
