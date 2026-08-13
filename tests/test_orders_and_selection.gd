@@ -387,5 +387,6 @@ func test_cast_ability_via_selection_manager_hits_selected_units_targets() -> vo
 	SelectionManager.select_single(tank)
 
 	SelectionManager.cast_ability(0) # War Stomp
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the cast doesn't apply until a later tick now
 
 	assert_true(nearby_enemy.is_stunned(), "casting War Stomp through SelectionManager should stun the nearby enemy")

@@ -89,11 +89,27 @@ func assign_random_spawn_points() -> void:
 ## GameManager.start_battle() exactly as before.
 func start_battle_pressed() -> void:
 	if mode != null and mode.is_boss_round():
+		# Boss-round start stays a direct call, not Command-wrapped -- which
+		# branch this hits is fully determined by already-synced match
+		# state (is_boss_round()), the same "internal orchestration doesn't
+		# need Command-wrapping" reasoning GoblinBossRound/FinalTournamentBracket's
+		# own direct GameManager.start_battle() calls already rely on (see
+		# BattleFoundry-Roadmap.md's D1 plan).
 		_boss_round = GoblinBossRound.new()
 		_boss_round.boss_round_finished.connect(_on_boss_round_finished)
 		_boss_round.start(mode)
 	else:
-		GameManager.start_battle() # sync_courtyard_to_roster()'s safety net runs inside start_battle() itself -- see its own doc comment for why that's the one call site every path (button, test, AI) always goes through
+		# The one genuinely player-originated path here -- a real Start
+		# Battle button press -- so it's the one branch that goes through
+		# CommandQueue rather than calling GameManager.start_battle()
+		# directly. sync_courtyard_to_roster()'s safety net still runs
+		# inside start_battle() itself once this applies -- see that
+		# method's own doc comment for why it's the one call site every
+		# path (this, a test, AI) always goes through.
+		var command := Command.new()
+		command.type = Command.Type.START_BATTLE
+		command.team_id = SelectionManager.local_player.team_id
+		CommandQueue.enqueue(command)
 
 
 ## GoblinBossRound itself never touches round scoring (see its class doc

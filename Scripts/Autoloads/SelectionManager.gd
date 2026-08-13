@@ -170,40 +170,59 @@ func select_control_group(number: int) -> void:
 	_prune_and_emit()
 
 
+## Every order_*/cast_ability* method below builds one Command
+## (Scripts/Core/Command.gd) per owned selected unit and hands it to
+## CommandQueue instead of calling Unit.order_*()/cast_ability() directly
+## -- part of the D1 multiplayer plan (BattleFoundry-Roadmap.md): every
+## player-originated action funnels through the same tick-scheduled path
+## a future remote peer's input will also need to use. Effects land
+## CommandQueue.DEFAULT_INPUT_DELAY_TICKS later, not this same frame.
+func _enqueue_order(unit: Unit, order_type: Unit.OrderType, target_position: Vector3 = Vector3.ZERO, target_unit: Unit = null, queue: bool = false) -> void:
+	var command := Command.new()
+	command.type = Command.Type.UNIT_ORDER
+	command.team_id = local_player.team_id
+	command.unit_net_id = unit.net_id
+	command.order_type = order_type
+	command.target_position = target_position
+	command.target_net_id = target_unit.net_id if target_unit != null else -1
+	command.queue = queue
+	CommandQueue.enqueue(command)
+
+
 func order_move(target_position: Vector3, queue: bool = false) -> void:
 	for unit in _owned_selection():
-		unit.order_move(target_position, queue)
+		_enqueue_order(unit, Unit.OrderType.MOVE, target_position, null, queue)
 
 
 func order_attack_move(target_position: Vector3, queue: bool = false) -> void:
 	for unit in _owned_selection():
-		unit.order_attack_move(target_position, queue)
+		_enqueue_order(unit, Unit.OrderType.ATTACK_MOVE, target_position, null, queue)
 
 
 func order_attack_unit(enemy: Unit, queue: bool = false) -> void:
 	for unit in _owned_selection():
-		unit.order_attack_unit(enemy, queue)
+		_enqueue_order(unit, Unit.OrderType.ATTACK_MOVE, Vector3.ZERO, enemy, queue)
 
 
 func order_stop() -> void:
 	for unit in _owned_selection():
-		unit.order_stop()
+		_enqueue_order(unit, Unit.OrderType.STOP)
 
 
 func order_hold() -> void:
 	for unit in _owned_selection():
-		unit.order_hold()
+		_enqueue_order(unit, Unit.OrderType.HOLD)
 
 
 func order_patrol(target_position: Vector3, queue: bool = false) -> void:
 	for unit in _owned_selection():
-		unit.order_patrol(target_position, queue)
+		_enqueue_order(unit, Unit.OrderType.PATROL, target_position, null, queue)
 
 
 func order_follow(target_unit: Unit, queue: bool = false) -> void:
 	for unit in _owned_selection():
 		if unit != target_unit:
-			unit.order_follow(target_unit, queue)
+			_enqueue_order(unit, Unit.OrderType.FOLLOW, Vector3.ZERO, target_unit, queue)
 
 
 ## Casts ability slot `index` (0/1/2, the Q/E/R hotkeys in Main.gd) on
@@ -220,10 +239,21 @@ func cast_ability(index: int) -> void:
 		var ability: Ability = unit.resolved_abilities[index]
 		if ability == null:
 			continue
-		if ability.cast_type == Ability.CastType.UNIT_TARGET:
-			unit.cast_ability(index, unit.target_enemy)
-		else:
-			unit.cast_ability(index)
+		# UNIT_TARGET's auto-target (unit.target_enemy) is resolved HERE,
+		# at issue time, not left for apply_command() to re-derive later --
+		# it's who this unit is fighting right now, the same thing
+		# autoattacks target, and re-reading it a tick later at apply time
+		# could pick a different, already-swapped target_enemy. Matches
+		# the pre-Command behavior's own timing exactly (it also read
+		# target_enemy at the moment cast_ability() was called).
+		var command := Command.new()
+		command.type = Command.Type.CAST_ABILITY
+		command.team_id = local_player.team_id
+		command.unit_net_id = unit.net_id
+		command.ability_index = index
+		if ability.cast_type == Ability.CastType.UNIT_TARGET and unit.target_enemy != null:
+			command.target_net_id = unit.target_enemy.net_id
+		CommandQueue.enqueue(command)
 
 
 ## Like cast_ability(), but for the click-to-target flow (see
@@ -240,10 +270,14 @@ func cast_ability_at_target(index: int, target: Unit) -> void:
 		var ability: Ability = unit.resolved_abilities[index]
 		if ability == null:
 			continue
+		var command := Command.new()
+		command.type = Command.Type.CAST_ABILITY
+		command.team_id = local_player.team_id
+		command.unit_net_id = unit.net_id
+		command.ability_index = index
 		if ability.cast_type == Ability.CastType.UNIT_TARGET:
-			unit.cast_ability(index, target)
-		else:
-			unit.cast_ability(index)
+			command.target_net_id = target.net_id
+		CommandQueue.enqueue(command)
 
 
 ## Ownership enforcement for order issuing: select_single()/select_in_rect()

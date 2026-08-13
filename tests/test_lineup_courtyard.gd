@@ -190,6 +190,7 @@ func test_confirming_placement_spawns_the_full_squad_at_the_clicked_spot() -> vo
 	assert_true(blue.courtyard_units.is_empty(), "sanity check: nothing bought until a placement click confirms it")
 
 	_main._try_left_click_at(camera.unproject_position(target))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 
 	assert_eq(blue.courtyard_units.size(), 1, "one roster slot should mean one courtyard_units entry")
 	assert_eq(blue.courtyard_units[0].size(), FIGHTER_STATS.squad_size, "the whole squad should stand at the clicked spot, not just one unit")
@@ -207,6 +208,7 @@ func test_ai_purchases_also_populate_the_courtyard() -> void:
 	red.resources = 500
 
 	AIController.new().take_turn(red)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	assert_false(red.roster.is_empty())
 	assert_eq(red.courtyard_units.size(), red.roster.size(), "every AI-bought roster slot should have a matching live courtyard squad")
@@ -467,8 +469,10 @@ func test_dragging_a_courtyard_squad_reorders_the_roster_to_match_its_physical_a
 	# reorders on its own).
 	_main._on_unit_type_selected(TANK_STATS)
 	_main._try_left_click_at(camera.unproject_position(back_point))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 	_main._on_unit_type_selected(FIGHTER_STATS)
 	_main._try_left_click_at(camera.unproject_position(front_point))
+	await wait_physics_frames(1)
 	assert_eq(blue.roster, [TANK_STATS, FIGHTER_STATS], "sanity check: purchase order before any drag")
 	await wait_physics_frames(1) # let the physics server register the new collision shapes before raycasting
 

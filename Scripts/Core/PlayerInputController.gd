@@ -402,8 +402,12 @@ func cancel_pending_patrol() -> void:
 func handle_placement_key(event: InputEventKey) -> void:
 	for index in _UPGRADE_ACTIONS.size():
 		if event.is_action_pressed(_UPGRADE_ACTIONS[index]):
-			if index < _UPGRADES.size() and GameManager.buy_roster_upgrade(selected_player, _UPGRADES[index]):
-				_refresh_gold_display.call()
+			if index < _UPGRADES.size():
+				var command := Command.new()
+				command.type = Command.Type.BUY_ROSTER_UPGRADE
+				command.team_id = selected_player.team_id
+				command.upgrade = _UPGRADES[index]
+				CommandQueue.enqueue(command)
 			return
 
 
@@ -434,7 +438,7 @@ func try_start_unit_drag(screen_position: Vector2) -> void:
 	if GameManager.current_mode.uses_economy():
 		if unit.stats.is_builder:
 			return
-		var index := _find_courtyard_slot_index(unit)
+		var index := GameManager.find_courtyard_slot_index(selected_player, unit)
 		if index == -1:
 			return
 		_drag_source_squad_index = index
@@ -509,25 +513,11 @@ func try_sell_unit(unit: Unit) -> void:
 	if unit.stats.is_builder:
 		return
 
-	if GameManager.current_mode.uses_economy():
-		var index := _find_courtyard_slot_index(unit)
-		if index != -1:
-			GameManager.sell_roster_slot(selected_player, index)
-			_refresh_gold_display.call()
-	else:
-		unit.player.roster.erase(unit.stats)
-		GameManager.sell_unit(unit)
-		_refresh_gold_display.call()
-
-
-## Which of selected_player.courtyard_units[i] a clicked courtyard unit
-## belongs to -- -1 if it isn't in any of them (shouldn't happen for a
-## unit that passed the ownership check above, under Blood Tournament).
-func _find_courtyard_slot_index(unit: Unit) -> int:
-	for i in selected_player.courtyard_units.size():
-		if selected_player.courtyard_units[i].has(unit):
-			return i
-	return -1
+	var command := Command.new()
+	command.type = Command.Type.SELL_UNIT
+	command.team_id = selected_player.team_id
+	command.unit_net_id = unit.net_id
+	CommandQueue.enqueue(command)
 
 
 ## Squad member 0's own position -- used as the drag's revert-to center.
@@ -614,9 +604,22 @@ func resolve_build_placement(screen_position: Vector2) -> void:
 		return
 	if not CrossArenaMap.is_in_teams_courtyard(selected_player.team_id, hit_position):
 		return
-	if not GameManager.buy_roster_slot_at(selected_player, _pending_build_stats, hit_position):
+	# Affordability is still checked synchronously here (client-side, same
+	# as before) so an unaffordable click keeps the ghost armed rather
+	# than disarming for a purchase that's about to silently fail once
+	# applied -- the actual spend/spawn now happens
+	# CommandQueue.DEFAULT_INPUT_DELAY_TICKS later, via
+	# GameManager.apply_command(), which re-checks affordability itself
+	# as the real authority (this is only an optimistic pre-check).
+	if not selected_player.can_afford(_pending_build_stats.cost):
 		return
-	_refresh_gold_display.call()
+	var command := Command.new()
+	command.type = Command.Type.BUY_ROSTER_SLOT
+	command.team_id = selected_player.team_id
+	command.unit_stats = _pending_build_stats
+	command.target_position = hit_position
+	command.has_target_position = true
+	CommandQueue.enqueue(command)
 	cancel_build_placement()
 
 

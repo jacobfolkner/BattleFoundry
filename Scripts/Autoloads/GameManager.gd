@@ -397,6 +397,9 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 	units_container.add_child(unit)
 	unit.global_position = spawn_position
 	unit.setup(stats, player)
+	unit.net_id = _next_unit_net_id
+	_next_unit_net_id += 1
+	_units_by_net_id[unit.net_id] = unit
 	unit.died.connect(_on_unit_died)
 	unit.damaged.connect(_on_unit_damaged)
 	unit.ability_cast_used.connect(_on_unit_ability_cast)
@@ -406,6 +409,27 @@ func spawn_unit(stats: UnitStats, player: Player, spawn_position: Vector3) -> Un
 	_all_units.append(unit)
 	if is_battle_active() and current_mode.is_auto_battle():
 		unit.order_attack_move(Vector3.ZERO)
+	return unit
+
+
+var _next_unit_net_id: int = 0
+var _units_by_net_id: Dictionary = {} # net_id: int -> Unit
+
+## Resolves a Command's (Scripts/Core/Command.gd) net_id payload back to a
+## live Unit -- -1 (Command's own "no unit" sentinel) or a stale id both
+## return null. Lazily self-cleaning (erases a stale entry the first time
+## it's looked up) rather than proactively erased at every one of the
+## several places a Unit gets removed from _all_units/_units_by_team --
+## matches get_all_units()'s own already-established
+## lazy-validity-filter convention instead of adding yet another manual
+## cleanup site.
+func get_unit_by_net_id(net_id: int) -> Unit:
+	if net_id == -1 or not _units_by_net_id.has(net_id):
+		return null
+	var unit: Unit = _units_by_net_id[net_id]
+	if not is_instance_valid(unit):
+		_units_by_net_id.erase(net_id)
+		return null
 	return unit
 
 
@@ -867,6 +891,116 @@ func pick_hero_ability(player: Player, stats: UnitStats, slot_index: int, chosen
 		player.hero_ability_picks[stats] = {}
 	player.hero_ability_picks[stats][slot_index] = chosen_index
 	return true
+
+
+## Which of player.courtyard_units[i] `unit` currently belongs to, -1 if
+## none -- the public, GameManager-side twin of what used to be
+## PlayerInputController's own private _find_courtyard_slot_index()
+## (still there, now delegating here) -- apply_command()'s SELL_UNIT case
+## needs the same lookup and can't reach into a per-Main
+## PlayerInputController instance.
+func find_courtyard_slot_index(player: Player, unit: Unit) -> int:
+	for i in player.courtyard_units.size():
+		if player.courtyard_units[i].has(unit):
+			return i
+	return -1
+
+
+## The single dispatch point every Command (Scripts/Core/Command.gd) --
+## human or AI, always via CommandQueue, never called directly -- resolves
+## through. Re-validates ownership (unit.player.team_id == command.team_id)
+## at apply time rather than trusting whatever checked it at enqueue time,
+## the same "don't trust the caller, verify again where it matters"
+## posture Command's own doc comment calls out as the point of routing
+## through net_id/team_id instead of live object references in the first
+## place -- today that's just defense-in-depth against a bug, but it's
+## exactly the check a future untrusted remote peer's commands would also
+## need. Silently no-ops on a command that no longer resolves (unit died,
+## squad sold) between enqueue and apply -- same "stale target, do
+## nothing" contract every existing order-issuing path already has.
+func apply_command(command: Command) -> void:
+	var player := get_player(command.team_id)
+	match command.type:
+		Command.Type.UNIT_ORDER:
+			var unit := get_unit_by_net_id(command.unit_net_id)
+			if unit == null or unit.player.team_id != command.team_id:
+				return
+			match command.order_type:
+				Unit.OrderType.MOVE:
+					unit.order_move(command.target_position, command.queue)
+				Unit.OrderType.ATTACK_MOVE:
+					var target := get_unit_by_net_id(command.target_net_id)
+					if target != null:
+						unit.order_attack_unit(target, command.queue)
+					else:
+						unit.order_attack_move(command.target_position, command.queue)
+				Unit.OrderType.STOP:
+					unit.order_stop()
+				Unit.OrderType.HOLD:
+					unit.order_hold()
+				Unit.OrderType.PATROL:
+					unit.order_patrol(command.target_position, command.queue)
+				Unit.OrderType.FOLLOW:
+					var target := get_unit_by_net_id(command.target_net_id)
+					if target != null and target != unit:
+						unit.order_follow(target, command.queue)
+
+		Command.Type.CAST_ABILITY:
+			var unit := get_unit_by_net_id(command.unit_net_id)
+			if unit == null or unit.player.team_id != command.team_id:
+				return
+			if command.ability_index < 0 or command.ability_index >= unit.resolved_abilities.size():
+				return
+			var ability: Ability = unit.resolved_abilities[command.ability_index]
+			if ability == null:
+				return
+			if ability.cast_type == Ability.CastType.UNIT_TARGET:
+				var target := get_unit_by_net_id(command.target_net_id)
+				unit.cast_ability(command.ability_index, target if target != null else unit.target_enemy)
+			else:
+				unit.cast_ability(command.ability_index)
+
+		Command.Type.BUY_ROSTER_SLOT:
+			if player == null:
+				return
+			if command.has_target_position:
+				buy_roster_slot_at(player, command.unit_stats, command.target_position)
+			elif buy_roster_slot(player, command.unit_stats):
+				sync_courtyard_to_roster(player)
+
+		Command.Type.SELL_UNIT:
+			var unit := get_unit_by_net_id(command.unit_net_id)
+			if unit == null or unit.player.team_id != command.team_id or unit.stats.is_builder:
+				return
+			if current_mode.uses_economy():
+				var index := find_courtyard_slot_index(unit.player, unit)
+				if index != -1:
+					sell_roster_slot(unit.player, index)
+			else:
+				unit.player.roster.erase(unit.stats)
+				sell_unit(unit)
+
+		Command.Type.BUY_ROSTER_UPGRADE:
+			if player != null:
+				buy_roster_upgrade(player, command.upgrade as UnitUpgrade)
+
+		Command.Type.BUY_ARCHETYPE_UPGRADE:
+			if player != null:
+				buy_archetype_upgrade(player, command.upgrade as ArchetypeUpgrade, command.squad_id)
+
+		Command.Type.PICK_HERO_ABILITY:
+			if player != null:
+				pick_hero_ability(player, command.unit_stats, command.slot_index, command.chosen_index)
+
+		Command.Type.EXCHANGE_CURRENCY:
+			if player != null:
+				if command.exchange_gold_for_blood:
+					player.exchange_gold_for_blood_points()
+				else:
+					player.exchange_blood_points_for_gold()
+
+		Command.Type.START_BATTLE:
+			start_battle()
 
 
 ## Every currently-valid unit spawned this battle, alive or (briefly)

@@ -134,6 +134,15 @@ const _TEAM_COLOR_SHADER: Shader = preload("res://Resources/Shaders/TeamColor.gd
 @export var stats: UnitStats
 
 var player: Player
+## Stable identity assigned once by GameManager.spawn_unit(), never
+## reused -- lets a Command (Scripts/Core/Command.gd) reference "this
+## specific unit" across a tick-delay/network boundary, where a raw Unit
+## object reference can't be serialized. -1 for anything spawn_unit()
+## didn't create (e.g. the Builder courtyard fixture via
+## spawn_courtyard_fixture() -- deliberately excluded, same as it's
+## excluded from _all_units/_units_by_team, since nothing ever issues a
+## Command targeting it).
+var net_id: int = -1
 var life_state: LifeState = LifeState.ALIVE
 ## Per-instance runtime stats derived from `stats` -- see StatBlock. All
 ## combat math reads this, never `stats` directly, so a future buff/debuff

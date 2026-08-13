@@ -36,6 +36,7 @@ func test_ai_takes_a_turn_for_any_non_human_team_not_just_red() -> void:
 	green.is_human = false
 
 	_main._run_ai_turn_if_needed()
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	assert_false(green.roster.is_empty(), "the AI should have bought into Green's roster, not just Red's")
 

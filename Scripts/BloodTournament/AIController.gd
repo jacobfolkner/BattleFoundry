@@ -65,15 +65,28 @@ const _MAX_NEW_UNITS_PER_TURN := 8
 ## (see GameManager.buy_roster_upgrade()). _MAX_NEW_UNITS_PER_TURN caps
 ## purchased slots, not raw battlefield unit count -- each slot deploys
 ## as a GameManager.spawn_squad()-sized squad once battle starts.
+## Purchases go through CommandQueue like every other player-originated
+## action now (see BattleFoundry-Roadmap.md's D1 plan) -- they don't
+## apply until CommandQueue.DEFAULT_INPUT_DELAY_TICKS later, so the
+## affordability loop below tracks its OWN running balance
+## (_simulated_resources) instead of re-reading player.resources each
+## iteration, which wouldn't reflect this turn's own not-yet-applied
+## spends yet and would let the AI enqueue more than it can actually
+## afford.
 func take_turn(player: Player) -> void:
+	var simulated_resources := player.resources
 	var added := 0
-	var affordable := _affordable_units(player)
+	var affordable := _affordable_units(player, simulated_resources)
 	while not affordable.is_empty() and added < _MAX_NEW_UNITS_PER_TURN:
 		var stats: UnitStats = affordable[SimRng.randi() % affordable.size()]
-		GameManager.buy_roster_slot(player, stats) # same gate the human buy path goes through -- see GameManager.buy_roster_slot()
+		var command := Command.new()
+		command.type = Command.Type.BUY_ROSTER_SLOT
+		command.team_id = player.team_id
+		command.unit_stats = stats
+		CommandQueue.enqueue(command) # positionless -- apply_command() calls buy_roster_slot() + sync_courtyard_to_roster() together for this shape, same as the human's positioned buy does buy_roster_slot_at()
+		simulated_resources -= stats.cost
 		added += 1
-		affordable = _affordable_units(player)
-	GameManager.sync_courtyard_to_roster(player)
+		affordable = _affordable_units(player, simulated_resources)
 
 	_maybe_buy_an_upgrade(player)
 	_maybe_buy_an_archetype_upgrade(player)
@@ -83,10 +96,15 @@ func take_turn(player: Player) -> void:
 ## shouldn't happen post-Main._apply_menu_selection(), but several tests
 ## build a Player and call take_turn() directly without ever going
 ## through the menu) falls back to the whole pool, same "ungated" default
-## HUD.refresh_unit_panel_for_faction(null) already uses.
-func _affordable_units(player: Player) -> Array[UnitStats]:
+## HUD.refresh_unit_panel_for_faction(null) already uses. `resources`
+## defaults (-1 sentinel) to player.resources for any other caller, but
+## take_turn()'s own loop passes its running simulated balance instead
+## (see above) -- a default expression can't reference another parameter
+## in GDScript, hence the sentinel instead of `= player.resources` directly.
+func _affordable_units(player: Player, resources: int = -1) -> Array[UnitStats]:
+	var budget := player.resources if resources < 0 else resources
 	return _UNIT_POOL.filter(func(stats: UnitStats) -> bool:
-		return player.can_afford(stats.cost) and (player.faction == null or stats.faction == player.faction)
+		return stats.cost <= budget and (player.faction == null or stats.faction == player.faction)
 	)
 
 
@@ -96,7 +114,11 @@ func _maybe_buy_an_upgrade(player: Player) -> void:
 		return
 
 	var upgrade: UnitUpgrade = affordable_upgrades[SimRng.randi() % affordable_upgrades.size()]
-	GameManager.buy_roster_upgrade(player, upgrade)
+	var command := Command.new()
+	command.type = Command.Type.BUY_ROSTER_UPGRADE
+	command.team_id = player.team_id
+	command.upgrade = upgrade
+	CommandQueue.enqueue(command)
 
 
 ## Same shape as _maybe_buy_an_upgrade() above, but per-squad now (see
@@ -117,4 +139,9 @@ func _maybe_buy_an_archetype_upgrade(player: Player) -> void:
 		return
 
 	var choice: Dictionary = candidates[SimRng.randi() % candidates.size()]
-	GameManager.buy_archetype_upgrade(player, choice["upgrade"], choice["squad_id"])
+	var command := Command.new()
+	command.type = Command.Type.BUY_ARCHETYPE_UPGRADE
+	command.team_id = player.team_id
+	command.upgrade = choice["upgrade"]
+	command.squad_id = choice["squad_id"]
+	CommandQueue.enqueue(command)

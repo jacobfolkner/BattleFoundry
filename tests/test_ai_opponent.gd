@@ -41,6 +41,7 @@ func test_ai_spends_gold_on_units_without_going_negative() -> void:
 	red.resources = 500
 
 	AIController.new().take_turn(red)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	assert_false(red.roster.is_empty(), "500 gold should afford at least one unit")
 	assert_true(red.resources >= 0)
@@ -70,6 +71,7 @@ func test_ai_spends_all_its_gold_on_units_not_upgrades() -> void:
 	red.resources = 100 # exactly Fighter's cost -- one purchase, nothing left over
 
 	AIController.new().take_turn(red)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	assert_eq(red.resources, 0)
 	assert_almost_eq(unit.stat_block.armor(), original_armor, 0.01, "no blood points means the upgrade branch should never fire")
@@ -85,6 +87,7 @@ func test_ai_spends_blood_points_on_an_account_wide_upgrade() -> void:
 	red.blood_points = 100 # Iron Armor's cost
 
 	AIController.new().take_turn(red)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	assert_eq(red.blood_points, 0)
 	assert_eq(red.roster_upgrades.size(), 1, "Iron Armor should have been bought for Red's account")
@@ -120,6 +123,7 @@ func test_toggling_ai_opponent_flips_is_human_and_forces_blue_selection() -> voi
 func test_ai_opponent_auto_populates_red_when_blood_tournament_starts() -> void:
 	_main._on_ai_opponent_toggled(true)
 	_main._on_tournament_toggled(true) # grants starting gold, then _run_ai_turn_if_needed() should spend it
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	assert_false(GameManager.get_player(GameManager.RED_TEAM_ID).roster.is_empty(), "the AI should have bought at least one roster slot for Red")
 
@@ -135,6 +139,7 @@ func test_ai_opponent_auto_populates_red_when_blood_tournament_starts() -> void:
 func test_ai_opponent_takes_a_new_turn_every_round() -> void:
 	_main._on_ai_opponent_toggled(true)
 	_main._on_tournament_toggled(true)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- purchases don't apply until a later tick now
 
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var red := GameManager.get_player(GameManager.RED_TEAM_ID)

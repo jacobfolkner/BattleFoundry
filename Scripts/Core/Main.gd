@@ -365,6 +365,13 @@ func _focus_camera_on_local_battle() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# Applies whatever Commands (Scripts/Core/Command.gd) were scheduled to
+	# land this tick before advancing the mode -- see CommandQueue's own
+	# doc comment for why this specific ordering (apply commands, then
+	# tick the mode) is what a real networked peer's commands will also
+	# need to slot into later without further changes here.
+	if CommandQueue.apply_scheduled_commands_for_this_tick():
+		_refresh_gold_display()
 	GameManager.current_mode.tick(delta) # no-op for every mode but HeroFootiesMode (see GameMode.tick()'s own doc comment)
 
 
@@ -410,18 +417,29 @@ func _on_roster_slot_clicked(index: int) -> void:
 
 
 func _on_hero_ability_picked(stats: UnitStats, slot_index: int, chosen_index: int) -> void:
-	if GameManager.pick_hero_ability(_selected_player, stats, slot_index, chosen_index):
-		_refresh_gold_display()
+	var command := Command.new()
+	command.type = Command.Type.PICK_HERO_ABILITY
+	command.team_id = _selected_player.team_id
+	command.unit_stats = stats
+	command.slot_index = slot_index
+	command.chosen_index = chosen_index
+	CommandQueue.enqueue(command)
 
 
 func _on_gold_exchange_requested() -> void:
-	if _selected_player.exchange_gold_for_blood_points():
-		_refresh_gold_display()
+	var command := Command.new()
+	command.type = Command.Type.EXCHANGE_CURRENCY
+	command.team_id = _selected_player.team_id
+	command.exchange_gold_for_blood = true
+	CommandQueue.enqueue(command)
 
 
 func _on_blood_exchange_requested() -> void:
-	if _selected_player.exchange_blood_points_for_gold():
-		_refresh_gold_display()
+	var command := Command.new()
+	command.type = Command.Type.EXCHANGE_CURRENCY
+	command.team_id = _selected_player.team_id
+	command.exchange_gold_for_blood = false
+	CommandQueue.enqueue(command)
 
 
 ## HUD's Sell button (see UI/HUD.gd's sell_requested signal) has no
@@ -438,8 +456,11 @@ func _on_sell_requested() -> void:
 ## UnitUpgrade.gd's own doc comment), so this doesn't need to know which
 ## unit is selected at all, just spends _selected_player's blood points.
 func _on_upgrade_requested(upgrade: UnitUpgrade) -> void:
-	if GameManager.buy_roster_upgrade(_selected_player, upgrade):
-		_refresh_gold_display()
+	var command := Command.new()
+	command.type = Command.Type.BUY_ROSTER_UPGRADE
+	command.team_id = _selected_player.team_id
+	command.upgrade = upgrade
+	CommandQueue.enqueue(command)
 
 
 ## HUD's archetype upgrade row -- unlike _on_upgrade_requested() above,
@@ -447,14 +468,21 @@ func _on_upgrade_requested(upgrade: UnitUpgrade) -> void:
 ## GameManager.buy_archetype_upgrade()'s own doc comment for why
 ## per-squad, not per-archetype), same "whichever unit SelectionManager
 ## currently reports as selected" source _on_sell_requested() above uses.
+## squad_id is resolved HERE, at issue time, not left for apply_command()
+## to re-derive later -- same reasoning SelectionManager.cast_ability()'s
+## own doc comment gives for resolving target_enemy at issue time.
 func _on_archetype_upgrade_requested(upgrade: ArchetypeUpgrade) -> void:
 	if SelectionManager.selected_units.is_empty():
 		return
 	var squad_id := GameManager.find_squad_id_for_unit(_selected_player, SelectionManager.selected_units[0])
 	if squad_id == -1:
 		return
-	if GameManager.buy_archetype_upgrade(_selected_player, upgrade, squad_id):
-		_refresh_gold_display()
+	var command := Command.new()
+	command.type = Command.Type.BUY_ARCHETYPE_UPGRADE
+	command.team_id = _selected_player.team_id
+	command.upgrade = upgrade
+	command.squad_id = squad_id
+	CommandQueue.enqueue(command)
 
 
 ## Actual input handling lives in Scripts/Core/PlayerInputController.gd (_input)

@@ -53,6 +53,7 @@ func test_clicking_a_unit_while_pending_casts_at_that_explicit_target_not_the_au
 	await wait_physics_frames(1) # let the physics server register the new collision shapes before raycasting them
 
 	_main._resolve_pending_ability_target(camera.unproject_position(explicit_target.global_position))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the cast doesn't apply until a later tick now
 
 	assert_eq(_main._pending_ability_target, -1, "resolving should clear the pending state")
 	assert_not_null(explicit_target.get_effect("Frost Bolt"), "the explicitly clicked target should be hit")
@@ -100,6 +101,7 @@ func test_no_target_ability_still_casts_immediately_without_entering_pending_mod
 	key_event.keycode = KEY_Q
 	key_event.pressed = true
 	_main._handle_key(key_event)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the cast doesn't apply until a later tick now
 
 	assert_eq(_main._pending_ability_target, -1, "a NO_TARGET ability must cast immediately, not enter targeting mode")
 	assert_true(tank.get_ability_cooldown_remaining(0) > 0.0, "War Stomp should be on cooldown after an immediate cast")

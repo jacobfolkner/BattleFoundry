@@ -142,6 +142,7 @@ func test_blood_tournament_placement_is_blocked_when_unaffordable_and_spends_whe
 	blue.resources = TANK_STATS.cost
 	_main._on_unit_type_selected(TANK_STATS)
 	_main._try_left_click_at(camera.unproject_position(target))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 	assert_eq(blue.roster, [TANK_STATS], "exactly enough gold should buy the slot")
 	assert_eq(blue.resources, 0, "the Tank's cost should be spent")
 
@@ -184,8 +185,9 @@ func test_right_click_on_owned_unit_sells_it_during_placement() -> void:
 	var gold_before := blue.resources
 
 	_main._try_sell_unit_at(camera.unproject_position(unit.global_position))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the sell doesn't apply until a later tick now, and by now the freed node may be fully gone, not just queued -- is_instance_valid() (not is_queued_for_deletion(), which crashes on an already-freed instance) is the safe check either way
 
-	assert_true(unit.is_queued_for_deletion())
+	assert_false(is_instance_valid(unit))
 	assert_eq(blue.resources, gold_before, "classic mode (no economy active) should never refund anything")
 
 
@@ -211,12 +213,13 @@ func test_right_click_on_a_courtyard_unit_sells_its_whole_squad() -> void:
 	var gold_before := blue.resources
 
 	_main._try_sell_unit_at(camera.unproject_position(clicked_unit.global_position))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the sell doesn't apply until a later tick now
 
 	assert_true(blue.roster.is_empty(), "the roster slot should be removed")
 	assert_true(blue.courtyard_units.is_empty())
 	assert_eq(blue.resources, gold_before + int(TANK_STATS.cost * GameManager.SELL_REFUND_FRACTION), "refund should happen exactly once per slot, not once per squad member")
 	for unit in squad:
-		assert_true(unit.is_queued_for_deletion(), "every squad member should be freed, not just the one clicked")
+		assert_false(is_instance_valid(unit), "every squad member should be freed, not just the one clicked")
 
 
 func test_buy_upgrade_spends_blood_points_and_applies_a_permanent_effect() -> void:
@@ -261,6 +264,7 @@ func test_upgrade_hotkey_buys_an_account_wide_upgrade() -> void:
 	key_event.keycode = KEY_U
 	key_event.pressed = true
 	_main._handle_placement_key(key_event)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 
 	assert_eq(blue.roster_upgrades, [IRON_ARMOR_UPGRADE])
 	assert_eq(blue.blood_points, 0)
@@ -288,6 +292,7 @@ func test_heroes_only_upgrade_hotkeys_buy_the_right_resource() -> void:
 	key_event.keycode = KEY_O
 	key_event.pressed = true
 	_main._handle_placement_key(key_event)
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 
 	assert_eq(blue.roster_upgrades, [HEROIC_VIGOR_UPGRADE])
 	assert_eq(blue.blood_points, 0)
@@ -295,6 +300,7 @@ func test_heroes_only_upgrade_hotkeys_buy_the_right_resource() -> void:
 	blue.blood_points = HEROIC_MIGHT_UPGRADE.cost
 	key_event.keycode = KEY_L
 	_main._handle_placement_key(key_event)
+	await wait_physics_frames(1)
 
 	assert_eq(blue.roster_upgrades, [HEROIC_VIGOR_UPGRADE, HEROIC_MIGHT_UPGRADE])
 	assert_eq(blue.blood_points, 0)
@@ -380,6 +386,7 @@ func test_buying_a_unit_appends_it_to_the_players_roster() -> void:
 
 	_main._on_unit_type_selected(TANK_STATS) # arms the ghost
 	_main._try_left_click_at(camera.unproject_position(target)) # confirms it
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 
 	assert_eq(blue.roster, [TANK_STATS], "buying a unit type should append it to the roster")
 
@@ -392,6 +399,7 @@ func test_selling_a_unit_removes_it_from_the_players_roster() -> void:
 	var camera: Camera3D = _main.get_node("Camera3D")
 
 	_main._try_sell_unit_at(camera.unproject_position(unit.global_position))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the sell doesn't apply until a later tick now
 
 	assert_true(blue.roster.is_empty(), "selling should remove the matching entry from the roster, not just free the live unit")
 
@@ -536,6 +544,7 @@ func test_confirming_a_squad_purchase_charges_gold_once_and_spawns_the_full_squa
 
 	_main._on_unit_type_selected(FIGHTER_STATS) # squad_size 5 -- arms the ghost
 	_main._try_left_click_at(camera.unproject_position(target)) # confirms it
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the purchase doesn't apply until a later tick now
 
 	assert_eq(GameManager.get_all_units().size(), FIGHTER_STATS.squad_size, "the full squad should stand at the clicked spot")
 	assert_eq(blue.resources, gold_before - FIGHTER_STATS.cost, "cost is charged once per purchase, not once per squad member")

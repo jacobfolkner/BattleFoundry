@@ -51,6 +51,7 @@ func test_clicking_ground_while_pending_issues_a_patrol_order_to_that_destinatio
 	var camera: Camera3D = _main.get_node("Camera3D")
 	var destination := Vector3(3, 0, 3)
 	_main._resolve_pending_patrol(camera.unproject_position(destination))
+	await wait_physics_frames(1) # CommandQueue.DEFAULT_INPUT_DELAY_TICKS -- the order doesn't apply until a later tick now
 
 	assert_false(_main._pending_patrol, "resolving should clear the pending state")
 	assert_not_null(tank.current_order)
