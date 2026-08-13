@@ -42,7 +42,14 @@ var _slot_options: Array[OptionButton] = []
 var _faction_options: Array[OptionButton] = []
 var _lobby_panel: VBoxContainer
 
-enum SlotChoice { EMPTY, YOU, BOT }
+## REMOTE marks "the connected LAN peer's team" -- only meaningful once
+## hosting a connected NetworkSession, and only one slot may be REMOTE at
+## a time (_on_slot_option_selected() extends the same mutual-exclusivity
+## reset it already gives YOU). Outside a hosted session the item is
+## still present in the dropdown (built once at _ready(), simplest to
+## keep unconditional) but nothing ever reads it -- the local Play flow's
+## apply_selection_to_menu_state() only ever checks EMPTY/YOU/BOT.
+enum SlotChoice { EMPTY, YOU, BOT, REMOTE }
 
 var _loading_overlay: Control
 var _loading_label: Label
@@ -203,6 +210,7 @@ func _build_lobby_panel(parent: Control) -> void:
 		option.add_item("Empty", SlotChoice.EMPTY)
 		option.add_item("You", SlotChoice.YOU)
 		option.add_item("Bot", SlotChoice.BOT)
+		option.add_item("Remote", SlotChoice.REMOTE)
 		option.select(SlotChoice.YOU if team_id == GameManager.BLUE_TEAM_ID else SlotChoice.EMPTY)
 		option.item_selected.connect(_on_slot_option_selected.bind(team_id))
 		row.add_child(option)
@@ -245,12 +253,16 @@ func _build_lobby_header_row(parent: Control) -> void:
 	row.add_child(race_header)
 
 
+## YOU and REMOTE are each exclusive across rows (at most one slot of
+## each at a time) -- REMOTE additionally means "the connected LAN peer,"
+## so a second REMOTE pick would silently mean "two different peers are
+## slot 5" once Start Match serializes only a single remote_team_id.
 func _on_slot_option_selected(index: int, team_id: int) -> void:
 	Sfx.play_ui_click()
-	if index != SlotChoice.YOU:
+	if index != SlotChoice.YOU and index != SlotChoice.REMOTE:
 		return
 	for other_team_id in GameManager.all_team_ids():
-		if other_team_id != team_id and _slot_options[other_team_id].selected == SlotChoice.YOU:
+		if other_team_id != team_id and _slot_options[other_team_id].selected == index:
 			_slot_options[other_team_id].select(SlotChoice.EMPTY)
 
 
@@ -527,29 +539,34 @@ func _on_settings_pressed() -> void:
 	get_tree().change_scene_to_file("res://Scenes/SettingsMenu.tscn")
 
 
-## D1 multiplayer plan, Phase C's own follow-on: a real UI to actually
-## trigger NetworkSession.host()/join() -- until this, the only thing
-## that ever called those was tools/NetworkPlaytest.gd's headless test
-## harness. Deliberately narrow scope, NOT a full networked Blood
-## Tournament lobby (that's Phase D's job): a fixed 1v1, Blue (host) vs
-## Red (client), Blood Tournament mode, no bots, no other teams playing.
-## Blood Tournament specifically (not Classic mode's default click-to-
-## place) because its roster/courtyard purchases already go through
-## CommandQueue (Phase B) -- Classic mode's own placement
-## (PlayerInputController.try_place_unit()) calls GameManager.spawn_unit()
-## directly and was never wrapped in a Command, since Blood Tournament
-## (uses_economy() == true) skips that path entirely and was always the
-## actual target mode here.
+## D1 multiplayer plan, Phase D: a real UI to actually trigger
+## NetworkSession.host()/join() -- until Phase C, the only thing that
+## ever called those was tools/NetworkPlaytest.gd's headless test
+## harness. Host-authoritative (user's explicit choice, not a two-way
+## negotiation): once a peer connects, the HOST alone configures the
+## existing 8-slot lobby panel below (_build_lobby_panel()) -- including
+## a new SlotChoice.REMOTE marking which slot the connected peer plays --
+## then clicks "Start Match" to serialize that config, broadcast it via
+## LobbySync, and both sides load into the same match. The client only
+## ever watches a status label and waits.
+##
+## Blood Tournament specifically, not Classic mode's default click-to-
+## place, is force-enabled and locked once hosting: its roster/courtyard
+## purchases already go through CommandQueue (Phase B) --
+## PlayerInputController.try_place_unit() (Classic mode's own placement)
+## calls GameManager.spawn_unit() directly and was never Command-wrapped,
+## since Blood Tournament (uses_economy() == true) always skips that path.
 const _DEFAULT_LAN_PORT := 7777
 
 var _mp_ip_field: LineEdit
 var _mp_status_label: Label
 var _mp_host_button: Button
 var _mp_join_button: Button
+var _mp_start_button: Button
 ## True while a Host/Join attempt is actively waiting on a peer -- guards
-## _await_peer_and_start() against a stray multiplayer.connection_failed
-## signal firing after the wait already resolved some other way (e.g. the
-## user backing out isn't offered here, but a late/duplicate signal still
+## _await_peer() against a stray multiplayer.connection_failed signal
+## firing after the wait already resolved some other way (e.g. the user
+## backing out isn't offered here, but a late/duplicate signal still
 ## shouldn't double-fire the failure path).
 var _mp_connecting: bool = false
 
@@ -587,8 +604,17 @@ func _build_multiplayer_card(parent: Control) -> void:
 	_mp_join_button.pressed.connect(_on_join_pressed)
 	button_row.add_child(_mp_join_button)
 
+	# Hidden until the host has a connected peer -- see
+	# _reveal_host_lobby_controls(). Never shown on the joining side.
+	_mp_start_button = Button.new()
+	_mp_start_button.text = "Start Match"
+	_mp_start_button.custom_minimum_size = Vector2(220, 40)
+	_mp_start_button.visible = false
+	_mp_start_button.pressed.connect(_on_start_match_pressed)
+	content.add_child(_mp_start_button)
+
 	_mp_status_label = Label.new()
-	_mp_status_label.text = "Fixed 1v1 -- Blue (host) vs Red (client)"
+	_mp_status_label.text = "Host, or enter an IP above and Join"
 	_mp_status_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
 	content.add_child(_mp_status_label)
 
@@ -602,7 +628,10 @@ func _on_host_pressed() -> void:
 		_set_mp_controls_enabled(true)
 		return
 	_mp_status_label.text = "Hosting on port %d -- waiting for opponent..." % _DEFAULT_LAN_PORT
-	_await_peer_and_start(GameManager.BLUE_TEAM_ID)
+	if not await _await_peer():
+		return
+	_mp_status_label.text = "Opponent connected -- mark their slot \"Remote\" below, then Start Match."
+	_reveal_host_lobby_controls()
 
 
 func _on_join_pressed() -> void:
@@ -618,7 +647,10 @@ func _on_join_pressed() -> void:
 		_set_mp_controls_enabled(true)
 		return
 	_mp_status_label.text = "Connecting to %s..." % ip
-	_await_peer_and_start(GameManager.RED_TEAM_ID)
+	if not await _await_peer():
+		return
+	_mp_status_label.text = "Connected -- waiting for host to configure and start..."
+	LobbySync.host_config_received.connect(_on_host_config_received, CONNECT_ONE_SHOT)
 
 
 func _set_mp_controls_enabled(enabled: bool) -> void:
@@ -632,9 +664,10 @@ func _set_mp_controls_enabled(enabled: bool) -> void:
 ## for Godot's own multiplayer.connection_failed to fire, on the joining
 ## side -- the host side never gets that signal, since create_server()
 ## either succeeds immediately or fails synchronously above, already
-## handled). Once connected, hands off to the same fixed-1v1
-## MenuSelection setup + _load_main_scene() the local Play button uses.
-func _await_peer_and_start(own_team_id: int) -> void:
+## handled). Returns whether it actually connected -- callers branch into
+## the host-configures-and-starts flow or the client-waits-for-host flow
+## from there, since what happens next differs completely between them.
+func _await_peer() -> bool:
 	_mp_connecting = true
 	var failed := false
 	var on_failed := func(): failed = true
@@ -654,12 +687,104 @@ func _await_peer_and_start(own_team_id: int) -> void:
 		_mp_status_label.text = "Connection failed"
 		NetworkSession.disconnect_session()
 		_set_mp_controls_enabled(true)
-		return
+		return false
+	return true
 
-	_mp_status_label.text = "Connected!"
+
+## Forces Blood Tournament on and locks both mode toggles (multiplayer
+## only supports BT, see this section's own doc comment), reveals the
+## existing single-player lobby panel, and swaps in the Start Match
+## button -- all host-only, never reached by a joining client.
+## set_pressed_no_signal() is used (not .toggled.emit()/a real click) to
+## avoid re-triggering Sfx/other listeners twice; every side effect the
+## real toggled signal handler would have caused is replicated here by
+## hand instead.
+func _reveal_host_lobby_controls() -> void:
+	_tournament_toggle.set_pressed_no_signal(true)
+	_tournament_toggle.text = "Blood Tournament: On"
+	_tournament_toggle.disabled = true
+	_hero_footies_toggle.set_pressed_no_signal(false)
+	_hero_footies_toggle.text = "Hero Footies: Off"
+	_hero_footies_toggle.disabled = true
+	_lobby_panel.visible = true
+	_mp_start_button.visible = true
+
+
+## team_id of the one row currently set to `choice`, or -1 if none is --
+## used to find the host's own "You" slot and the connected peer's
+## "Remote" slot when building the config to broadcast.
+func _find_slot_choice(choice: SlotChoice) -> int:
+	for team_id in GameManager.all_team_ids():
+		if _slot_options[team_id].selected == choice:
+			return team_id
+	return -1
+
+
+func _on_start_match_pressed() -> void:
+	var host_team_id := _find_slot_choice(SlotChoice.YOU)
+	var remote_team_id := _find_slot_choice(SlotChoice.REMOTE)
+	if host_team_id == -1:
+		_mp_status_label.text = "Mark exactly one slot \"You\" before starting"
+		return
+	if remote_team_id == -1:
+		_mp_status_label.text = "Mark exactly one slot \"Remote\" before starting"
+		return
+	Sfx.play_ui_click()
+	var config := _build_host_config(host_team_id, remote_team_id)
+	LobbySync.broadcast_host_config(config)
+	_apply_synced_config(config, host_team_id)
+	await _load_main_scene()
+
+
+func _on_host_config_received(config: Dictionary) -> void:
+	_mp_status_label.text = "Starting match..."
+	_apply_synced_config(config, int(config["remote_team_id"]))
+	await _load_main_scene()
+
+
+## RPC-safe primitives only (ints/arrays/dictionaries), same
+## resource_path-not-raw-Resource reasoning Command.to_dict() already
+## established for unit_stats/upgrade -- faction picks go over the wire
+## as an index into FactionRegistry.ALL, not the Faction resource itself.
+func _build_host_config(host_team_id: int, remote_team_id: int) -> Dictionary:
+	var bot_team_ids: Array = []
+	var faction_indices := {}
+	for team_id in GameManager.all_team_ids():
+		if _slot_options[team_id].selected == SlotChoice.BOT:
+			bot_team_ids.append(team_id)
+		var faction_id: int = _faction_options[team_id].get_selected_id()
+		if faction_id > 0:
+			faction_indices[team_id] = faction_id - 1
+	return {
+		"host_team_id": host_team_id,
+		"remote_team_id": remote_team_id,
+		"bot_team_ids": bot_team_ids,
+		"faction_indices": faction_indices,
+	}
+
+
+## Shared by both the host (applying its own just-broadcast config) and
+## the client (applying what it just received) -- `own_team_id` is the
+## one difference between them (host_team_id vs remote_team_id).
+## Main._apply_menu_selection() needs no changes at all to consume this;
+## every field here already exists and is read exactly this way for the
+## single-player lobby (active_team_ids specifically was added this
+## session for the earlier fixed-1v1 LAN flow this replaces).
+func _apply_synced_config(config: Dictionary, own_team_id: int) -> void:
 	MenuSelection.start_with_tournament = true
 	MenuSelection.human_team_id = own_team_id
-	MenuSelection.bot_team_ids.clear()
+
+	var bot_team_ids: Array[int] = []
+	for id in config["bot_team_ids"]:
+		bot_team_ids.append(int(id))
+	MenuSelection.bot_team_ids = bot_team_ids
+
 	MenuSelection.chosen_factions.clear()
-	MenuSelection.active_team_ids = [GameManager.BLUE_TEAM_ID, GameManager.RED_TEAM_ID]
-	await _load_main_scene()
+	var faction_indices: Dictionary = config["faction_indices"]
+	for team_id in faction_indices:
+		MenuSelection.chosen_factions[int(team_id)] = FactionRegistry.ALL[int(faction_indices[team_id])]
+
+	var active_team_ids: Array[int] = [int(config["host_team_id"]), int(config["remote_team_id"])]
+	for id in bot_team_ids:
+		active_team_ids.append(id)
+	MenuSelection.active_team_ids = active_team_ids

@@ -161,10 +161,16 @@ func _apply_menu_selection() -> void:
 	var active_team_ids: Array = []
 	if not active_team_ids_override.is_empty():
 		# LAN multiplayer's Host/Join flow (UI/MainMenu.gd): every team in
-		# the override plays, none of them are bots -- is_human already
-		# defaults true and bot_team_ids is empty here, so there's nothing
-		# to flip.
+		# the override plays. bot_team_ids can be non-empty here too (D1
+		# Phase D's host-configured lobby allows bot slots alongside the
+		# two human peers) -- is_human still needs flipping exactly like
+		# the local-play branch below, or a bot slot would sit in
+		# active_team_ids without ever actually getting AI decisions
+		# (AIController.take_turn() is gated on is_human == false).
 		active_team_ids = active_team_ids_override
+		if not bot_team_ids.is_empty():
+			for team_id in GameManager.all_team_ids():
+				GameManager.get_player(team_id).is_human = not bot_team_ids.has(team_id)
 	elif not bot_team_ids.is_empty():
 		active_team_ids = [human_team_id] + bot_team_ids
 		for team_id in GameManager.all_team_ids():

@@ -146,7 +146,21 @@ func _on_champion_decided(team_id: int) -> void:
 ## round) -- a no-op unless there's an is_human == false player under a
 ## mode that actually uses_economy(), so calling this speculatively from
 ## several places is always safe.
+##
+## NetworkSession.role == CLIENT bails out first, before anything else --
+## AIController.take_turn() calls CommandQueue.enqueue() directly, and
+## every peer runs this exact same code from the exact same replicated
+## is_human state. Without this guard, a networked match with any bot
+## team would have BOTH peers independently decide (and broadcast) that
+## bot's purchases -- two different SimRng-seeded command batches for the
+## same team, an immediate desync. Only the host may originate AI
+## decisions; the client receives them via the normal command relay like
+## everything else, same "only one side acts, everyone else replays"
+## precedent Phase C's START_BATTLE fix already established. Local play
+## (Role.NONE) is untouched.
 func run_ai_turn_if_needed() -> void:
+	if NetworkSession.role == NetworkSession.Role.CLIENT:
+		return
 	if not GameManager.is_placement_phase() or not GameManager.current_mode.uses_economy():
 		return
 	var any_ai_took_a_turn := false

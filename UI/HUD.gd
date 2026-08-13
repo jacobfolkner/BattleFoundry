@@ -169,6 +169,10 @@ var _placement_hint_label: Label
 var _hero_level_label: Label
 var _hero_xp_bar: ProgressBar
 var _minimap: MiniMap
+## Only visible while NetworkSession.is_active() -- a no-op label the
+## rest of the time (local play), same conditional-visibility pattern
+## every other multiplayer-only UI element here already follows.
+var _ping_label: Label
 ## Whichever unit SelectionManager last reported as selected (see
 ## track_unit()) -- the hotbar/buff row always reflect this one unit, not
 ## the whole selection, same simplification a WC3-style command card makes
@@ -215,6 +219,7 @@ func _ready() -> void:
 	_build_placement_hint()
 	_build_hero_level_label()
 	_build_minimap()
+	_build_ping_label()
 
 	# Sensible defaults so a click places a unit immediately.
 	unit_type_selected.emit(TANK_STATS)
@@ -233,6 +238,7 @@ func _process(_delta: float) -> void:
 	_refresh_hero_level_label()
 	_refresh_placement_hint()
 	refresh_match_toggles_visibility()
+	_refresh_ping_label()
 
 
 ## Wraps a titled group of controls in a background PanelContainer, so
@@ -1470,6 +1476,34 @@ func _refresh_hero_level_label() -> void:
 func _build_minimap() -> void:
 	_minimap = MiniMap.new()
 	add_child(_minimap)
+
+
+func _build_ping_label() -> void:
+	_ping_label = Label.new()
+	_ping_label.visible = false
+	_ping_label.add_theme_font_size_override("font_size", 14)
+	_ping_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
+	add_child(_ping_label)
+
+
+## Top-right corner, viewport-relative like every other overlay label
+## here (see CLAUDE.md's "parentless Control never resolves size from
+## anchors" gotcha) -- repositioned every frame since the viewport can
+## resize, same as _refresh_hero_level_label()/MiniMap's own pattern.
+## NetworkSession.ping_by_peer only ever has one entry in this project's
+## current 2-peer scope, so "the" ping is just whichever single value is
+## present -- Phase D's own doc comment on DesyncCheck already scopes
+## this whole feature set to exactly 2 peers.
+func _refresh_ping_label() -> void:
+	if not NetworkSession.is_active() or NetworkSession.ping_by_peer.is_empty():
+		_ping_label.visible = false
+		return
+	var ping_ms: int = NetworkSession.ping_by_peer.values()[0]
+	_ping_label.text = "Ping: %dms" % ping_ms
+	_ping_label.reset_size()
+	var viewport_size := get_viewport_rect().size
+	_ping_label.position = Vector2(viewport_size.x - _ping_label.size.x - 16, 16)
+	_ping_label.visible = true
 
 
 ## Called by Main.gd right before starting the next round of a Blood
