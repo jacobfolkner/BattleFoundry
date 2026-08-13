@@ -16,6 +16,18 @@ var team_id: int
 var display_name: String
 var color: Color
 var is_human: bool
+## Ready-up gate for a Blood Tournament round's PLACEMENT phase
+## (BattleFoundry-Roadmap.md's D1 plan) -- a normal round no longer
+## starts the instant any one player clicks; every active team must be
+## ready first, so one networked player can't cut another's shopping
+## phase short. Reset to false for every player each time
+## GameManager.reset_battle() begins a fresh PLACEMENT (the one confirmed
+## single-fire "a new round is starting" point). Set via
+## GameManager.mark_team_ready() -- a bot's own turn auto-readies it
+## (BloodTournamentController.run_ai_turn_if_needed()), a human readies
+## via the HUD's Start/Ready button, which now enqueues a READY_UP
+## Command under Blood Tournament instead of an immediate START_BATTLE.
+var is_ready: bool = false
 ## The race this player is building from -- gates which archetypes
 ## HUD._build_unit_panel() shows (HUD.refresh_unit_panel_for_faction())
 ## and which ones AIController.take_turn() will buy

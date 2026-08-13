@@ -33,6 +33,7 @@ enum Type {
 	PICK_HERO_ABILITY, ## team_id, unit_stats, slot_index, chosen_index
 	EXCHANGE_CURRENCY, ## team_id, exchange_gold_for_blood (true: gold->blood, false: blood->gold)
 	START_BATTLE, ## no payload beyond team_id (who pressed it, for auditability -- GameManager.start_battle() itself isn't team-scoped)
+	READY_UP, ## team_id -- marks that team ready for the current PLACEMENT phase (Blood Tournament only, see GameManager.mark_team_ready())
 }
 
 var type: Type

@@ -228,6 +228,32 @@ func start_battle() -> void:
 	battle_started.emit()
 
 
+## Blood Tournament's ready-up gate (BattleFoundry-Roadmap.md's D1 plan)
+## -- marks one team ready and starts the round the instant every other
+## active team already is, instead of any single player's click
+## unilaterally starting it for everyone. Idempotent (a second call for
+## an already-ready team is a harmless no-op) since both of this
+## function's callers can legitimately fire more than once per placement
+## phase: BloodTournamentController.run_ai_turn_if_needed() (bots) is
+## documented as safe to call speculatively from several places, and a
+## human could in principle send a duplicate READY_UP.
+## current_mode.uses_economy() is only ever true for BloodTournamentMode
+## (GameMode.gd's own default is false, confirmed the only override), so
+## the cast below is safe without an extra type check.
+func mark_team_ready(team_id: int) -> void:
+	var player := get_player(team_id)
+	if player == null or player.is_ready:
+		return
+	player.is_ready = true
+	if not is_placement_phase() or not current_mode.uses_economy():
+		return
+	var bt_mode := current_mode as BloodTournamentMode
+	for active_team_id in bt_mode.get_active_team_ids():
+		if not get_player(active_team_id).is_ready:
+			return
+	start_battle()
+
+
 ## Swaps the active mode -- takes effect for the *next* battle;
 ## mid-battle mode swaps aren't a supported thing to do. Resets to
 ## PLACEMENT first (via reset_battle()) so a mode with per-match state
@@ -304,6 +330,7 @@ func reset_battle() -> void:
 	_units_by_team.clear()
 	for player in players.values():
 		player.courtyard_units.clear()
+		player.is_ready = false
 
 	_transition_to(BattleState.PLACEMENT)
 
@@ -1012,6 +1039,9 @@ func apply_command(command: Command) -> void:
 
 		Command.Type.START_BATTLE:
 			start_battle()
+
+		Command.Type.READY_UP:
+			mark_team_ready(command.team_id)
 
 
 ## Every currently-valid unit spawned this battle, alive or (briefly)

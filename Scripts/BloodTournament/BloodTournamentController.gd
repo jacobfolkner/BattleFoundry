@@ -81,12 +81,16 @@ func assign_random_spawn_points() -> void:
 		round_spawn_points[team_ids[i]] = arms[i]
 
 
-## Connected to HUD's Start Battle button via Main._on_start_battle_pressed()
+## Connected to HUD's Start/Ready button via Main._on_start_battle_pressed()
 ## -- a goblin boss round (BloodTournamentMode.is_boss_round()) gets
 ## intercepted here and handed off to GoblinBossRound's own team-by-team
-## sequencing instead of one normal simultaneous PvP battle. Every other
-## mode/round (including classic mode, mode == null) just calls
-## GameManager.start_battle() exactly as before.
+## sequencing instead of one normal simultaneous PvP battle. A normal
+## Blood Tournament round (mode != null, not a boss round) enqueues
+## READY_UP, not an immediate START_BATTLE -- see GameManager.mark_team_ready()'s
+## own doc comment for why a single player's click no longer unilaterally
+## starts the round for everyone (BattleFoundry-Roadmap.md's D1 plan).
+## Classic mode (mode == null, no shop/ready-up concept at all) keeps the
+## original immediate-start behavior unchanged.
 func start_battle_pressed() -> void:
 	if mode != null and mode.is_boss_round():
 		# Boss-round start stays a direct call, not Command-wrapped -- which
@@ -98,11 +102,15 @@ func start_battle_pressed() -> void:
 		_boss_round = GoblinBossRound.new()
 		_boss_round.boss_round_finished.connect(_on_boss_round_finished)
 		_boss_round.start(mode)
+	elif mode != null:
+		var command := Command.new()
+		command.type = Command.Type.READY_UP
+		command.team_id = SelectionManager.local_player.team_id
+		CommandQueue.enqueue(command)
 	else:
-		# The one genuinely player-originated path here -- a real Start
-		# Battle button press -- so it's the one branch that goes through
-		# CommandQueue rather than calling GameManager.start_battle()
-		# directly. sync_courtyard_to_roster()'s safety net still runs
+		# Classic mode: no shop, no ready-up gate -- unchanged, the one
+		# genuinely player-originated path that still goes straight to
+		# START_BATTLE. sync_courtyard_to_roster()'s safety net still runs
 		# inside start_battle() itself once this applies -- see that
 		# method's own doc comment for why it's the one call site every
 		# path (this, a test, AI) always goes through.
@@ -168,6 +176,25 @@ func run_ai_turn_if_needed() -> void:
 		var player := GameManager.get_player(team_id)
 		if not player.is_human:
 			_ai.take_turn(player)
+			# Auto-ready: a bot has no shopping left to do once its one
+			# turn's purchases land, so it never needs a human to nudge it.
+			# Routed through CommandQueue like every other player-mutating
+			# action here, NOT a direct GameManager.mark_team_ready() call
+			# -- this function itself is already host-only (the guard
+			# above), so a direct call would only ever set the bot's
+			# is_ready on the HOST's own local Player object, never
+			# reaching the client's separate copy of it. The client would
+			# then permanently see that bot as not-ready and refuse to
+			# ever auto-start the round, even once every human has -- a
+			# real desync, not just a stale display, since it's exactly
+			# the kind of shared simulation state (Player.is_ready) that
+			# has to agree on both sides. Safe to enqueue repeatedly
+			# (mark_team_ready() is idempotent) even though this whole
+			# function can run more than once per placement phase.
+			var command := Command.new()
+			command.type = Command.Type.READY_UP
+			command.team_id = team_id
+			CommandQueue.enqueue(command)
 			any_ai_took_a_turn = true
 	if any_ai_took_a_turn:
 		_refresh_gold_display.call()

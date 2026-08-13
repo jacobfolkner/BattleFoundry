@@ -544,6 +544,14 @@ func refresh_match_toggles_visibility() -> void:
 	_blue_team_button.visible = not hide_team_and_ai
 	_red_team_button.visible = not hide_team_and_ai
 
+	# Cosmetic only -- BloodTournamentController.start_battle_pressed()
+	# decides what actually happens on click (READY_UP vs an immediate
+	# START_BATTLE), this just labels which one it'll be. uses_economy()
+	# is only ever true for Blood Tournament (see GameMode.gd's own
+	# default), so this doubles as the same mode check that button click
+	# already relies on.
+	_start_button.text = "Ready Up" if mode.uses_economy() else "Start Battle"
+
 
 func set_ai_toggle(enabled: bool) -> void:
 	_ai_toggle.set_pressed_no_signal(enabled)
