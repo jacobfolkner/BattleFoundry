@@ -50,11 +50,11 @@ func test_knockback_cannot_launch_unit_outside_arena_bounds() -> void:
 		"knockback should not carry a unit past the arena's X bound")
 
 
-## Two units spawned overlapping right at the edge: move_and_slide()'s
-## overlap resolution (see Unit._on_safe_velocity_computed, the same
-## mechanic test_crowded_units_all_make_progress_not_just_the_front_one
-## relies on) will push one of them outward -- proves the clamp applies
-## to ordinary physics-driven movement too, not just the knockback arc.
+## Two units spawned overlapping right at the edge: Unit._compute_avoidance_velocity()'s
+## separation push (the same mechanic
+## test_crowded_units_all_make_progress_not_just_the_front_one relies on)
+## will push one of them outward -- proves the clamp applies to ordinary
+## physics-driven movement too, not just the knockback arc.
 func test_overlap_resolution_cannot_push_unit_outside_arena_bounds() -> void:
 	var corner := Vector3(19.9, 0, 19.9)
 	var tank_a := GameManager.spawn_unit(TANK_STATS, GameManager.get_player(GameManager.BLUE_TEAM_ID), corner)

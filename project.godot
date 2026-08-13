@@ -30,6 +30,11 @@ MenuSelection="*res://Scripts/Autoloads/MenuSelection.gd"
 Sfx="*res://Scripts/Autoloads/Sfx.gd"
 AudioSettings="*res://Scripts/Autoloads/AudioSettings.gd"
 
+[physics]
+
+3d/run_on_separate_thread=false
+3d/physics_engine="GodotPhysics3D"
+
 [display]
 
 window/size/viewport_width=1920

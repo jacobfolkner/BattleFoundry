@@ -1,11 +1,18 @@
 ## A single combat unit: a primitive-mesh body that fights automatically
 ## once GameManager enters the BATTLE state.
 ##
-## Seeks target_enemy via NavigationAgent3D avoidance (RVO) rather than a
-## raw straight line, so units route around blocking allies instead of
-## queuing up behind them. Unit is a CharacterBody3D and moves via
-## move_and_slide(), so Godot's physics server also resolves any overlap
-## avoidance didn't fully avoid -- no custom overlap code here at all.
+## Seeks target_enemy via NavigationAgent3D pathfinding (navmesh queries
+## only -- see _build_avoidance()'s own doc comment for why avoidance
+## itself is NOT NavigationAgent3D's built-in RVO) rather than a raw
+## straight line, so units route around blocking allies instead of
+## queuing up behind them. Movement is fully manual (global_position +=
+## velocity * delta in _physics_process(), not
+## CharacterBody3D.move_and_slide()) -- overlap resolution is
+## _compute_avoidance_velocity()'s own separation steering, not
+## PhysicsServer3D. Still a CharacterBody3D purely so
+## DebugInspector.try_select_at()/SelectionManager's drag-box selection
+## have a real CollisionShape3D to raycast/query against -- the physics
+## server is never asked to move this body.
 class_name Unit
 extends CharacterBody3D
 
@@ -53,6 +60,11 @@ class Order:
 const _PROJECTILE_SCENE: PackedScene = preload("res://Scenes/Projectile.tscn")
 
 const _AVOIDANCE_NEIGHBOR_DISTANCE := 6.0
+## Extra buffer beyond two units' exact physical touch distance
+## (collision_radius + collision_radius) that _compute_avoidance_velocity()
+## treats as "close enough to start steering apart" -- see that method's
+## own doc comment for why this has to be strictly greater than 0.
+const _AVOIDANCE_MARGIN := 0.3
 const _ARRIVAL_EPSILON := 0.3 ## Horizontal distance (m) within which a MOVE/ATTACK_MOVE/PATROL destination counts as "reached."
 const _KNOCKBACK_DURATION := 0.6 ## Seconds from launch to landing.
 ## Roadmap Phase 0's "no re-acquisition interval" gap: without this,
@@ -833,12 +845,21 @@ func _build_status_indicator() -> void:
 	add_child(_status_indicator)
 
 
+## avoidance_enabled is deliberately false -- NavigationAgent3D's built-in
+## RVO avoidance solver runs off-thread and delivers results one frame
+## later via the velocity_computed signal (see the removed
+## _on_safe_velocity_computed()'s own former doc comment), and proved
+## NOT deterministic across separate process runs given identical
+## seed/inputs (BattleFoundry-Roadmap.md's D1 multiplayer plan, Phase A's
+## decision-gate trace-and-diff harness). _nav_agent is kept only for
+## navmesh PATHFINDING (get_next_path_position() against Main.tscn's
+## baked NavigationRegion3D, a static-mesh query with no evidence against
+## its own determinism) -- the avoidance step itself is now
+## _compute_avoidance_velocity(), synchronous, same-tick, no threading.
 func _build_avoidance() -> void:
 	_nav_agent = NavigationAgent3D.new()
 	_nav_agent.radius = stats.collision_radius
-	_nav_agent.max_speed = stat_block.move_speed()
-	_nav_agent.neighbor_distance = _AVOIDANCE_NEIGHBOR_DISTANCE
-	_nav_agent.avoidance_enabled = true
+	_nav_agent.avoidance_enabled = false
 	# Godot's default (1.0m) is looser than this game's own tolerances --
 	# attack_range is as low as 0.9m and _ARRIVAL_EPSILON is 0.3m. Left
 	# at the default, NavigationAgent3D considers itself "close enough"
@@ -848,7 +869,6 @@ func _build_avoidance() -> void:
 	# getting permanently stuck just short of anything closer than 1m.
 	_nav_agent.target_desired_distance = 0.1
 	add_child(_nav_agent)
-	_nav_agent.velocity_computed.connect(_on_safe_velocity_computed)
 
 
 func _physics_process(delta: float) -> void:
@@ -864,9 +884,10 @@ func _physics_process(delta: float) -> void:
 		return
 
 	# The Builder is a permanent, invulnerable, move_speed == 0 courtyard
-	# fixture with no _nav_agent -- without this early return it still
-	# called move_and_slide() every frame, letting physical overlap
-	# (another unit bumping it) push it off its spawn point over time.
+	# fixture with no _nav_agent -- without this early return it would
+	# still run _compute_avoidance_velocity() every frame, letting a
+	# unit bumping it apply a nonzero separation nudge that push it off
+	# its spawn point over time.
 	if stats.is_builder:
 		return
 
@@ -882,9 +903,6 @@ func _physics_process(delta: float) -> void:
 
 	desired_velocity = Vector3.ZERO
 	_is_seeking = false
-	# Kept in sync every frame (not just at spawn) so a future move_speed
-	# buff/debuff actually changes how fast avoidance lets this unit go.
-	_nav_agent.max_speed = stat_block.move_speed()
 
 	# Stunned: fully disabled -- no movement, no attacking, no orders
 	# processed at all (they just wait; an order issued while stunned
@@ -946,39 +964,127 @@ func _physics_process(delta: float) -> void:
 	else:
 		_nav_agent.target_position = global_position
 
-	_nav_agent.set_velocity(desired_velocity)
-
-
-## NavigationAgent3D returns the RVO-adjusted "safe" velocity here, one
-## frame after set_velocity() -- this is where movement actually applies.
-func _on_safe_velocity_computed(safe_velocity: Vector3) -> void:
-	# NavigationAgent3D keeps emitting this every physics frame for as
-	# long as avoidance is enabled, whether or not set_velocity() was
-	# called that frame -- not a strict one-shot request/response. While
-	# airborne, _process_knockback() owns global_position directly; this
-	# callback firing anyway would silently clobber it back to resting
-	# height every frame if not guarded here.
-	if _is_airborne:
-		return
-	velocity = safe_velocity
+	# Applied synchronously, same tick -- no async signal, no one-frame
+	# delay (see _build_avoidance()'s own doc comment for why). Integrated
+	# directly (global_position += velocity * delta) rather than through
+	# CharacterBody3D.move_and_slide() -- PhysicsServer3D's own collision
+	# response proved to have the same cross-process nondeterminism
+	# problem RVO did (confirmed empirically: a 150-unit trace-and-diff
+	# run diverged even with avoidance already fixed, resolved by forcing
+	# single-threaded GodotPhysics3D, then made moot entirely by removing
+	# the physics-server dependency from movement altogether -- see the
+	# Roadmap's D1 plan). _collision_shape/CharacterBody3D are kept for
+	# click/drag-box selection raycasts (DebugInspector.try_select_at(),
+	# SelectionManager's drag box), which still need a real physics shape
+	# to query against -- only movement itself no longer goes through the
+	# physics server. _compute_avoidance_velocity() is what keeps units
+	# from overlapping now that nothing else resolves penetration.
+	velocity = _compute_avoidance_velocity(desired_velocity)
 	if velocity.length() > 0.05:
 		look_at(global_position + velocity, Vector3.UP)
 
-	move_and_slide()
+	global_position += velocity * delta
 	_clamp_to_arena()
-
-	# move_and_slide() (MOTION_MODE_FLOATING) resolves penetration along
-	# whichever axis has the least overlap. Units spawned at or very near
-	# the same point have no well-defined *horizontal* separating axis --
-	# their capsules are coincident along the vertical axis too -- so the
-	# physics server can occasionally choose to push one straight up
-	# instead of sideways. Nothing here simulates height or gravity, so
-	# any such drift is permanent unless corrected: this line is the fix,
-	# re-asserting the resting-height invariant every frame regardless of
-	# what direction collision resolution picked. It also forecloses
-	# vertical stacking, since two units can never end up on different Y
-	# layers long enough to stop colliding horizontally.
 	global_position.y = _resting_height()
+
+
+## Deterministic replacement for NavigationAgent3D's built-in RVO
+## avoidance (see _build_avoidance()'s own doc comment for why) -- a
+## simple separation-steering model instead of reciprocal/predictive
+## avoidance: every other living unit within _AVOIDANCE_NEIGHBOR_DISTANCE
+## whose collision radius overlaps this unit's own deflects it, weighted
+## by how deep the overlap is, blended additively onto `seek_velocity`
+## (the pathfinding-derived direction computed above) and re-clamped to
+## move_speed(). A neighbor roughly BEHIND the seek direction pushes
+## straight away from it (plain separation -- also what resolves
+## spawn-overlap for an idle, non-seeking unit, whose seek_velocity is
+## zero); a neighbor roughly AHEAD of it deflects PERPENDICULAR instead
+## (steer around, not straight back) -- a pure radial push directly
+## opposing travel direction would just cancel forward progress every
+## tick, leaving a unit ordered to walk toward/through a blocking
+## neighbor permanently stuck oscillating in place rather than routing
+## around it (caught by test_order_move_relocates_and_never_attacks:
+## Tank ordered to (10,0,0) with a Fighter already overlapping it 1m
+## ahead never made any net progress until this was added). Horizontal-only
+## (XZ), matching every other distance/direction calculation in this
+## class -- height is never simulated here. Iterates
+## GameManager.get_nearby_units_cached() (a per-tick-cached uniform grid,
+## 3x3 cells around this unit -- see its own doc comment) in its own
+## returned order, never GDScript's Dictionary iteration anywhere -- fixed
+## order is what keeps this reproducible given the same unit set, the
+## actual property that made the old RVO path fail (see the Roadmap's D1
+## plan for the trace-and-diff evidence). The grid exists purely for perf
+## (a naive all-units-every-tick scan was a real measured regression on
+## tools/benchmark.sh: ~15ms/frame at 200 units under the old RVO path ->
+## 43ms uncached -> 29ms cached-but-unfiltered -> back near baseline with
+## the grid) -- it returns a superset of "true neighbors" (everyone in the
+## nearby cells, not an exact radius filter), so the precise distance
+## check below is still what actually decides who gets pushed.
+func _compute_avoidance_velocity(seek_velocity: Vector3) -> Vector3:
+	var self_pos := Vector2(global_position.x, global_position.z)
+	var seek_dir := Vector2(seek_velocity.x, seek_velocity.z)
+	var is_moving := seek_dir.length() > 0.01
+	if is_moving:
+		seek_dir = seek_dir.normalized()
+	var separation := Vector2.ZERO
+	var all_units := GameManager.get_nearby_units_cached(global_position)
+	for other in all_units:
+		if other == self:
+			continue
+		var other_pos := Vector2(other.global_position.x, other.global_position.z)
+		var offset := self_pos - other_pos
+		var dist := offset.length()
+		if dist >= _AVOIDANCE_NEIGHBOR_DISTANCE:
+			continue
+		# Trigger boundary is deliberately wider than the two units'
+		# actual physical CollisionShape3D contact distance (see
+		# _build_collision_shape() -- shape.radius == stats.collision_radius
+		# exactly, so combined_radius alone IS the real touch boundary) --
+		# separation needs room to redirect velocity BEFORE move_and_slide()'s
+		# own real collision response hard-stops forward motion at that
+		# exact boundary. Without this margin, a unit walking straight at
+		# another settles into a stable equilibrium exactly at contact:
+		# never quite overlapping enough for this function to push back,
+		# yet still fully physically blocked from advancing (caught by
+		# test_order_move_relocates_and_never_attacks going permanently
+		# stuck ~0.005m short of its start position).
+		var combined_radius := stats.collision_radius + other.stats.collision_radius + _AVOIDANCE_MARGIN
+		if dist >= combined_radius:
+			continue
+
+		var push_dir: Vector2
+		if dist > 0.0001:
+			push_dir = offset / dist # cheaper than .normalized(), same result, dist already computed
+		else:
+			# Exactly coincident (two units spawned on the same point) --
+			# offset has no direction to normalize. Break the tie with
+			# each unit's own index in all_units (spawn/append order,
+			# identical across a replayed match) rather than a zero
+			# vector, which would otherwise normalize to NaN and leave
+			# both units permanently stuck on top of each other.
+			var tie_break := float(all_units.find(self) - all_units.find(other))
+			push_dir = Vector2(sign(tie_break) if tie_break != 0.0 else 1.0, 0.0)
+
+		var penetration := combined_radius - dist
+		var strength := (penetration / combined_radius) * stat_block.move_speed()
+
+		if is_moving and push_dir.dot(seek_dir) < -0.2:
+			# Neighbor sits roughly ahead, blocking travel -- deflect to
+			# whichever side the neighbor's actual offset already leans
+			# (2D cross product sign, deterministic), not a fixed
+			# always-left/right bias.
+			var side := seek_dir.x * push_dir.y - seek_dir.y * push_dir.x
+			var side_sign: float = sign(side) if side != 0.0 else 1.0
+			var perp: Vector2 = Vector2(-seek_dir.y, seek_dir.x) * side_sign
+			separation += perp * strength
+		else:
+			separation += push_dir * strength
+
+	var final_velocity := seek_velocity + Vector3(separation.x, 0, separation.y)
+	var move_speed := stat_block.move_speed()
+	if final_velocity.length() > move_speed:
+		final_velocity = final_velocity.normalized() * move_speed
+	return final_velocity
 
 
 ## Keeps every unit inside whichever arena shape is currently live
@@ -1322,8 +1428,9 @@ func _attack(delta: float) -> void:
 ## _FACING_TOLERANCE (or immediately, if turn_rate is somehow called with
 ## <= 0.0) -- callers gate on the return value to know whether the turn
 ## has finished this frame. Only used by _attack()'s turn_rate gate;
-## regular movement facing (_on_safe_velocity_computed()'s look_at()) is
-## untouched by this, since turn_rate only governs combat facing.
+## regular movement facing (_physics_process()'s own look_at(), right
+## after _compute_avoidance_velocity()) is untouched by this, since
+## turn_rate only governs combat facing.
 const _FACING_TOLERANCE := deg_to_rad(2.0)
 
 func _face_toward(target_position: Vector3, delta: float) -> bool:

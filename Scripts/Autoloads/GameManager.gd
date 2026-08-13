@@ -881,6 +881,74 @@ func get_all_units() -> Array[Unit]:
 	return units
 
 
+var _cached_alive_units: Array[Unit] = []
+var _cached_alive_units_tick: int = -1
+
+## Same living units get_all_units() would return filtered to
+## life_state == ALIVE, but computed at most once per physics tick and
+## reused by every caller that tick -- Unit._compute_avoidance_velocity()
+## calls this once per unit per tick, so without caching, a naive
+## get_all_units() rebuild there costs O(units^2) in allocation/validity-
+## checking alone, on top of the separation math's own inherent O(n^2)
+## neighbor scan (confirmed as a real perf regression via
+## tools/benchmark.sh while landing the D1 multiplayer plan's deterministic
+## avoidance replacement -- see BattleFoundry-Roadmap.md). Keyed on
+## Engine.get_physics_frames() purely as a local "has a tick elapsed since
+## I last built this" check -- the actual counter value is never read as
+## simulation data, so this doesn't introduce any determinism risk.
+func get_alive_units_cached() -> Array[Unit]:
+	var tick := Engine.get_physics_frames()
+	if tick != _cached_alive_units_tick:
+		_cached_alive_units_tick = tick
+		_cached_alive_units = get_all_units().filter(func(u: Unit) -> bool: return u.life_state == Unit.LifeState.ALIVE)
+		_rebuild_avoidance_grid(_cached_alive_units)
+	return _cached_alive_units
+
+
+## Cell size == Unit._AVOIDANCE_NEIGHBOR_DISTANCE exactly -- the standard
+## uniform-grid neighbor-search guarantee (cell_size >= search_radius)
+## means anything within neighbor_distance of a unit is guaranteed to sit
+## in that unit's own cell or one of its 8 immediate neighbors, never
+## farther out. Duplicated as a constant here rather than reading
+## Unit._AVOIDANCE_NEIGHBOR_DISTANCE directly so this file doesn't need to
+## know Unit's private constants exist -- if that value ever changes, this
+## one needs updating alongside it (noted on both).
+const _AVOIDANCE_GRID_CELL_SIZE := 6.0
+var _avoidance_grid: Dictionary = {} # Vector2i cell -> Array[Unit]
+
+func _rebuild_avoidance_grid(units: Array[Unit]) -> void:
+	_avoidance_grid.clear()
+	for unit in units:
+		var cell := _avoidance_cell(unit.global_position)
+		if not _avoidance_grid.has(cell):
+			_avoidance_grid[cell] = []
+		_avoidance_grid[cell].append(unit)
+
+
+func _avoidance_cell(position: Vector3) -> Vector2i:
+	return Vector2i(floori(position.x / _AVOIDANCE_GRID_CELL_SIZE), floori(position.z / _AVOIDANCE_GRID_CELL_SIZE))
+
+
+## Every living unit within the 3x3 grid-cell block around `position` --
+## a superset of "within _AVOIDANCE_NEIGHBOR_DISTANCE," not an exact
+## radius filter (the caller, Unit._compute_avoidance_velocity(), already
+## does its own precise distance check on top of this). Only ever probes
+## 9 SPECIFIC, directly-computed cell keys, in a fixed dx/dz order --
+## never iterates _avoidance_grid's own Dictionary key set, which would
+## reintroduce the exact hash-iteration-order nondeterminism risk this
+## whole grid exists to stay clear of.
+func get_nearby_units_cached(position: Vector3) -> Array[Unit]:
+	get_alive_units_cached() # ensures _avoidance_grid is fresh for this tick
+	var nearby: Array[Unit] = []
+	var center := _avoidance_cell(position)
+	for dx in [-1, 0, 1]:
+		for dz in [-1, 0, 1]:
+			var cell := Vector2i(center.x + dx, center.y + dz)
+			if _avoidance_grid.has(cell):
+				nearby.append_array(_avoidance_grid[cell])
+	return nearby
+
+
 ## Returns the closest living enemy to `unit` within its
 ## UnitStats.acquisition_range that `unit` is actually capable of
 ## targeting, or null if none qualify. Considers every team

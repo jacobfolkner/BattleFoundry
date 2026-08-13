@@ -41,9 +41,9 @@ func test_builder_is_invulnerable() -> void:
 
 
 ## Regression: the Builder is a CharacterBody3D like any other Unit, and
-## move_and_slide() ran for it every physics frame regardless of
-## move_speed -- an overlapping body (a Tank spawned on top of it here)
-## could nudge it off its spawn point with nothing correcting the drift.
+## without its own early return in Unit._physics_process(), an overlapping
+## body (a Tank spawned on top of it here) would apply a nonzero
+## avoidance-separation nudge with nothing correcting the drift.
 func test_builder_never_moves_even_when_another_unit_overlaps_it() -> void:
 	var blue := GameManager.get_player(GameManager.BLUE_TEAM_ID)
 	var spawn_position := Vector3(20, 0, 20)

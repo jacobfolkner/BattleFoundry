@@ -56,10 +56,19 @@ lighting bug in the game itself.
 
 ## Godot gotchas worth remembering
 
-- **`NavigationAgent3D` avoidance without a navmesh**: `target_position`
-  must be set every physics frame (even though nothing paths to it) or
-  `velocity_computed` always reports zero. Undocumented on the property
-  itself — only mentioned in the navigation tutorial.
+- **`NavigationAgent3D`'s built-in avoidance (RVO) is not deterministic
+  across separate process runs**, confirmed empirically while scoping D1
+  multiplayer (see `BattleFoundry-Roadmap.md`): two `godot --headless`
+  invocations, identical seed/inputs/code, diverged by ~0.01-0.02m
+  within the first physics tick, compounding to ~50% of units differing
+  within 300 ticks. Root cause (inferred, not proven further): avoidance
+  runs off-thread and delivers results one frame later via the
+  `velocity_computed` signal — worker-thread completion order isn't
+  guaranteed identical run to run. `Unit._build_avoidance()` now sets
+  `avoidance_enabled = false` project-wide and `Unit.gd` computes
+  separation itself, synchronously, same-tick, in a fixed iteration
+  order (`Unit._compute_avoidance_velocity()`) — don't re-enable
+  `avoidance_enabled` without re-deriving this.
 - **`NavigationAgent3D` pathfinding for an agent well above the
   navmesh's Y plane** (a flying unit resting at `flight_height`, for
   example): no path is found, and `get_next_path_position()` silently
