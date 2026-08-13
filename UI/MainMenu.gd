@@ -92,6 +92,7 @@ func _ready() -> void:
 	var actions_card := _wrap_in_card(column, "")
 	_build_play_button(actions_card)
 	_build_settings_button(actions_card)
+	_build_multiplayer_card(column)
 	_build_loading_overlay()
 
 
@@ -472,7 +473,17 @@ const _POST_ADD_SETTLE_FRAMES := 3
 ## cost alike.
 func _on_play_pressed() -> void:
 	apply_selection_to_menu_state()
+	await _load_main_scene()
 
+
+## Shared tail of both the local Play flow and the Host/Join multiplayer
+## flow (_start_multiplayer_match() below) -- everything from
+## apply_selection_to_menu_state() onward. Callers set up MenuSelection's
+## fields themselves first (the local flow reads the lobby UI, the
+## multiplayer flow sets a fixed 1v1 directly), since what belongs in
+## MenuSelection differs enough between the two that a shared setup step
+## would just be a pile of conditionals.
+func _load_main_scene() -> void:
 	_play_button.disabled = true
 	_loading_overlay.visible = true
 	_loading_dots_elapsed = 0.0
@@ -514,3 +525,141 @@ func _build_settings_button(parent: Control) -> void:
 
 func _on_settings_pressed() -> void:
 	get_tree().change_scene_to_file("res://Scenes/SettingsMenu.tscn")
+
+
+## D1 multiplayer plan, Phase C's own follow-on: a real UI to actually
+## trigger NetworkSession.host()/join() -- until this, the only thing
+## that ever called those was tools/NetworkPlaytest.gd's headless test
+## harness. Deliberately narrow scope, NOT a full networked Blood
+## Tournament lobby (that's Phase D's job): a fixed 1v1, Blue (host) vs
+## Red (client), Blood Tournament mode, no bots, no other teams playing.
+## Blood Tournament specifically (not Classic mode's default click-to-
+## place) because its roster/courtyard purchases already go through
+## CommandQueue (Phase B) -- Classic mode's own placement
+## (PlayerInputController.try_place_unit()) calls GameManager.spawn_unit()
+## directly and was never wrapped in a Command, since Blood Tournament
+## (uses_economy() == true) skips that path entirely and was always the
+## actual target mode here.
+const _DEFAULT_LAN_PORT := 7777
+
+var _mp_ip_field: LineEdit
+var _mp_status_label: Label
+var _mp_host_button: Button
+var _mp_join_button: Button
+## True while a Host/Join attempt is actively waiting on a peer -- guards
+## _await_peer_and_start() against a stray multiplayer.connection_failed
+## signal firing after the wait already resolved some other way (e.g. the
+## user backing out isn't offered here, but a late/duplicate signal still
+## shouldn't double-fire the failure path).
+var _mp_connecting: bool = false
+
+
+func _build_multiplayer_card(parent: Control) -> void:
+	var content := _wrap_in_card(parent, "Multiplayer (LAN)")
+
+	var ip_row := HBoxContainer.new()
+	ip_row.add_theme_constant_override("separation", 8)
+	content.add_child(ip_row)
+
+	var ip_label := Label.new()
+	ip_label.text = "Host IP"
+	ip_row.add_child(ip_label)
+
+	_mp_ip_field = LineEdit.new()
+	_mp_ip_field.text = "127.0.0.1"
+	_mp_ip_field.custom_minimum_size = Vector2(140, 32)
+	_mp_ip_field.placeholder_text = "Host IP to join"
+	ip_row.add_child(_mp_ip_field)
+
+	var button_row := HBoxContainer.new()
+	button_row.add_theme_constant_override("separation", 8)
+	content.add_child(button_row)
+
+	_mp_host_button = Button.new()
+	_mp_host_button.text = "Host"
+	_mp_host_button.custom_minimum_size = Vector2(100, 36)
+	_mp_host_button.pressed.connect(_on_host_pressed)
+	button_row.add_child(_mp_host_button)
+
+	_mp_join_button = Button.new()
+	_mp_join_button.text = "Join"
+	_mp_join_button.custom_minimum_size = Vector2(100, 36)
+	_mp_join_button.pressed.connect(_on_join_pressed)
+	button_row.add_child(_mp_join_button)
+
+	_mp_status_label = Label.new()
+	_mp_status_label.text = "Fixed 1v1 -- Blue (host) vs Red (client)"
+	_mp_status_label.add_theme_color_override("font_color", Color(0.65, 0.65, 0.6))
+	content.add_child(_mp_status_label)
+
+
+func _on_host_pressed() -> void:
+	Sfx.play_ui_click()
+	_set_mp_controls_enabled(false)
+	var err := NetworkSession.host(_DEFAULT_LAN_PORT)
+	if err != OK:
+		_mp_status_label.text = "Failed to host (error %d)" % err
+		_set_mp_controls_enabled(true)
+		return
+	_mp_status_label.text = "Hosting on port %d -- waiting for opponent..." % _DEFAULT_LAN_PORT
+	_await_peer_and_start(GameManager.BLUE_TEAM_ID)
+
+
+func _on_join_pressed() -> void:
+	Sfx.play_ui_click()
+	var ip := _mp_ip_field.text.strip_edges()
+	if ip.is_empty():
+		_mp_status_label.text = "Enter the host's IP first"
+		return
+	_set_mp_controls_enabled(false)
+	var err := NetworkSession.join(ip, _DEFAULT_LAN_PORT)
+	if err != OK:
+		_mp_status_label.text = "Failed to connect (error %d)" % err
+		_set_mp_controls_enabled(true)
+		return
+	_mp_status_label.text = "Connecting to %s..." % ip
+	_await_peer_and_start(GameManager.RED_TEAM_ID)
+
+
+func _set_mp_controls_enabled(enabled: bool) -> void:
+	_mp_host_button.disabled = not enabled
+	_mp_join_button.disabled = not enabled
+	_mp_ip_field.editable = enabled
+	_play_button.disabled = not enabled
+
+
+## Waits for NetworkSession.peer_ids to actually see the other side (or
+## for Godot's own multiplayer.connection_failed to fire, on the joining
+## side -- the host side never gets that signal, since create_server()
+## either succeeds immediately or fails synchronously above, already
+## handled). Once connected, hands off to the same fixed-1v1
+## MenuSelection setup + _load_main_scene() the local Play button uses.
+func _await_peer_and_start(own_team_id: int) -> void:
+	_mp_connecting = true
+	var failed := false
+	var on_failed := func(): failed = true
+	multiplayer.connection_failed.connect(on_failed, CONNECT_ONE_SHOT)
+
+	while _mp_connecting and NetworkSession.peer_ids.is_empty() and not failed:
+		await get_tree().process_frame
+
+	_mp_connecting = false
+	# CONNECT_ONE_SHOT auto-disconnects once fired -- is_connected() is
+	# only still true here if the loop exited via peer_ids instead, in
+	# which case it needs disconnecting manually so it can't fire later.
+	if multiplayer.connection_failed.is_connected(on_failed):
+		multiplayer.connection_failed.disconnect(on_failed)
+
+	if failed:
+		_mp_status_label.text = "Connection failed"
+		NetworkSession.disconnect_session()
+		_set_mp_controls_enabled(true)
+		return
+
+	_mp_status_label.text = "Connected!"
+	MenuSelection.start_with_tournament = true
+	MenuSelection.human_team_id = own_team_id
+	MenuSelection.bot_team_ids.clear()
+	MenuSelection.chosen_factions.clear()
+	MenuSelection.active_team_ids = [GameManager.BLUE_TEAM_ID, GameManager.RED_TEAM_ID]
+	await _load_main_scene()

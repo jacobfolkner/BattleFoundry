@@ -35,3 +35,14 @@ var bot_team_ids: Array[int] = []
 ## same consume-and-clear way every other field here is (see
 ## apply_selection_to_menu_state()'s own doc comment on why that's safe).
 var chosen_factions: Dictionary = {}
+## Explicit override for which teams play this match, bypassing the
+## human_team_id/bot_team_ids-derived computation in
+## Main._apply_menu_selection() entirely -- that derivation requires
+## bot_team_ids to be non-empty to restrict the active set at all (an
+## empty bot_team_ids means "every registered team plays," the original
+## pre-lobby default), which has no way to express "exactly these two
+## teams, both human, no bots" -- exactly what a LAN multiplayer 1v1
+## needs (UI/MainMenu.gd's Host/Join flow). Empty array (default) means
+## "no override, use the existing bot_team_ids-derived logic" -- every
+## single-player/local caller is unaffected.
+var active_team_ids: Array[int] = []

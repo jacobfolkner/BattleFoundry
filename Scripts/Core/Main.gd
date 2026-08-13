@@ -132,11 +132,13 @@ func _apply_menu_selection() -> void:
 	var human_team_id := MenuSelection.human_team_id
 	var bot_team_ids := MenuSelection.bot_team_ids.duplicate()
 	var chosen_factions := MenuSelection.chosen_factions.duplicate()
+	var active_team_ids_override: Array = MenuSelection.active_team_ids.duplicate()
 	MenuSelection.start_with_tournament = false
 	MenuSelection.start_with_hero_footies = false
 	MenuSelection.human_team_id = GameManager.BLUE_TEAM_ID
 	MenuSelection.bot_team_ids.clear()
 	MenuSelection.chosen_factions = {}
+	MenuSelection.active_team_ids.clear()
 
 	_on_team_selected(human_team_id) # harmless no-op when this is already the default (Blue)
 
@@ -157,7 +159,13 @@ func _apply_menu_selection() -> void:
 	# active_team_ids) so it simply never plays, is_human is irrelevant
 	# for it either way.
 	var active_team_ids: Array = []
-	if not bot_team_ids.is_empty():
+	if not active_team_ids_override.is_empty():
+		# LAN multiplayer's Host/Join flow (UI/MainMenu.gd): every team in
+		# the override plays, none of them are bots -- is_human already
+		# defaults true and bot_team_ids is empty here, so there's nothing
+		# to flip.
+		active_team_ids = active_team_ids_override
+	elif not bot_team_ids.is_empty():
 		active_team_ids = [human_team_id] + bot_team_ids
 		for team_id in GameManager.all_team_ids():
 			GameManager.get_player(team_id).is_human = not bot_team_ids.has(team_id)
