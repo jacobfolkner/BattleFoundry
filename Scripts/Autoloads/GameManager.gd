@@ -237,9 +237,9 @@ func _end_battle(winning_team_id: int) -> void:
 	battle_ended.emit(winning_team_id, false)
 
 
-## BATTLE -> GAME_OVER, no winner. Only route in: _process()'s stalemate
-## timer, when STALEMATE_TIMEOUT elapses with no damage dealt anywhere on
-## the field (see the constant's doc comment).
+## BATTLE -> GAME_OVER, no winner. Only route in: _physics_process()'s
+## stalemate timer, when STALEMATE_TIMEOUT elapses with no damage dealt
+## anywhere on the field (see the constant's doc comment).
 func _declare_draw() -> void:
 	if not is_battle_active():
 		return
@@ -248,7 +248,13 @@ func _declare_draw() -> void:
 	battle_ended.emit(BLUE_TEAM_ID, true)
 
 
-func _process(delta: float) -> void:
+## _physics_process(), not _process() -- a real determinism gap on a
+## variable-frame-rate _process() delta (two runs of an identical match at
+## different frame rates would cross STALEMATE_TIMEOUT on different real-
+## world ticks, unreproducible for a future replay/networked peer).
+## _physics_process()'s delta is fixed (Godot's default 60Hz, no
+## project.godot override), so this is deterministic per simulated tick.
+func _physics_process(delta: float) -> void:
 	if not is_battle_active():
 		return
 	_seconds_since_last_damage += delta

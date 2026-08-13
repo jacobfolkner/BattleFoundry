@@ -19,4 +19,4 @@ const ALL: Array[Faction] = [
 
 
 static func random_pick() -> Faction:
-	return ALL[randi() % ALL.size()]
+	return ALL[SimRng.randi() % ALL.size()]

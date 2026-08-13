@@ -1388,7 +1388,7 @@ func resolve_hit(target: Unit, source_position: Vector3) -> void:
 	if not is_instance_valid(target) or target.current_health <= 0.0:
 		return
 	var damage := stat_block.damage()
-	if stats.crit_chance > 0.0 and randf() < stats.crit_chance:
+	if stats.crit_chance > 0.0 and SimRng.randf() < stats.crit_chance:
 		damage *= stats.crit_multiplier
 	var hit_landed := target.take_damage(DamageInstance.new(damage, self))
 	if not hit_landed:
@@ -1456,7 +1456,7 @@ func take_damage(instance: DamageInstance) -> bool:
 		return false
 	if is_ethereal() and instance.damage_type == DamageInstance.DamageType.ATTACK:
 		return false
-	if instance.damage_type == DamageInstance.DamageType.ATTACK and stats.evasion > 0.0 and randf() < stats.evasion:
+	if instance.damage_type == DamageInstance.DamageType.ATTACK and stats.evasion > 0.0 and SimRng.randf() < stats.evasion:
 		return false
 
 	var mitigated := instance.amount

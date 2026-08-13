@@ -69,7 +69,7 @@ func take_turn(player: Player) -> void:
 	var added := 0
 	var affordable := _affordable_units(player)
 	while not affordable.is_empty() and added < _MAX_NEW_UNITS_PER_TURN:
-		var stats: UnitStats = affordable[randi() % affordable.size()]
+		var stats: UnitStats = affordable[SimRng.randi() % affordable.size()]
 		GameManager.buy_roster_slot(player, stats) # same gate the human buy path goes through -- see GameManager.buy_roster_slot()
 		added += 1
 		affordable = _affordable_units(player)
@@ -95,7 +95,7 @@ func _maybe_buy_an_upgrade(player: Player) -> void:
 	if affordable_upgrades.is_empty():
 		return
 
-	var upgrade: UnitUpgrade = affordable_upgrades[randi() % affordable_upgrades.size()]
+	var upgrade: UnitUpgrade = affordable_upgrades[SimRng.randi() % affordable_upgrades.size()]
 	GameManager.buy_roster_upgrade(player, upgrade)
 
 
@@ -116,5 +116,5 @@ func _maybe_buy_an_archetype_upgrade(player: Player) -> void:
 	if candidates.is_empty():
 		return
 
-	var choice: Dictionary = candidates[randi() % candidates.size()]
+	var choice: Dictionary = candidates[SimRng.randi() % candidates.size()]
 	GameManager.buy_archetype_upgrade(player, choice["upgrade"], choice["squad_id"])

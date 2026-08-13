@@ -21,6 +21,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 [autoload]
 
 Hotkeys="*res://Scripts/Autoloads/Hotkeys.gd"
+SimRng="*res://Scripts/Autoloads/SimRng.gd"
 GameManager="*res://Scripts/Autoloads/GameManager.gd"
 DebugInspector="*res://Scripts/Autoloads/DebugInspector.gd"
 DebugSettings="*res://Scripts/Autoloads/DebugSettings.gd"
