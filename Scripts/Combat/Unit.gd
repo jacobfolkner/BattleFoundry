@@ -117,6 +117,8 @@ const _DISSOLVE_SINK_DEPTH := 0.6
 const _HIT_FLASH_DURATION := 0.15
 const _HIT_FLASH_COLOR := Color(1.0, 1.0, 1.0)
 
+const _TEAM_COLOR_SHADER: Shader = preload("res://Resources/Shaders/TeamColor.gdshader")
+
 @export var stats: UnitStats
 
 var player: Player
@@ -155,10 +157,15 @@ var _windup_remaining: float = 0.0
 var _windup_target: Unit = null
 var _health_bar: HealthBar
 var _status_indicator: UnitStatusMarker
-## The mesh's own material -- stored so die()/_physics_process()'s corpse
-## tick can darken and dissolve it over _CORPSE_DECAY_DURATION, instead of
-## a corpse just sitting there at full team color until it vanishes.
-var _body_material: StandardMaterial3D
+## The mesh's own material -- a ShaderMaterial (Resources/Shaders/TeamColor.gdshader,
+## this project's first real shader -- see its own doc comment) rather
+## than a plain StandardMaterial3D, so a future imported model can plug
+## into the same team-color infrastructure via that shader's
+## albedo_texture/team_mask uniforms with no Unit.gd changes needed.
+## Stored so die()/_physics_process()'s corpse tick can darken and
+## dissolve it over _CORPSE_DECAY_DURATION, instead of a corpse just
+## sitting there at full team color until it vanishes.
+var _body_material: ShaderMaterial
 var _body_color_at_death: Color
 var _position_y_at_death: float
 var _nav_agent: NavigationAgent3D
@@ -686,17 +693,17 @@ func _maybe_auto_cast_abilities() -> void:
 		cast_ability(index, target_enemy)
 
 
-## Eases _body_material back toward player.color over _HIT_FLASH_DURATION
-## -- take_damage() is what actually starts a flash (sets
-## _hit_flash_remaining), this just ticks it down every physics frame.
-## Never runs while DEAD (see _physics_process()'s early return above) --
-## die()'s own corpse-decay tick owns _body_material.albedo_color
+## Eases _body_material's team_color shader param back toward player.color
+## over _HIT_FLASH_DURATION -- take_damage() is what actually starts a
+## flash (sets _hit_flash_remaining), this just ticks it down every
+## physics frame. Never runs while DEAD (see _physics_process()'s early
+## return above) -- die()'s own corpse-decay tick owns that shader param
 ## exclusively from that point on, so the two never fight over it.
 func _tick_hit_flash(delta: float) -> void:
 	if _hit_flash_remaining <= 0.0:
 		return
 	_hit_flash_remaining = maxf(_hit_flash_remaining - delta, 0.0)
-	_body_material.albedo_color = player.color.lerp(_HIT_FLASH_COLOR, _hit_flash_remaining / _HIT_FLASH_DURATION)
+	_body_material.set_shader_parameter("team_color", player.color.lerp(_HIT_FLASH_COLOR, _hit_flash_remaining / _HIT_FLASH_DURATION))
 
 
 ## A quick squash-then-recover on _mesh_instance's own scale -- cheap
@@ -745,8 +752,9 @@ func _build_appearance() -> void:
 			box.size = stats.mesh_size
 			mesh = box
 
-	_body_material = StandardMaterial3D.new()
-	_body_material.albedo_color = player.color
+	_body_material = ShaderMaterial.new()
+	_body_material.shader = _TEAM_COLOR_SHADER
+	_body_material.set_shader_parameter("team_color", player.color)
 	mesh.surface_set_material(0, _body_material)
 
 	_mesh_instance.mesh = mesh
@@ -849,7 +857,7 @@ func _physics_process(delta: float) -> void:
 		var decay_fraction := clampf(_decay_elapsed / _CORPSE_DECAY_DURATION, 0.0, 1.0)
 		var dissolve_fraction := clampf((decay_fraction - _DISSOLVE_START_FRACTION) / (1.0 - _DISSOLVE_START_FRACTION), 0.0, 1.0)
 		var darkened := _body_color_at_death.lerp(Color.BLACK, decay_fraction)
-		_body_material.albedo_color = Color(darkened.r, darkened.g, darkened.b, 1.0 - dissolve_fraction)
+		_body_material.set_shader_parameter("team_color", Color(darkened.r, darkened.g, darkened.b, 1.0 - dissolve_fraction))
 		global_position.y = _position_y_at_death - _DISSOLVE_SINK_DEPTH * dissolve_fraction
 		if _decay_elapsed >= _CORPSE_DECAY_DURATION:
 			queue_free()
@@ -1496,9 +1504,8 @@ func die(killer: Unit = null) -> void:
 	current_health = 0.0
 	life_state = LifeState.DEAD
 	_decay_elapsed = 0.0
-	_body_color_at_death = _body_material.albedo_color
+	_body_color_at_death = _body_material.get_shader_parameter("team_color")
 	_position_y_at_death = global_position.y
-	_body_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_collision_shape.disabled = true
 	_health_bar.visible = false
 	_status_indicator.hide_status()

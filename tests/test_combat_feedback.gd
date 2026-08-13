@@ -86,10 +86,10 @@ func test_a_landed_hit_starts_a_hit_flash_that_eases_back_to_team_color() -> voi
 	victim.take_damage(DamageInstance.new(20.0, null, DamageInstance.DamageType.PURE))
 	victim._physics_process(0.01) # let the flash actually tint the material -- take_damage() itself only arms the timer
 
-	assert_ne(victim._body_material.albedo_color, team_color, "should be visibly tinted right after a hit lands")
+	assert_ne(victim._body_material.get_shader_parameter("team_color"), team_color, "should be visibly tinted right after a hit lands")
 
 	victim._physics_process(10.0) # well past Unit._HIT_FLASH_DURATION
-	assert_eq(victim._body_material.albedo_color, team_color, "should ease all the way back to team color once the flash ends")
+	assert_eq(victim._body_material.get_shader_parameter("team_color"), team_color, "should ease all the way back to team color once the flash ends")
 
 
 func test_no_hit_flash_when_no_damage_has_landed() -> void:
@@ -98,4 +98,4 @@ func test_no_hit_flash_when_no_damage_has_landed() -> void:
 
 	victim._physics_process(0.05)
 
-	assert_eq(victim._body_material.albedo_color, team_color)
+	assert_eq(victim._body_material.get_shader_parameter("team_color"), team_color)
