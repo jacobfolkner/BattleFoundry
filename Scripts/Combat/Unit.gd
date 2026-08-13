@@ -881,6 +881,16 @@ func _build_avoidance() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# Skip movement/avoidance/decay stepping entirely on a real physics
+	# frame where the networked sim is stalled waiting for a peer's tick
+	# confirmation (CommandQueue.is_stalled()) -- see that function's own
+	# doc comment for why this matters: without it, a peer that spends
+	# more real frames stalled than another accumulates extra ungated
+	# unit movement before the tick counters realign, a real (not just
+	# theoretical) source of desync. No-op for local-only play
+	# (is_stalled() is always false there).
+	if CommandQueue.is_stalled():
+		return
 	if life_state == LifeState.DEAD:
 		_decay_elapsed += delta
 		var decay_fraction := clampf(_decay_elapsed / _CORPSE_DECAY_DURATION, 0.0, 1.0)

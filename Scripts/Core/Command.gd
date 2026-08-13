@@ -55,3 +55,54 @@ var squad_id: int = -1
 var slot_index: int = -1
 var chosen_index: int = -1
 var exchange_gold_for_blood: bool = true
+
+
+## Dictionary encoding for CommandQueue's RPC relay (Phase C) -- Godot's
+## multiplayer RPC Variant encoding doesn't safely carry an arbitrary
+## RefCounted/Object over the wire, so a Command has to cross the network
+## as plain data. `unit_stats`/`upgrade` (both preloaded, checked-in
+## .tres Resources, identical on every peer) go over as their
+## resource_path string and get reloaded on the other side via load() --
+## the loaded instance won't be the SAME object as the sender's own, but
+## it's the same underlying resource, which is all apply_command() ever
+## needs from it.
+func to_dict() -> Dictionary:
+	return {
+		"type": type,
+		"team_id": team_id,
+		"unit_net_id": unit_net_id,
+		"target_net_id": target_net_id,
+		"order_type": order_type,
+		"target_position": target_position,
+		"has_target_position": has_target_position,
+		"queue": queue,
+		"ability_index": ability_index,
+		"unit_stats_path": unit_stats.resource_path if unit_stats != null else "",
+		"upgrade_path": upgrade.resource_path if upgrade != null else "",
+		"squad_id": squad_id,
+		"slot_index": slot_index,
+		"chosen_index": chosen_index,
+		"exchange_gold_for_blood": exchange_gold_for_blood,
+	}
+
+
+static func from_dict(data: Dictionary) -> Command:
+	var command := Command.new()
+	command.type = data["type"] as Type
+	command.team_id = data["team_id"]
+	command.unit_net_id = data["unit_net_id"]
+	command.target_net_id = data["target_net_id"]
+	command.order_type = data["order_type"] as Unit.OrderType
+	command.target_position = data["target_position"]
+	command.has_target_position = data["has_target_position"]
+	command.queue = data["queue"]
+	command.ability_index = data["ability_index"]
+	if data["unit_stats_path"] != "":
+		command.unit_stats = load(data["unit_stats_path"])
+	if data["upgrade_path"] != "":
+		command.upgrade = load(data["upgrade_path"])
+	command.squad_id = data["squad_id"]
+	command.slot_index = data["slot_index"]
+	command.chosen_index = data["chosen_index"]
+	command.exchange_gold_for_blood = data["exchange_gold_for_blood"]
+	return command

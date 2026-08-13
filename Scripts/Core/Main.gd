@@ -69,6 +69,18 @@ var _round_spawn_points: Dictionary:
 
 
 func _ready() -> void:
+	# Lowest process_physics_priority in the tree (lower runs first) so
+	# Main's own _physics_process()
+	# (which decides the tick's stall state and advances
+	# GameManager.current_tick) always runs before any Unit's
+	# _physics_process() this same real frame -- Godot doesn't otherwise
+	# guarantee sibling node processing order, and a Unit reading
+	# CommandQueue.is_stalled() before Main has settled this frame's tick
+	# state for real is a real, not just theoretical, desync source
+	# (found via the 2-instance trace-and-diff harness: movement was
+	# accumulating at different rates between host and client even after
+	# both the label-skew and command-ordering bugs were fixed).
+	process_physics_priority = -1000
 	GameManager.units_container = _units_container
 	GameManager.battle_ended.connect(_hud.show_winner)
 	GameManager.battle_started.connect(_begin_staggered_deployment)
@@ -364,7 +376,42 @@ func _focus_camera_on_local_battle() -> void:
 	(_camera as OrbitCamera).focus_and_zoom(anchor, 16.0)
 
 
+## The lockstep gate (D1 multiplayer plan, Phase C -- BattleFoundry-Roadmap.md):
+## GameManager.current_tick only advances once every connected peer has
+## confirmed it (CommandQueue.can_advance_to_tick()) -- a local-only match
+## always passes this instantly (NetworkSession.peer_ids is empty), so
+## single-machine behavior is unchanged. A networked peer that's fallen
+## behind makes every OTHER peer visibly stall here rather than silently
+## drift apart, the standard lockstep tradeoff.
+##
+## The broadcast happens BEFORE the stall check, unconditionally, every
+## real physics frame -- not after it. Broadcasting is how a peer tells
+## everyone else "I've confirmed up through this tick," so gating it
+## behind the same stall it's supposed to resolve is a deadlock: both
+## peers wait for each other's confirmation, but neither can send a new
+## one because their own code never reaches the broadcast line.
+## CommandQueue.broadcast_local_batch_for_tick() itself skips re-sending
+## when nothing's changed since its last call, so this doesn't mean
+## flooding the wire every stalled frame -- see that function's own doc
+## comment (an earlier version DID resend unconditionally every frame,
+## which measurably delayed the very confirmations that would end the
+## stall).
+##
+## Unit._physics_process() also checks CommandQueue.is_stalled() and skips
+## its own movement/avoidance/decay stepping on a stalled real frame --
+## units used to keep moving regardless of the stall, and since one peer
+## can spend more real frames stalled than another before reaching the
+## same tick number, that peer's units would accumulate extra ungated
+## movement, a real desync source (found via the 2-instance trace-and-diff
+## harness, not just a theoretical gap).
 func _physics_process(delta: float) -> void:
+	CommandQueue.broadcast_local_batch_for_tick(GameManager.current_tick + CommandQueue.DEFAULT_INPUT_DELAY_TICKS)
+
+	var stalled := not CommandQueue.can_advance_to_tick(GameManager.current_tick)
+	CommandQueue.set_stalled_this_frame(stalled)
+	if stalled:
+		return
+
 	# Applies whatever Commands (Scripts/Core/Command.gd) were scheduled to
 	# land this tick before advancing the mode -- see CommandQueue's own
 	# doc comment for why this specific ordering (apply commands, then
@@ -373,6 +420,9 @@ func _physics_process(delta: float) -> void:
 	if CommandQueue.apply_scheduled_commands_for_this_tick():
 		_refresh_gold_display()
 	GameManager.current_mode.tick(delta) # no-op for every mode but HeroFootiesMode (see GameMode.tick()'s own doc comment)
+
+	DesyncCheck.broadcast_and_check(GameManager.current_tick)
+	GameManager.current_tick += 1
 
 
 ## Shows Blue/Red's current gold and blood points whenever

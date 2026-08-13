@@ -56,6 +56,17 @@ signal unit_killed(unit: Unit, killer: Unit)
 ## reset_battle() (or let combat resolve a winner) to change it.
 var battle_state: BattleState = BattleState.PLACEMENT
 
+## The authoritative simulation tick counter -- deliberately NOT
+## Engine.get_physics_frames(), which increments every real physics
+## callback regardless of whether the sim actually advanced that frame.
+## Once Phase C's networked stall gate exists (CommandQueue.can_advance_to_tick()),
+## a frame spent waiting on a laggy peer must NOT count as a tick, or
+## CommandQueue's own scheduling (keyed off this counter) would silently
+## misfire the instant stalling exists (BattleFoundry-Roadmap.md's D1
+## plan). Incremented exactly once per tick the sim actually advances --
+## see Main._physics_process().
+var current_tick: int = 0
+
 ## Where newly spawned units are parented. Set by Main.gd on _ready().
 var units_container: Node3D
 
@@ -1027,11 +1038,14 @@ var _cached_alive_units_tick: int = -1
 ## neighbor scan (confirmed as a real perf regression via
 ## tools/benchmark.sh while landing the D1 multiplayer plan's deterministic
 ## avoidance replacement -- see BattleFoundry-Roadmap.md). Keyed on
-## Engine.get_physics_frames() purely as a local "has a tick elapsed since
-## I last built this" check -- the actual counter value is never read as
-## simulation data, so this doesn't introduce any determinism risk.
+## current_tick, not Engine.get_physics_frames() -- see that field's own
+## doc comment for why (a real physics callback during a networked stall
+## must not look like a new tick here either, or this cache would rebuild
+## needlessly on stall frames, and worse, the underlying separation math
+## would keep computing against `current_tick`-stale-but-Engine-fresh
+## data inconsistently with CommandQueue's own scheduling).
 func get_alive_units_cached() -> Array[Unit]:
-	var tick := Engine.get_physics_frames()
+	var tick := current_tick
 	if tick != _cached_alive_units_tick:
 		_cached_alive_units_tick = tick
 		_cached_alive_units = get_all_units().filter(func(u: Unit) -> bool: return u.life_state == Unit.LifeState.ALIVE)
@@ -1078,8 +1092,21 @@ func get_nearby_units_cached(position: Vector3) -> Array[Unit]:
 	for dx in [-1, 0, 1]:
 		for dz in [-1, 0, 1]:
 			var cell := Vector2i(center.x + dx, center.y + dz)
-			if _avoidance_grid.has(cell):
-				nearby.append_array(_avoidance_grid[cell])
+			if not _avoidance_grid.has(cell):
+				continue
+			# Defensive is_instance_valid() re-check even though this
+			# tick's rebuild already filtered to valid units -- a caller
+			# that reaches this between real physics frames (a test
+			# calling into Unit code directly, not through a normal
+			# per-frame Main._physics_process() cadence) can observe a
+			# unit freed after the grid was built but before current_tick
+			# advanced again to trigger a rebuild. Same "Godot's
+			# queue_free() is deferred, so a cached reference can go
+			# stale between build and use" hazard this codebase already
+			# guards against everywhere else (get_all_units(), etc.).
+			for unit in _avoidance_grid[cell]:
+				if is_instance_valid(unit):
+					nearby.append(unit)
 	return nearby
 
 
